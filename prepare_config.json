@@ -1,0 +1,47 @@
+{
+    "prompt_representation": {
+        "mode": "embedding",
+        "dim": 768,
+        "model": "all-mpnet-base-v2"
+    },
+    "clip_device": "cuda",
+    "vector_schema": {
+        "slots": {
+            "cfg": 1,
+            "steps": 1,
+            "lora_weight": 1,
+            "steps_cfg": 1,
+            "lora": 6,
+            "sampler": 3,
+            "scheduler": 3,
+            "model": 4,
+            "width": 1,
+            "height": 1,
+            "aspect_ratio": 1,
+            "negative_terms": 1,
+            "positive_terms": 1
+        },
+        "order": [
+            "cfg",
+            "steps",
+            "lora_weight",
+            "steps_cfg",
+            "lora",
+            "sampler",
+            "scheduler",
+            "model",
+            "width",
+            "height",
+            "aspect_ratio",
+            "negative_terms",
+            "positive_terms"
+        ]
+    },
+    "encoding_batch_size": 128,
+    "normalization": {
+        "cfg_max": 20.0,
+        "steps_max": 50.0,
+        "width_max": 4096,
+        "aspect_ratio_max": 5.0
+    }
+}

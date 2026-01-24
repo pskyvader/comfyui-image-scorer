@@ -1,0 +1,15 @@
+{
+    "root": "C:/ComfyUI/trainer",
+    "maps_dir": "prepare/maps",
+    "image_root": "C:/ComfyUI/output",
+    "prepare_config": "prepare_config.json",
+    "training_config": "training_config.json",
+    "vectors_file": "prepare/output/vectors.jsonl",
+    "scores_file": "prepare/output/scores.jsonl",
+    "index_file": "prepare/output/index.json",
+    "error_log_file": "prepare/output/error_log.json",
+    "text_data_file": "text_data/output/text_data.jsonl",
+    "text_index_file": "text_data/output/text_index.json",
+    "text_error_log_file": "text_data/output/text_error_log.json",
+    "comfy_node_path": "C:/ComfyUI/custom_nodes/ComfyUI-Image-Scorer"
+}

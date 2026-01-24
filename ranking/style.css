@@ -1,0 +1,289 @@
+:root {
+    --bg: #0f1724;
+    --card: #0b1220;
+    --muted: #9aa4b2;
+    --accent: #60a5fa;
+    --accent-2: #7dd3fc;
+    --btn: #111827;
+}
+
+
+
+body {
+    font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    background: linear-gradient(180deg, #071025 0%, #071a2a 100%);
+    color: #e6eef6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card {
+    width: 100%;
+    max-width: 94vw;
+    background: rgba(6, 12, 20, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: 0 8px 30px rgba(2, 6, 23, 0.6);
+    border-radius: 12px;
+    padding: 18px;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 18px;
+}
+
+.meta-line {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.preview {
+    background: #071022;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.preview img {
+    max-height: 85vh;
+}
+
+.controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 12px;
+}
+
+.btn {
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    border: none;
+    color: #04212b;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    min-width: 56px;
+}
+
+.score-btns {
+    display: flex;
+    gap: 8px;
+}
+
+/* Batch card score buttons */
+#batch-area .batch-score-btn {
+    padding: 6px 8px;
+    margin-right: 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    color: inherit;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+#batch-area .batch-score-btn.selected {
+    background: var(--accent);
+    color: #04212b;
+}
+
+.meta {
+    margin-top: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    white-space: pre-wrap;
+}
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.batch-controls-container {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.batch-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+}
+
+.batch-mode-text {
+    color: var(--accent);
+}
+
+.batch-actions {
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+
+.batch-count-input {
+    width: 64px;
+    margin-left: 6px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: transparent;
+    color: inherit;
+}
+
+
+.batch-wrapper {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.batch-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+}
+
+.batch-strong {
+    color: var(--accent);
+}
+
+.batch-controls {
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+
+.batch-controls.visible {
+    display: flex;
+}
+
+.batch-count-label {
+    color: var(--muted);
+}
+
+.batch-size-input {
+    width: 64px;
+    margin-left: 6px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: transparent;
+    color: inherit;
+}
+
+.btn-green {
+    background: #10b981;
+}
+
+.btn-gray {
+    background: #374151;
+}
+
+.btn-teal {
+    background: #0ea5a3;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.visible-flex {
+    display: flex !important;
+}
+
+.visible-block {
+    display: block !important;
+}
+
+#batch-area {
+    display: none;
+    margin-top: 12px;
+}
+
+#batch-area.visible {
+    display: block;
+}
+
+/* Responsive Grid for Batch Mode */
+#batch-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1fr;
+    /* Default to 1 column (small screens) */
+    /* Remove automatic overflow scrolling to respect request for no scrolling */
+}
+
+@media (min-width: 768px) {
+    #batch-grid {
+        grid-template-columns: repeat(2, 1fr);
+        /* 2 columns for medium screens */
+    }
+}
+
+@media (min-width: 1024px) {
+    #batch-grid {
+        grid-template-columns: repeat(3, 1fr);
+        /* 3 columns for large screens */
+    }
+}
+
+/* Dynamically created elements */
+.batch-card {
+    background: rgba(255, 255, 255, 0.02);
+    padding: 8px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.batch-card img {
+    width: 100%;
+    max-height: 30vh;
+    object-fit: contain;
+    background: #071022;
+}
+
+.batch-card-label {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.batch-card-btn-wrap {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+}
+
+
+#status {
+    position: fixed;
+    bottom: 12px;
+}

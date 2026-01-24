@@ -1,0 +1,108 @@
+import argparse
+import sys
+import os
+from pathlib import Path
+from typing import Dict, List
+
+# Ensure package imports resolve when running this file as a script per the project instructions
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from prepare.data.manager import collect_files, save_index
+from prepare.data.metadata import write_error_log
+from shared.io import atomic_write_json
+from prepare.data.processing import (
+    remove_existing_outputs,
+    clean_training_artifacts,
+    load_existing_data,
+    collect_valid_files,
+    encode_new_images,
+    process_and_append_data,
+    check_for_leakage,
+)
+from shared.config import config
+from prepare.config.manager import load_vector_schema
+
+
+def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
+    print("Starting image processing...")
+
+    index_file = config["index_file"]
+    if rebuild:
+        print("Rebuild requested: removing existing outputs...")
+        remove_existing_outputs()
+
+    index_list, vectors_list, scores_list = load_existing_data()
+    processed_files = {s.split("#", 1)[0] for s in index_list}
+    error_log: List[dict[str, str]] = []
+
+    image_root = config["image_root"]
+    if not os.path.isdir(image_root):
+        raise FileNotFoundError(
+            f"Configured image_root does not exist or is not a directory: {image_root}"
+        )
+
+    files = list(collect_files(image_root))
+    collected_data = collect_valid_files(files, processed_files, error_log)
+    
+    if limit > 0 and len(collected_data) > limit:
+        print(f"Collected {len(collected_data)} items. Limiting to {limit} as requested.")
+        collected_data = collected_data[:limit]
+
+    image_vectors = encode_new_images(collected_data)
+    schema = load_vector_schema()
+    process_and_append_data(
+        collected_data,
+        image_vectors,
+        vectors_list,
+        scores_list,
+        index_list,
+        processed_files,
+        schema,
+    )
+    check_for_leakage(vectors_list, scores_list)
+
+    vectors_file = config["vectors_file"]
+    scores_file = config["scores_file"]
+    atomic_write_json(vectors_file, vectors_list, indent=2)
+    atomic_write_json(scores_file, scores_list, indent=2)
+    save_index(index_list, index_file)
+    error_log_file = config["error_log_file"]
+    write_error_log(error_log, error_log_file)
+
+    summary = {
+        "total": len(index_list),
+        "new": len(collected_data),
+        "errors": len(error_log),
+    }
+
+    # Invalidate training cache if data changed
+    if summary["new"] > 0:
+        print("Dataset updated. Cleaning training artifacts...")
+        clean_training_artifacts()
+
+    print("=== DONE ===")
+    print(
+        f"Total: {summary['total']}, New: {summary['new']}, Errors: {summary['errors']}"
+    )
+    return summary
+
+
+def main(rebuild: bool = False) -> None:
+    run_prepare(rebuild=rebuild)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the prepare pipeline.")
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Remove existing outputs before processing",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Limit the number of new items to process (0 for no limit)",
+    )
+    args = parser.parse_args()
+    run_prepare(rebuild=args.rebuild, limit=args.limit)
