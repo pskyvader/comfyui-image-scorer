@@ -86,12 +86,18 @@ def deploy_node():
     else:
         print(f"Warning: Maps directory not found at {maps_dir}")
 
-    # Copy prepare_config.json so the node can load schema & normalization dynamically
-    prepare_src = root / config["prepare_config"]
+    # Copy an appropriate prepare_config for the node (prefer node-specific override)
+    comfy_override = root / "config" / "comfy_prepare_config.json"
+    if comfy_override.exists():
+        prepare_src = comfy_override
+    else:
+        prepare_src = root / config["prepare_config"]
+
     if prepare_src.exists():
         try:
-            shutil.copy2(prepare_src, dest_path / prepare_src.name)
-            print(f"Copied prepare config: {prepare_src.name}")
+            # Always copy to destination as 'prepare_config.json' so the node can find it by name
+            shutil.copy2(prepare_src, dest_path / "prepare_config.json")
+            print(f"Copied prepare config: {prepare_src.name} -> prepare_config.json")
         except Exception as e:
             print(f"Warning: Failed to copy prepare config: {e}")
     else:

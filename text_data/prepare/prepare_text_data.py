@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure project root is on sys.path so package imports work when running as a script
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from prepare.data.manager import collect_files
-from prepare.data.metadata import write_error_log
+from full_data.prepare.data.manager import collect_files
+from full_data.prepare.data.metadata import write_error_log
 from shared.config import config, ensure_dir
 from text_data.text_processing import (
     load_text_index,
@@ -67,7 +68,27 @@ def main() -> None:
         action="store_true",
         help="Remove existing outputs before processing",
     )
+    parser.add_argument(
+        "--test-run",
+        action="store_true",
+        help="Verify configuration and exit",
+    )
     args = parser.parse_args()
+
+    if args.test_run:
+        print("Verifying text prepare configuration...")
+        try:
+            img_root = config["image_root"]
+            print(f"Image root configured as: {img_root}")
+            if not os.path.isdir(img_root):
+                print("Configured image_root does not exist or is not a directory.")
+                sys.exit(1)
+            print("Configuration looks good.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Configuration failed: {e}")
+            sys.exit(1)
+
     run_prepare_text(rebuild=args.rebuild)
 
 

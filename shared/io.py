@@ -3,7 +3,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Tuple, TypeVar, Callable
-
+from typing import List, cast
+import numpy as np
 T = TypeVar("T")
 
 
@@ -136,8 +137,8 @@ def load_json_list_robust(path: str) -> list[Any]:
             print(f"Error loading {path}: {err}; additionally failed to move corrupt file: {e2}")
     return data
 
-from typing import List, cast
-import numpy as np
+
+    
 
 VECTOR_KEYS: Tuple[str, ...] = ('vector', 'features', 'vec', 'embedding')
 SCORE_KEYS: Tuple[str, ...] = ('score', 'value', 'y')
@@ -298,6 +299,9 @@ def load_jsonl(
 
     if not entries:
         raise ValueError(f'No valid {kind} entries found in {file_path}')
+
+    if np is None:
+        raise ImportError("The 'numpy' package is required to use 'load_jsonl'. Please install it or add it to your environment.")
 
     arr = np.asarray(entries, dtype=float)
     if kind == 'vector':

@@ -4,26 +4,24 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image
 from shared.config import config
-from prepare.config.manager import save_vector_schema
-from prepare.data.manager import (
+from full_data.prepare.config.manager import save_vector_schema
+from full_data.prepare.data.manager import (
     load_index,
     encode_images_to_vectors,
-    encode_image_to_vector,
     pad_existing_vectors,
 )
-from prepare.data.metadata import load_metadata_entry
+from full_data.prepare.data.metadata import load_metadata_entry
 from shared.io import load_json_list_robust
-from prepare.config.schema import (
+from full_data.prepare.config.schema import (
     get_vector_order,
-    IMAGE_VEC_LEN,
     get_total_vector_length,
 )
-from prepare.features.core import build_feature_vector
-from prepare.features.embeddings import load_model
+from full_data.prepare.features.core import build_feature_vector
+from full_data.prepare.features.embeddings import load_model
 
 from pathlib import Path
 
-# from prepare.features.utils import pad_existing_vectors # Removed
+# from full_data.prepare.features.utils import pad_existing_vectors # Removed
 
 
 def clean_training_artifacts() -> None:
@@ -116,7 +114,7 @@ def encode_new_images(
     if not collected_data:
         return []
     img_paths = [img_path for img_path, _, _, _ in collected_data]
-    batch_size = int(config["encoding_batch_size"])
+    batch_size = int(config["vision_model"]["encoding_batch_size"])
     print(f"Encoding {len(img_paths)} images in batches of {batch_size}...")
 
     image_vectors = encode_images_to_vectors(img_paths, batch_size=batch_size)
@@ -147,10 +145,10 @@ def process_and_append_data(
         embedding_model = load_model(
             prompt_representation["model"],
             int(prompt_representation["dim"]),
-            config["clip_device"],
+            config["vision_model"]["device"],
         )
 
-    batch_size = int(config["encoding_batch_size"])
+    batch_size = int(config["vision_model"]["encoding_batch_size"])
     
     with tqdm(total=total, desc="Processing", unit="item") as pbar:
         for i in range(0, total, batch_size):

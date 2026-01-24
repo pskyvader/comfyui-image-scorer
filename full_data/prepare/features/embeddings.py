@@ -11,11 +11,7 @@ _MODEL_NAME: Optional[str] = None
 def load_model(name: str, dim: int, device: str) -> object:
     global _MODEL, _MODEL_NAME
     if _MODEL is None or _MODEL_NAME != name:
-        try:
-            _MODEL = SentenceTransformer(name, device=device)
-        except Exception:
-            # Try with default device if cuda fails or explicit device issue
-            _MODEL = SentenceTransformer(name)
+        _MODEL = SentenceTransformer(name, device=device)
         _MODEL_NAME = name
     
     if _MODEL.get_sentence_embedding_dimension() != dim:

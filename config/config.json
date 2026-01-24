@@ -1,0 +1,15 @@
+{
+    "root": "D:/Programming/Python/comfyui-image-scorer",
+    "image_root": "C:/ComfyUI/output",
+    "comfy_node_path": "C:/ComfyUI/custom_nodes/ComfyUI-Image-Scorer",
+    "maps_dir": "full_data/prepare/maps",
+    "prepare_config": "config/prepare_config.json",
+    "training_config": "config/training_config.json",
+    "vectors_file": "full_data/prepare/output/vectors.jsonl",
+    "scores_file": "full_data/prepare/output/scores.jsonl",
+    "index_file": "full_data/prepare/output/index.json",
+    "error_log_file": "full_data/prepare/output/error_log.json",
+    "text_data_file": "text_data/prepare/output/text_data.jsonl",
+    "text_index_file": "text_data/prepare/output/text_index.json",
+    "text_error_log_file": "text_data/prepare/output/text_error_log.json"
+}

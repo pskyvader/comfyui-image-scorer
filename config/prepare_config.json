@@ -4,7 +4,6 @@
         "dim": 768,
         "model": "all-mpnet-base-v2"
     },
-    "clip_device": "cuda",
     "vector_schema": {
         "slots": {
             "cfg": 1,
@@ -37,7 +36,11 @@
             "positive_terms"
         ]
     },
-    "encoding_batch_size": 128,
+    "vision_model": {
+        "name": "google/siglip-base-patch16-224",
+        "device": "cuda",
+        "encoding_batch_size": 128
+    },
     "normalization": {
         "cfg_max": 20.0,
         "steps_max": 50.0,

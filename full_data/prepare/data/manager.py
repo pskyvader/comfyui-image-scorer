@@ -6,72 +6,30 @@ from shutil import move
 from typing import Iterator, Tuple, List, Dict, Any, cast
 
 
-from prepare.config import schema as schema_module
+from full_data.prepare.config import schema as schema_module
 from shared.config import config
 from shared.io import load_index_list, load_json
 
-try:
-    from transformers import (
-        CLIPModel as RealClipModel,
-        CLIPProcessor as RealClipProcessor,
-        AutoModel,
-        AutoProcessor,
-    )
+from transformers import (
+    AutoModel,
+    AutoProcessor,
+)
+import torch
+from PIL import Image as PILImage
+from tqdm import tqdm
 
-    _CLIPModel = RealClipModel
-    _CLIPProcessor = RealClipProcessor
-    _clip_available = True
-    _clip_load_error = None
-except Exception as exc:
-    _CLIPModel = None
-    _CLIPProcessor = None
-    _clip_available = False
-    _clip_load_error = f"Failed to import transformers CLIP classes: {exc}"
-
-try:
-    import torch
-except ImportError:
-    torch = None
-
-try:
-    from PIL import Image as PILImage
-except ImportError:
-    PILImage = None
-
-try:
-    from tqdm import tqdm
-except ImportError:
-    tqdm = None
 
 _clip_model: Any = None
 _clip_processor: Any = None
-
-# Using SigLIP for better aesthetic evaluation - Base model (Vector size 768)
-VISION_MODEL_ID = "google/siglip-base-patch16-224"
-
 
 def load_clip() -> None:
     global _clip_model, _clip_processor, _clip_load_error
     if _clip_model is not None:
         return
-    if not _clip_available:
-        raise RuntimeError("Transformers not available.")
-
-    device_pref = config["clip_device"]
-    if device_pref == "cuda":
-        if torch is None:
-            raise RuntimeError(
-                "`clip_device` set to 'cuda' but PyTorch is not installed."
-            )
-        if not torch.cuda.is_available():
-            raise RuntimeError(
-                "`clip_device` set to 'cuda' but CUDA is not available. Set 'clip_device' to 'cpu' or install CUDA."
-            )
-
-    if device_pref == "cpu":
-        device = torch.device("cpu")
-    elif device_pref == "cuda":
-        device = torch.device("cuda")
+    device = config["vision_model"]["device"]
+    VISION_MODEL_ID=config["vision_model"]["name"]
+    if device != "cuda":
+        raise RuntimeError( "`clip_device` not set to 'cuda'" )
 
     try:
         print(f"Loading Vision Model: {VISION_MODEL_ID}...")
@@ -88,7 +46,7 @@ def load_clip() -> None:
     model.to(device)
     _clip_model = model
     _clip_processor = processor
-    print(f"Vision model loaded on device: {device} (requested: {device_pref})")
+    print(f"Vision model loaded on device: {device} ")
 
 
 def encode_image_to_vector(path: str) -> List[float]:

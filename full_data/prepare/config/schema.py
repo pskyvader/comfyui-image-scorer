@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import List, NamedTuple, Tuple, Dict, Any
-from .manager import load_vector_schema
+from typing import List, NamedTuple, Dict, Any
+from full_data.prepare.config.manager import load_vector_schema
 
 
 class ComponentInfo(NamedTuple):

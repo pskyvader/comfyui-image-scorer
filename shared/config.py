@@ -10,7 +10,7 @@ from shared.io import load_json
 PathLike = Union[str, Path]
 ConfigDict = Dict[str, Any]
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_FILE = PROJECT_ROOT.joinpath("config.json")
+CONFIG_FILE = PROJECT_ROOT.joinpath("config", "config.json")
 CONFIG_POINTERS: Iterable[str] = ("prepare_config", "training_config")
 SUB_CONFIG_MAPPING = {"prepare": "prepare_config", "training": "training_config"}
 

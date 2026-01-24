@@ -1,7 +1,6 @@
 from typing import List, Tuple, Set, Dict
 import re
-from prepare.config.maps import get_or_add
-from prepare.config.manager import load_vector_schema
+from full_data.prepare.config.maps import get_or_add
 
 WeightedTerm = Tuple[str, float]
 

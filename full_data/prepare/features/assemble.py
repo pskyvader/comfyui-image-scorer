@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Tuple
 from collections.abc import MutableMapping
 import numpy as _np
 from .utils import one_hot, weighted_presence
-from prepare.config.schema import (
+from full_data.prepare.config.schema import (
     get_slot_size,
 )
 from shared.config import config

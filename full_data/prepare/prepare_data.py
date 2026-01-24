@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Dict, List
 
 # Ensure package imports resolve when running this file as a script per the project instructions
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from prepare.data.manager import collect_files, save_index
-from prepare.data.metadata import write_error_log
+from full_data.prepare.data.manager import collect_files, save_index
+from full_data.prepare.data.metadata import write_error_log
 from shared.io import atomic_write_json
-from prepare.data.processing import (
+from full_data.prepare.data.processing import (
     remove_existing_outputs,
     clean_training_artifacts,
     load_existing_data,
@@ -20,7 +20,7 @@ from prepare.data.processing import (
     check_for_leakage,
 )
 from shared.config import config
-from prepare.config.manager import load_vector_schema
+from full_data.prepare.config.manager import load_vector_schema
 
 
 def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:

@@ -1,25 +1,34 @@
 # Development Instructions for ComfyUI Trainer
 # NEVER TOUCH THE VIRTUAL ENVIRONMENT FILES OR FOLDERS!
-# this is NOT a GITHUB project. 
-# These instructions are for GitHub Copilot use only.
+### AI-jobs: unless explicitly instructed, the only place to create new files for any extra task is in the folder ./AI_jobs
 ## Always Do This
 - All of these files show be used as reference always:
     - [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md)
-    - [config.json](../config.json)
-    - requirements.txt
-    - copilot-instructions.md (this file)
-- do all task before asking anything.
+    - [config/config.json](../config/config.json)
+    - [config/prepare_config.json](../config/prepare_config.json)
+    - [config/training_config.json](../config/training_config.json)
+    - [todo.md](../todo.md)
+    - pyproject.toml
+    - this file
+- when one task is done, move it from todo.md to done.md, and then immediately proceed to the next task. Dont wait for feedback or reviews until all tasks are done.
 - always follow the instructions in todo.md and done.md
 - check and fix code style issues (see ## Error Handling)
 - Run test sequence after making changes. (#testing process section below)
 - See [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) for detailed file structure with all modules, classes, and functions.
 
+## Dependency Management
+- always use `pyproject.toml` to add new dependencies.
+- use uv tool to add new dependencies:
+    - to add a new dependency: `uv add <package-name>` (e.g., `uv add requests`)
+    - to remove a dependency: `uv remove <package-name>` (e.g., `uv remove requests`)
+    - to update all dependencies: `uv update`
+- after modifying `pyproject.toml`, run `pip install -e .` to update the virtual environment.
 
 ## Common Commands
 - always use the present virtual environment to any script execution, except for Jupyter notebooks
 - Activate virtual environment: `.venv\Scripts\activate.ps1` (Windows PowerShell)
-- any python code: `.venv\\Scripts\\python`
-- when running code, always run in the format of `.venv\Scripts\python <path-to-script>` not as a module (no -m flag).
+- any python code: `python` (or `.venv\Scripts\python` only if not activated)
+- when running code, always run in the format of `python <path-to-script>` not as a module (no -m flag).
 
 ## Reuse Existing Modules
 When adding new features, check [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) for available functions to reuse. 
@@ -34,18 +43,20 @@ after adding new features, test using #testing process below.
 - Ensure error handling covers edge cases (bad JSON, missing files, etc.)
 
 # testing process
-always follow ## Common Commands first to activate the virtual environment.
+always follow [## Common Commands] first to activate the virtual environment.
 then follow these steps:
 1. run the tests after any change (pytest)
 2. when running tests, ensure all tests pass before continue
 3. after all tests pass, Remove generated files after modifications
 4. run the main code in each main directory to ensure no runtime errors in this precise order:
-    - `ranking/`: `.venv/Scripts/python ranking/score_server.py --test-run` (verify config and exit)
-    - `prepare/`: `.venv/Scripts/python prepare/prepare_data.py --limit 10` (use `--rebuild` to force regeneration)
-    - `text_data/`: `.venv/Scripts/python text_data/prepare_text_data.py` (use `--rebuild` to force regeneration)
-    - `training/`: run `training/training.ipynb`, `training/hyperparameter_optimize_loop.ipynb` and `training/feature_importance_analysis.ipynb` notebooks.
+    - `python ranking/score_server.py --test-run` (verify config and exit)
+    - `python full_data/prepare/prepare_data.py --limit 10` (use `--rebuild` to force regeneration)
+    - `python text_data/prepare/prepare_text_data.py` (use `--rebuild` to force regeneration)
+    - `full_data/training/training.ipynb` 
+    - `full_data/training/hyperparameter_optimize_loop.ipynb`     
+    - `text_data/training/training.ipynb`
 5. after everything runs without errors, update the `PROJECT_STRUCTURE.md` file if any new files, methods, or classes were added.
-6. Check for missing libraries add any new one to `requirements.txt` if needed.
+6. Check for missing libraries add any new one to `pyproject.toml` if needed.
 
 
 

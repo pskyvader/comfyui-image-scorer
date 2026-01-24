@@ -1,11 +1,23 @@
-from typing import Any, Dict, Tuple, List
+"""Score submission handlers for the ranking UI.
 
+This module provides helpers to normalize incoming score payloads and to
+update the corresponding per-image JSON metadata files. The handlers are
+written to be easily unit-testable (file I/O is isolated behind small helpers
+so it can be patched in tests).
+"""
+
+from typing import Any, Dict, Tuple, List
 from flask import jsonify
+    
 from shared.io import atomic_write_json
 from ranking.utils import get_json_path, load_meta
 
 
 def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
+    """Write `score` into the JSON file at ``json_path``.
+
+    Returns (True, None) on success or (False, error_message) on failure.
+    """
     meta, timestamp, err = load_meta(json_path)
     if err:
         return (False, err)
@@ -17,7 +29,6 @@ def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
     except Exception as exc:  # pragma: no cover - IO failure
         return (False, f'Failed to write JSON: {exc}')
     return (True, None)
-
 
 def _normalize_items(data: Any) -> Tuple[List[Dict[str, Any]], Tuple[Any, int] | None]:
     if isinstance(data, dict) and 'image' in data:

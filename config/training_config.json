@@ -1,6 +1,6 @@
 {
-    "output_dir": "training/output/",
-    "live_graph_path": "training/output/graph_hpo.png",
+    "output_dir": "full_data/training/output/",
+    "live_graph_path": "full_data/training/output/graph_hpo.png",
     "test_size": 0.15,
     "random_state": 42,
     "max_iters": 100,

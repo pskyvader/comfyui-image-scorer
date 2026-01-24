@@ -3,7 +3,7 @@ import os
 from typing import Dict, List, Set, Tuple, TextIO
 from PIL import Image
 
-from prepare.data.metadata import extract_text_components, load_metadata_entry
+from full_data.prepare.data.metadata import extract_text_components, load_metadata_entry
 from shared.config import config
 from shared.io import load_index_set, atomic_write_json
 

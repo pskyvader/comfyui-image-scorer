@@ -1,0 +1,22 @@
+[project]
+name = "comfyui-image-scorer"
+version = "0.1.0"
+requires-python = ">=3.14"
+description = "Image scoring for ComfyUI optimized for Python 3.14 and CUDA 13.0"
+dependencies = [
+    "flask>=3.1.2",
+    "lightgbm>=4.6.0",
+    "numpy>=2.4.0rc1",
+    "onnxmltools>=1.15.0",
+    "pytest>=9.0.2",
+    "scikit-learn>=1.8.0",
+    "sentence-transformers>=5.2.0",
+    "sentencepiece>=0.2.1",
+    "skl2onnx>=1.19.1",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
+    "tqdm>=4.66.5",
+]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu130"
