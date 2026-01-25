@@ -20,6 +20,7 @@ from full_data.prepare.features.core import build_feature_vector
 from full_data.prepare.features.embeddings import load_model
 
 from pathlib import Path
+import shutil
 
 # from full_data.prepare.features.utils import pad_existing_vectors # Removed
 
@@ -52,10 +53,23 @@ def remove_existing_outputs() -> None:
     index_file = config["index_file"]
     text_data = config["text_data_file"]
     text_index = config["text_index_file"]
-    for p in [vectors_file, scores_file, index_file, text_data, text_index]:
-        if os.path.exists(p):
+    maps_dir = config["maps_dir"]
+    root = Path(config["root"])
+
+    for p in [vectors_file, scores_file, index_file, text_data, text_index, maps_dir]:
+        ppath = Path(p)
+        # Resolve relative paths against configured root
+        if not ppath.is_absolute():
+            ppath = root / ppath
+        if ppath.exists():
             print(f"Removing {p}")
-            os.remove(p)
+            try:
+                if ppath.is_dir():
+                    shutil.rmtree(ppath)
+                else:
+                    os.remove(ppath)
+            except OSError as e:
+                print(f"Warning: Could not remove {p}: {e}")
     clean_training_artifacts()
 
 

@@ -37,9 +37,9 @@ when adding new features, always update the structure file
 when adding new features, check if existing modules can use the new functionality to avoid code duplication.
 after adding new features, test using #testing process below.
 
-## testing
+# test creation guidelines
 - there should always be at least one test per method or function.
-- there should be at least one file per module. the file should be in the same folder level as the module folder, named `test_<module_name>.py`.
+- there should be at least one file per module. the file should be in the same folder level as the module folder, inside a test folder, named `test_<module_name>.py`.
 - Ensure error handling covers edge cases (bad JSON, missing files, etc.)
 
 # testing process
@@ -49,12 +49,15 @@ then follow these steps:
 2. when running tests, ensure all tests pass before continue
 3. after all tests pass, Remove generated files after modifications
 4. run the main code in each main directory to ensure no runtime errors in this precise order:
+    - reset prepare config file (config/prepare_config.json), set vector schema/slots values to 1, (this is needed for testing all functions, including resize of the vectors).
     - `python ranking/score_server.py --test-run` (verify config and exit)
-    - `python full_data/prepare/prepare_data.py --limit 10` (use `--rebuild` to force regeneration)
-    - `python text_data/prepare/prepare_text_data.py` (use `--rebuild` to force regeneration)
+    - `python full_data/prepare/prepare_data.py --rebuild --limit 10` (first run with small limit to verify no runtime errors)
+    - `python full_data/prepare/prepare_data.py` (second run full without limit nor rebuild to check full data prepare)
+    - `python text_data/prepare/prepare_text_data.py` --rebuild (use `--rebuild` to force regeneration)
     - `full_data/training/training.ipynb` 
     - `full_data/training/hyperparameter_optimize_loop.ipynb`     
     - `text_data/training/training.ipynb`
+    - `python ./deploy.py` (to verify deployment process, and then confirm that the files exist in the folder)
 5. after everything runs without errors, update the `PROJECT_STRUCTURE.md` file if any new files, methods, or classes were added.
 6. Check for missing libraries add any new one to `pyproject.toml` if needed.
 

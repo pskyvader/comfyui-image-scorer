@@ -10,7 +10,7 @@
             "steps": 1,
             "lora_weight": 1,
             "steps_cfg": 1,
-            "lora": 6,
+            "lora": 5,
             "sampler": 3,
             "scheduler": 3,
             "model": 4,

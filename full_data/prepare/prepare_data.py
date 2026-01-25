@@ -87,8 +87,15 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     return summary
 
 
-def main(rebuild: bool = False) -> None:
-    run_prepare(rebuild=rebuild)
+def main(rebuild: bool = False, test_run: bool = False, limit: int = 0) -> None:
+    if test_run:
+        print("Verifying prepare configuration...")
+        print(f"Image root configured as: {config['image_root']}")
+        print(f"Vectors file: {config['vectors_file']}")
+        print(f"Scores file: {config['scores_file']}")
+        print("Test-run finished (no side-effects).")
+        return
+    run_prepare(rebuild=rebuild, limit=limit)
 
 
 if __name__ == "__main__":
@@ -104,5 +111,10 @@ if __name__ == "__main__":
         default=0,
         help="Limit the number of new items to process (0 for no limit)",
     )
+    parser.add_argument(
+        "--test-run",
+        action="store_true",
+        help="Validate configuration and exit without performing processing",
+    )
     args = parser.parse_args()
-    run_prepare(rebuild=args.rebuild, limit=args.limit)
+    main(rebuild=args.rebuild, test_run=args.test_run, limit=args.limit)

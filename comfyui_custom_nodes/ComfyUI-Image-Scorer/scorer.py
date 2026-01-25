@@ -1,6 +1,9 @@
 from typing import List
 import numpy as np
-import onnxruntime as ort
+try:
+    import onnxruntime as ort
+except Exception:
+    ort = None
 from pathlib import Path
 
 import sklearn.preprocessing

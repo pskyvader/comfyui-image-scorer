@@ -28,7 +28,7 @@ from training.data_utils import (
 )
 from training.model_io import load_model_diagnostics
 import lightgbm as lgb
-import onnxruntime as ort
+# Note: onnxruntime is imported lazily where needed to avoid import issues on newer Python versions
 
 from training.config_utils import grid_base, around
 

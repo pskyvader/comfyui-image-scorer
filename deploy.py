@@ -11,11 +11,11 @@ from shared.config import config
 
 def deploy_node():
     root = Path(config["root"])
-    dest_path_str = config.get("comfy_node_path")
+    # STRICT CONFIG: Let KeyError surface if missing
+    dest_path_str = config["comfy_node_path"]
     
     if not dest_path_str:
-        print("Error: 'comfy_node_path' not set in config.json")
-        return
+        raise KeyError("'comfy_node_path' not set in config.json")
 
     dest_path = Path(dest_path_str)
     
@@ -52,7 +52,8 @@ def deploy_node():
     dst_models_bin = dest_path / "models" / "bin"
     os.makedirs(dst_models_bin, exist_ok=True)
     
-    training_out = root / "training" / "output"
+    # Use configured training output dir (STRICT CONFIG)
+    training_out = root / config["training"]["output_dir"]
 
     # Always copy model and all feature/interaction caches
     model_files = [
