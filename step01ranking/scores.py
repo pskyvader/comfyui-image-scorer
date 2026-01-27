@@ -10,7 +10,7 @@ from typing import Any, Dict, Tuple, List
 from flask import jsonify
     
 from shared.io import atomic_write_json
-from ranking.utils import get_json_path, load_meta
+from step01ranking.utils import get_json_path, load_meta
 
 
 def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:

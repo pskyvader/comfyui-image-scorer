@@ -7,10 +7,9 @@ from typing import Dict, List
 # Ensure package imports resolve when running this file as a script per the project instructions
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from full_data.prepare.data.manager import collect_files, save_index
-from full_data.prepare.data.metadata import write_error_log
+from step02prepare.full_data.data.metadata import write_error_log
 from shared.io import atomic_write_json
-from full_data.prepare.data.processing import (
+from step02prepare.full_data.data.processing import (
     remove_existing_outputs,
     clean_training_artifacts,
     load_existing_data,
@@ -20,13 +19,16 @@ from full_data.prepare.data.processing import (
     check_for_leakage,
 )
 from shared.config import config
-from full_data.prepare.config.manager import load_vector_schema
+from shared.paths import vectors_file, scores_file, index_file, error_log_file
+from step02prepare.full_data.config.manager import load_vector_schema
+
+print("Importing manager modules...")
+from step02prepare.full_data.data.manager import collect_files, save_index
 
 
 def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     print("Starting image processing...")
 
-    index_file = config["index_file"]
     if rebuild:
         print("Rebuild requested: removing existing outputs...")
         remove_existing_outputs()
@@ -43,9 +45,11 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
 
     files = list(collect_files(image_root))
     collected_data = collect_valid_files(files, processed_files, error_log)
-    
+
     if limit > 0 and len(collected_data) > limit:
-        print(f"Collected {len(collected_data)} items. Limiting to {limit} as requested.")
+        print(
+            f"Collected {len(collected_data)} items. Limiting to {limit} as requested."
+        )
         collected_data = collected_data[:limit]
 
     image_vectors = encode_new_images(collected_data)
@@ -60,13 +64,9 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
         schema,
     )
     check_for_leakage(vectors_list, scores_list)
-
-    vectors_file = config["vectors_file"]
-    scores_file = config["scores_file"]
     atomic_write_json(vectors_file, vectors_list, indent=2)
     atomic_write_json(scores_file, scores_list, indent=2)
     save_index(index_list, index_file)
-    error_log_file = config["error_log_file"]
     write_error_log(error_log, error_log_file)
 
     summary = {
@@ -88,6 +88,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
 
 
 def main(rebuild: bool = False, test_run: bool = False, limit: int = 0) -> None:
+    print("Starting data prepare...")
     if test_run:
         print("Verifying prepare configuration...")
         print(f"Image root configured as: {config['image_root']}")

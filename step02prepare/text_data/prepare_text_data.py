@@ -7,10 +7,10 @@ from typing import Dict, List
 # Ensure project root is on sys.path so package imports work when running as a script
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from full_data.prepare.data.manager import collect_files
-from full_data.prepare.data.metadata import write_error_log
+from step02prepare.full_data.data.manager import collect_files
+from step02prepare.full_data.data.metadata import write_error_log
 from shared.config import config, ensure_dir
-from text_data.text_processing import (
+from step02prepare.text_data.text_processing import (
     load_text_index,
     save_text_index,
     process_text_files,

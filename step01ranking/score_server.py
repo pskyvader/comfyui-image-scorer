@@ -8,8 +8,8 @@ from typing import Any, List, Tuple
 
 from flask import Flask, request, send_from_directory, jsonify
 from shared.config import PROJECT_ROOT, config
-from ranking.utils import get_unscored_images, serve_file
-from ranking.scores import submit_scores_handler
+from step01ranking.utils import get_unscored_images, serve_file
+from step01ranking.scores import submit_scores_handler
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent

@@ -11,6 +11,7 @@ import os
 
 from shared.io import load_jsonl
 from shared.config import config
+from shared.paths import root
 
 
 def load_training_data(
@@ -26,7 +27,7 @@ def load_training_data(
 
 
 def get_filtered_data(
-    vectors_path: str, scores_path: str, cache_path: Optional[str] = None
+    vectors_path: str, scores_path: str, cache_file: Optional[str] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Loads training data, filters unused features, adds interaction features, and caches the result.
@@ -37,18 +38,17 @@ def get_filtered_data(
         kept_indices: Indices of feature columns kept from original X
         interaction_indices: Indices of interaction features used relative to poly expansion of valid features
     """
-    if cache_path is None:
+    if cache_file is None:
          # Default to training/output/processed_data_cache.npz (renamed to reflect processing)
-        root = Path(config["root"])
-        cache_path = str(root / "training" / "output" / "processed_data_cache.npz")
+        cache_file = str(root / "training" / "output" / "processed_data_cache.npz")
     
     # Check cache validity
     cache_valid = False
-    if os.path.exists(cache_path):
+    if os.path.exists(cache_file):
         try:
              # Check timestamp against vectors_path
             src_mtime = os.path.getmtime(vectors_path)
-            cache_mtime = os.path.getmtime(cache_path)
+            cache_mtime = os.path.getmtime(cache_file)
             if src_mtime > cache_mtime:
                 print("Source data (vectors.jsonl) is newer than cache. Invalidating cache.")
             else:
@@ -57,9 +57,9 @@ def get_filtered_data(
             pass # Fallback to rebuild
 
     if cache_valid:
-        print(f"Loading processed data from cache: {cache_path}")
+        print(f"Loading processed data from cache: {cache_file}")
         try:
-            data = np.load(cache_path)
+            data = np.load(cache_file)
             # Ensure integrity
             if "X" in data and "y" in data and "kept_indices" in data:
                 print(f"Data ready (cached). Shape: {data['X'].shape}")
@@ -82,10 +82,10 @@ def get_filtered_data(
     X_final, interaction_indices = add_interaction_features(X_filtered, y, target_k=500, cache_source_path=vectors_path)
     
     # Ensure cache directory exists
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     
-    np.savez_compressed(cache_path, X=X_final, y=y, kept_indices=kept_indices, interaction_indices=interaction_indices)
-    print(f"Saved processed data to cache: {cache_path}")
+    np.savez_compressed(cache_file, X=X_final, y=y, kept_indices=kept_indices, interaction_indices=interaction_indices)
+    print(f"Saved processed data to cache: {cache_file}")
     
     return X_final, y, kept_indices, interaction_indices
 
@@ -98,17 +98,16 @@ def add_interaction_features(X: np.ndarray, y: np.ndarray, target_k: int = 500, 
     Handles its own caching via 'interaction_data_cache.npz'.
     """
     # --- Cache Logic Start ---
-    root = Path(config["root"])
-    cache_path = str(root / "training" / "output" / "interaction_data_cache.npz")
+    cache_file = str(root / "training" / "output" / "interaction_data_cache.npz")
     
     cache_valid = False
-    if os.path.exists(cache_path):
+    if os.path.exists(cache_file):
         # Optional: Check validity against a source file (like filtered data cache)
         validity_check = True
         if cache_source_path and os.path.exists(cache_source_path):
              try:
                 src_mtime = os.path.getmtime(cache_source_path)
-                cache_mtime = os.path.getmtime(cache_path)
+                cache_mtime = os.path.getmtime(cache_file)
                 if src_mtime > cache_mtime:
                     print("Source data newer than interaction cache. Rebuilding.")
                     validity_check = False
@@ -117,9 +116,9 @@ def add_interaction_features(X: np.ndarray, y: np.ndarray, target_k: int = 500, 
         
         if validity_check:
              try:
-                data = np.load(cache_path)
+                data = np.load(cache_file)
                 if "X" in data and "interaction_indices" in data:
-                    print(f"Loading interaction data from cache: {cache_path}")
+                    print(f"Loading interaction data from cache: {cache_file}")
                     return data["X"], data["interaction_indices"]
              except Exception:
                 pass
@@ -224,9 +223,9 @@ def add_interaction_features(X: np.ndarray, y: np.ndarray, target_k: int = 500, 
     X_final = np.hstack([X, X_interactions])
     
     # --- Save Cache ---
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    np.savez_compressed(cache_path, X=X_final, interaction_indices=top_k_indices_local)
-    print(f"Saved interaction data to cache: {cache_path}")
+    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+    np.savez_compressed(cache_file, X=X_final, interaction_indices=top_k_indices_local)
+    print(f"Saved interaction data to cache: {cache_file}")
 
     return X_final, top_k_indices_local
 
@@ -243,11 +242,10 @@ def filter_unused_features(
         print(f"Filtering features... Initial shape: {X.shape}")
 
     # --- Cache Logic Start ---
-    root = Path(config["root"])
-    cache_path = str(root / "training" / "output" / "filtered_data_cache.npz")
+    cache_file = str(root / "training" / "output" / "filtered_data_cache.npz")
     
     cache_valid = False
-    if os.path.exists(cache_path):
+    if os.path.exists(cache_file):
         # We need a source file to compare mtime against. 
         # If 'vectors_path_for_hashing' is passed (path to source vectors), we use that.
         # Otherwise, we can't reliably validate cache unless we trust existence implies validity.
@@ -255,7 +253,7 @@ def filter_unused_features(
         if vectors_path_for_hashing and os.path.exists(vectors_path_for_hashing):
              try:
                 src_mtime = os.path.getmtime(vectors_path_for_hashing)
-                cache_mtime = os.path.getmtime(cache_path)
+                cache_mtime = os.path.getmtime(cache_file)
                 if src_mtime > cache_mtime:
                     if verbose: print("Source vectors newer than filter cache. Rebuilding.")
                     validity_check = False
@@ -264,9 +262,9 @@ def filter_unused_features(
         
         if validity_check:
             try:
-                data = np.load(cache_path)
+                data = np.load(cache_file)
                 if "X" in data and "kept_indices" in data:
-                    print(f"Loading filtered data from cache: {cache_path}")
+                    print(f"Loading filtered data from cache: {cache_file}")
                     # Validate shape compatibility if possible or just trust cache
                     return data["X"], data["kept_indices"]
             except Exception:
@@ -327,9 +325,9 @@ def filter_unused_features(
         print(f"Dropped {n_dropped} unused features. New shape: {X_filtered.shape}")
 
     # --- Save Cache ---
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    np.savez_compressed(cache_path, X=X_filtered, kept_indices=kept_indices)
-    if verbose: print(f"Saved filtered data to cache: {cache_path}")
+    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+    np.savez_compressed(cache_file, X=X_filtered, kept_indices=kept_indices)
+    if verbose: print(f"Saved filtered data to cache: {cache_file}")
 
     return X_filtered, kept_indices
 

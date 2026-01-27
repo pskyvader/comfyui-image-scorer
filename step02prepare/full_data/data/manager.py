@@ -6,7 +6,7 @@ from shutil import move
 from typing import Iterator, Tuple, List, Dict, Any, cast
 
 
-from full_data.prepare.config import schema as schema_module
+from step02prepare.full_data.config import schema as schema_module
 from shared.config import config
 from shared.io import load_index_list, load_json
 
