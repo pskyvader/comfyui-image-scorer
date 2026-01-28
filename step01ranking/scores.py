@@ -8,9 +8,12 @@ so it can be patched in tests).
 
 from typing import Any, Dict, Tuple, List
 from flask import jsonify
-    
+
 from shared.io import atomic_write_json
 from step01ranking.utils import get_json_path, load_meta
+from step01ranking.cache import (
+    disable_from_cache,
+)
 
 
 def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
@@ -22,22 +25,23 @@ def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
     if err:
         return (False, err)
     if meta is None or timestamp is None:
-        return (False, 'Invalid metadata contents')
-    meta[timestamp]['score'] = score
+        return (False, "Invalid metadata contents")
+    meta[timestamp]["score"] = score
     try:
         atomic_write_json(json_path, meta, indent=4)
     except Exception as exc:  # pragma: no cover - IO failure
-        return (False, f'Failed to write JSON: {exc}')
+        return (False, f"Failed to write JSON: {exc}")
     return (True, None)
 
+
 def _normalize_items(data: Any) -> Tuple[List[Dict[str, Any]], Tuple[Any, int] | None]:
-    if isinstance(data, dict) and 'image' in data:
+    if isinstance(data, dict) and "image" in data:
         return [data], None
     if isinstance(data, dict):
-        return ([{'image': k, 'score': v} for k, v in data.items()], None)
+        return ([{"image": k, "score": v} for k, v in data.items()], None)
     if isinstance(data, list):
         return (data, None)
-    return ([], (jsonify({'error': 'Invalid payload, expected list or dict'}), 400))
+    return ([], (jsonify({"error": "Invalid payload, expected list or dict"}), 400))
 
 
 def submit_scores_handler(data: Any) -> Tuple[Any, int] | Any:
@@ -45,18 +49,21 @@ def submit_scores_handler(data: Any) -> Tuple[Any, int] | Any:
     if err_resp:
         return err_resp
 
-    results = {'ok': [], 'errors': []}
+    results: Dict[str, List[Any]] = {"ok": [], "errors": []}
     for item in items:
-        if not isinstance(item, dict) or 'image' not in item or 'score' not in item:
-            results['errors'].append({'item': item, 'error': 'Invalid item format'})
+        if not isinstance(item, dict) or "image" not in item or "score" not in item:
+            results["errors"].append({"item": item, "error": "Invalid item format"})
             continue
-        img_path = item['image']
-        score = item['score']
+        img_path = item["image"]
+        score = item["score"]
         json_path: str = get_json_path(img_path)
         ok, err = _write_score(json_path, score)
         if ok:
-            results['ok'].append(img_path)
+            results["ok"].append(img_path)
+            disable_from_cache(img_path)
         else:
-            results['errors'].append({'image': img_path, 'error': err, 'json_path': json_path})
-    status: int = 200 if not results['errors'] else 207
+            results["errors"].append(
+                {"image": img_path, "error": err, "json_path": json_path}
+            )
+    status: int = 200 if not results["errors"] else 207
     return jsonify(results), status

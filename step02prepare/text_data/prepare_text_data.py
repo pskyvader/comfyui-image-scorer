@@ -7,9 +7,17 @@ from typing import Dict, List
 # Ensure project root is on sys.path so package imports work when running as a script
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from shared.config import ensure_dir
+from shared.paths import (
+    text_data_file,
+    text_index_file,
+    image_root,
+    text_error_log_file,
+)
+
+
 from step02prepare.full_data.data.manager import collect_files
 from step02prepare.full_data.data.metadata import write_error_log
-from shared.config import config, ensure_dir
 from step02prepare.text_data.text_processing import (
     load_text_index,
     save_text_index,
@@ -20,20 +28,19 @@ from step02prepare.text_data.text_processing import (
 def run_prepare_text(rebuild: bool = False) -> Dict[str, int]:
     print("Starting text data export...")
 
-    output_file = config["text_data_file"]
-    index_file = config["text_index_file"]
-    image_root = config["image_root"]
-    
+    output_file = text_data_file
+    index_file = text_index_file
+
     if rebuild:
         # Clear existing outputs
-        for fpath in [output_file, index_file, config["text_error_log_file"]]:
+        for fpath in [output_file, index_file, text_error_log_file]:
             if os.path.exists(fpath):
                 print(f"Removing {fpath}")
                 os.remove(fpath)
 
     ensure_dir(os.path.dirname(output_file))
     ensure_dir(os.path.dirname(index_file))
-    error_log_file = config["text_error_log_file"]
+    error_log_file = text_error_log_file
     ensure_dir(os.path.dirname(error_log_file))
 
     if not os.path.isdir(image_root):
@@ -78,7 +85,7 @@ def main() -> None:
     if args.test_run:
         print("Verifying text prepare configuration...")
         try:
-            img_root = config["image_root"]
+            img_root = image_root
             print(f"Image root configured as: {img_root}")
             if not os.path.isdir(img_root):
                 print("Configured image_root does not exist or is not a directory.")

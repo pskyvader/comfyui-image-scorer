@@ -10,11 +10,14 @@ from step02prepare.full_data.config import schema as schema_module
 from shared.config import config
 from shared.io import load_index_list, load_json
 
+print("Importing vision model modules...")
 from transformers import (
     AutoModel,
     AutoProcessor,
 )
+print("Importing torch...")
 import torch
+print("Importing PIL...")
 from PIL import Image as PILImage
 from tqdm import tqdm
 

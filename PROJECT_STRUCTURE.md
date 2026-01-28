@@ -1,13 +1,29 @@
 # Project Structure
 All output files are stored in `{module}/output/` directory.
 
+## Paths Configuration
+Paths are centralized in [shared/paths.py](shared/paths.py) and sourced from:
+- [config/config.json](config/config.json) — Main configuration file
+- [config/prepare_config.json](config/prepare_config.json) — Data preparation settings
+- [config/training_config.json](config/training_config.json) — Training hyperparameters
+
+Key paths from `shared/paths.py`:
+- `root` — Project root directory
+- `image_root` — ComfyUI output images directory
+- `comfy_node_path` — ComfyUI custom nodes deployment path
+- `prepare_output_dir` — Data preparation output (vectors, scores)
+- `maps_dir` — Feature mapping files for categorical variables
+- `training_output_dir` — Training outputs and models
+- `deployment_module_dir` — Module to deploy to ComfyUI
+- `deployment_dir` — Deployment directory
+
 ## Workflow
-1. Ranking (collect scores via UI)
-2. Full data preparation (images + metadata → vectors + scores)
-3. Text-only data preparation
-4. Full data training (LightGBM → model export)
-5. Text data training
-6. Deploy node to ComfyUI
+1. Ranking (collect scores via UI) — `step01ranking/`
+2. Full data preparation (images + metadata → vectors + scores) — `step02prepare/full_data/`
+3. Text-only data preparation — `step02prepare/text_data/`
+4. Full data training (LightGBM → model export) — `step03training/full_data/`
+5. Text data training — `step03training/text_data/`
+6. Deploy node to ComfyUI — `step04export/`
 
 
 ## Typings used for static checks (non-executable)
@@ -16,6 +32,11 @@ All output files are stored in `{module}/output/` directory.
 - `typings/torch/*` — Minimal stubs used for type-checking in helper code.
 
 ---
+
+
+#TODO: Create existing files in this structure, mention every function inside each file. group by folders and subfolders
+
+#TODO: END Create existing files in this structure
 
 ## Notes on maintenance and testing ✅
 - Unit tests are located alongside module tests and in `full_data/*/test` and `comfyui_custom_nodes/*/test`.

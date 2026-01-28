@@ -10,12 +10,12 @@
     "text_data_file": "text_data.jsonl",
     "text_index_file": "text_index.json",
     "text_error_log_file": "text_error_log.json",
-    "prepare_dir": "step02prepare/",
+    "prepare_dir": "step02prepare",
     "training_config": "config/training_config.json",
-    "training_dir": "step03training/",
+    "training_dir": "step03training",
     "training_model": "model.npz",
     "processed_data": "processed_data.npz",
     "filtered_data": "filtered_data.npz",
     "interaction_data": "interaction_data.npz",
-    "deployment_dir": "step04export/"
+    "deployment_dir": "step04export"
 }

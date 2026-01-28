@@ -17,20 +17,20 @@ from sklearn.preprocessing import PowerTransformer
 from shared.config import config
 
 # save_config is removed, using direct assignment
-from training.helpers import resolve_path
-from training.data_utils import (
-    load_training_data,
+from step03training.full_data.helpers import resolve_path
+from step03training.full_data.data_utils import (
     prepare_plot_data,
     print_comparison_metrics,
     plot_scatter_comparison,
-    filter_unused_features,
     get_filtered_data,
 )
-from training.model_io import load_model_diagnostics
+from step03training.full_data.model_io import load_model_diagnostics
 import lightgbm as lgb
 # Note: onnxruntime is imported lazily where needed to avoid import issues on newer Python versions
 
-from training.config_utils import grid_base, around
+from step03training.full_data.config_utils import grid_base, around
+
+from shared.paths import vectors_file,index_file,scores_file
 
 
 def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]:
@@ -192,7 +192,6 @@ def evaluate_hyperparameter_combo(
 
 
 def train_model_lightgbm_local(
-    model_path: str,
     X_train: Optional[Any],
     X_test: Optional[Any],
     y_train: Optional[Any],
@@ -236,7 +235,7 @@ def train_model_lightgbm_local(
     model = lgb.LGBMRegressor(**params)
 
     # Setup callbacks for logging
-    callbacks: List[str, Any] = []
+    callbacks: List[Any] = []
     # Always suppress default logger to ensure clean output
     callbacks.append(lgb.log_evaluation(period=-1))
 
@@ -404,24 +403,14 @@ def train_model_lightgbm_local(
 
 
 def train_model(
-    model_path: str,
     config_dict: Dict[str, Any],
-    X: Optional[Any] = None,
-    y: Optional[Any] = None,
+    X: np.ndarray,
+    y: np.ndarray,
     kept_features: Optional[np.ndarray] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
 
     if config["training"]["device"] != "cuda":
         raise ValueError("Training must use CUDA device.")
-
-    if not os.path.isabs(model_path) and os.path.dirname(model_path) in ("", "."):
-        model_path = os.path.join(out_dir, model_path)
-    model_path = os.path.abspath(os.path.normpath(model_path))
-
-    if X is None or y is None:
-        vectors_path = resolve_path(config["vectors_file"])
-        scores_path = resolve_path(config["scores_file"])
-        X, y = load_training_data(vectors_path, scores_path)
 
     test_size = float(config["training"]["test_size"])
     random_state = int(config["training"]["random_state"])
@@ -432,7 +421,6 @@ def train_model(
     X_train, X_test, y_train, y_test = split_res
 
     return train_model_lightgbm_local(
-        model_path,
         X_train,
         X_test,
         y_train,
@@ -551,10 +539,11 @@ def optimize_hyperparameters(
 
 def compare_model_vs_data(
     model_path: str,
-    vectors_path: str,
-    scores_path: str,
+    
+    x:np.ndarray,y:np.ndarray,
     plot: bool = True,
     model: Any | None = None,
+    
 ) -> None:
     """Compare a trained model vs data.
 
@@ -564,37 +553,15 @@ def compare_model_vs_data(
     re-training the model during comparison.
     """
     # Load data using the full pipeline (including filtering and interactions) to ensure consistency with trained model
-    X, y, _, _ = get_filtered_data(vectors_path, scores_path)
-
+    X=x
     x_sample = X[:100]
     # align y to the sample used for predictions
     y_sample = y[: len(x_sample)]
 
     # If no model provided, attempt to load from disk (common extensions).
     if model is None:
-        # User requested ONNX priority despite complications with target transforms.
-        # We will attempt to handle target transform manually if ONNX is loaded.
-        candidates = [
-            model_path + ".onnx",
-            model_path + ".joblib",
-            model_path + ".pkl",
-            model_path,
-        ]
-        found = None
-        for p in candidates:
-            try:
-                if os.path.exists(p):
-                    found = p
-                    break
-            except Exception:
-                continue
-
-        if found is None:
-            raise RuntimeError(
-                "No trained model provided and no saved model file found. "
-                "Please pass a trained model object via the `model` argument or save the trained model to disk (e.g., model_path.onnx)."
-            )
-
+        found=model_path
+        #+".onnx"
         print(f"Loading trained model from: {found}")
 
         # If ONNX, use onnxruntime for inference
@@ -690,10 +657,7 @@ def compare_model_vs_data(
 
             model = type("ONNXWrapper", (), {"predict": staticmethod(onnx_predict)})()
         else:
-            try:
-                model = joblib.load(found)
-            except Exception as e:
-                raise RuntimeError(f"Failed to load trained model from '{found}': {e}")
+            model = joblib.load(found)
     else:
         print("Using provided in-memory model for comparison.")
 
@@ -742,33 +706,3 @@ def plot_loss_curve(model_path: str, metrics: Dict[str, Any] | None = None) -> N
         plt.show()
     except Exception as e:
         print("Failed to plot loss curve:", e)
-
-
-def run_training(
-    *, model_path: str, vectors_path: str, scores_path: str, config_dict: Dict[str, Any]
-) -> Tuple[Any, Dict[str, float]]:
-    print(
-        f"Starting training with:\n  model_path: {model_path}\n  vectors_path: {vectors_path}\n  scores_path: {scores_path}"
-    )
-
-    # Load and filter data (optimization step)
-    X, y = load_training_data(vectors_path, scores_path)
-    X, kept_features = filter_unused_features(X, y, feature_names=None, verbose=True)
-
-    model, metrics = train_model(
-        model_path, config_dict, X=X, y=y, kept_features=kept_features
-    )
-
-    print("Training complete. Evaluation metrics:")
-    for k, v in metrics.items():
-        try:
-            print(f"  {k}: {v:.4f}")
-        except Exception:
-            print("  {}: {}".format(k, v))
-
-    if "n_iter" in metrics:
-        print(f"Training iterations: {metrics['n_iter']}")
-    if "loss_curve_length" in metrics:
-        print(f"Loss curve length: {metrics['loss_curve_length']}")
-
-    return (model, metrics)

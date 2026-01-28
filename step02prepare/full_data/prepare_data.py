@@ -6,9 +6,17 @@ from typing import Dict, List
 
 # Ensure package imports resolve when running this file as a script per the project instructions
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from step02prepare.full_data.data.metadata import write_error_log
+print("Importing shared modules...")
 from shared.io import atomic_write_json
+from shared.config import config
+from shared.paths import vectors_file, scores_file, index_file, error_log_file
+
+print("Importing config modules...")
+from step02prepare.full_data.config.manager import load_vector_schema
+
+print("Importing data modules...")
+from step02prepare.full_data.data.metadata import write_error_log
+print("Importing data processing modules...")
 from step02prepare.full_data.data.processing import (
     remove_existing_outputs,
     clean_training_artifacts,
@@ -18,9 +26,6 @@ from step02prepare.full_data.data.processing import (
     process_and_append_data,
     check_for_leakage,
 )
-from shared.config import config
-from shared.paths import vectors_file, scores_file, index_file, error_log_file
-from step02prepare.full_data.config.manager import load_vector_schema
 
 print("Importing manager modules...")
 from step02prepare.full_data.data.manager import collect_files, save_index

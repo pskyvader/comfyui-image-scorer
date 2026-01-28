@@ -50,14 +50,15 @@ then follow these steps:
 3. after all tests pass, Remove generated files after modifications
 4. run the main code in each main directory to ensure no runtime errors in this precise order:
     - reset prepare config file (config/prepare_config.json), set vector schema/slots values to 1, (this is needed for testing all functions, including resize of the vectors).
-    - `python ranking/score_server.py --test-run` (verify config and exit)
-    - `python full_data/prepare/prepare_data.py --rebuild --limit 10` (first run with small limit to verify no runtime errors)
-    - `python full_data/prepare/prepare_data.py` (second run full without limit nor rebuild to check full data prepare)
-    - `python text_data/prepare/prepare_text_data.py` --rebuild (use `--rebuild` to force regeneration)
-    - `full_data/training/training.ipynb` 
-    - `full_data/training/hyperparameter_optimize_loop.ipynb`     
-    - `text_data/training/training.ipynb`
-    - `python ./deploy.py` (to verify deployment process, and then confirm that the files exist in the folder)
+    - `python step01ranking/score_server.py --test-run` (verify config and exit)
+    - `python step02prepare/full_data/prepare_data.py --rebuild --limit 10` (first run with small limit to verify no runtime errors)
+    - `python step02prepare/full_data/prepare_data.py` (second run full without limit nor rebuild to check full data prepare)
+    - `python step02prepare/text_data/prepare_text_data.py --rebuild (use `--rebuild` to force regeneration)
+    - `step03training/full_data/training.ipynb` 
+    - `step03training/full_data/hyperparameter_optimize_loop.ipynb`     
+    - `step03training/text_data/training.ipynb`
+    - `python step04export/deploy.py` (to verify deployment process, and then confirm that the files exist in the folder)
+
 5. after everything runs without errors, update the `PROJECT_STRUCTURE.md` file if any new files, methods, or classes were added.
 6. Check for missing libraries add any new one to `pyproject.toml` if needed.
 

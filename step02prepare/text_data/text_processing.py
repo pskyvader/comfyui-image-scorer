@@ -45,7 +45,6 @@ def extract_text_components(entry: Dict[str, Any]) -> Dict[str, Any]:
         except (ValueError, TypeError):
             pass
     return {
-        "negative_prompt": entry.get("negative_prompt"),
         "positive_terms": pos_terms,
         "negative_terms": neg_terms,
         "sampler": sampler,

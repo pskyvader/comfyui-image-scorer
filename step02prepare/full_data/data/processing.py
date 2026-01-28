@@ -3,24 +3,12 @@ from typing import Any, Dict, List, Set, Tuple, cast
 import numpy as np
 from tqdm import tqdm
 from PIL import Image
-from shared.config import config
-from step02prepare.full_data.config.manager import save_vector_schema
-from step02prepare.full_data.data.manager import (
-    load_index,
-    encode_images_to_vectors,
-    pad_existing_vectors,
-)
-from step02prepare.full_data.data.metadata import load_metadata_entry
-from shared.io import load_json_list_robust
-from step02prepare.full_data.config.schema import (
-    get_vector_order,
-    get_total_vector_length,
-)
-from step02prepare.full_data.features.core import build_feature_vector
-from step02prepare.full_data.features.embeddings import load_model
-
 from pathlib import Path
 import shutil
+
+print("Importing shared modules...")
+from shared.config import config
+from shared.io import load_json_list_robust
 from shared.paths import (
     prepare_output_dir,
     maps_dir,
@@ -32,8 +20,23 @@ from shared.paths import (
     filtered_data,
     interaction_data,
 )
+print("Importing config modules...")
+from step02prepare.full_data.config.manager import save_vector_schema
+from step02prepare.full_data.config.schema import (
+    get_vector_order,
+    get_total_vector_length,
+)
+print("Importing data processing modules...")
+from step02prepare.full_data.data.manager import (
+    load_index,
+    encode_images_to_vectors,
+    pad_existing_vectors,
+)
+from step02prepare.full_data.data.metadata import load_metadata_entry
 
-# from step02prepare.full_data.features.utils import pad_existing_vectors # Removed
+print("Importing feature modules...")
+from step02prepare.full_data.features.core import build_feature_vector
+from step02prepare.full_data.features.embeddings import load_model
 
 
 def clean_training_artifacts() -> None:

@@ -9,22 +9,18 @@ from skl2onnx.common.shape_calculator import calculate_linear_regressor_output_s
 from onnxmltools.convert.lightgbm.operator_converters.LightGbm import convert_lightgbm
 from lightgbm import LGBMRegressor
 from sklearn.compose import TransformedTargetRegressor
-
+from shared.paths import training_output_dir
 
 def diagnostics_path(model_path: str) -> Path:
     path = Path(model_path)
     return path.with_suffix(".npz")
 
 
-def save_model_diagnostics(model_path: str, **data: Any) -> Path:
-    diag_path = diagnostics_path(model_path)
-    diag_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Prune None values to prevent load errors or wasted space
+def save_model_diagnostics(model_path: str, **data: Any) -> str:
     clean_data = {k: v for k, v in data.items() if v is not None}
     
-    np.savez_compressed(diag_path, **clean_data)
-    return diag_path
+    np.savez_compressed(model_path, **clean_data)
+    return model_path
 
 
 
@@ -37,11 +33,7 @@ def _normalize(val: Any) -> Any:
 
 
 def load_model_diagnostics(model_path: str) -> Optional[Dict[str, Any]]:
-    diag_path = diagnostics_path(model_path)
-    if not diag_path.exists():
-        return None
-
-    with np.load(diag_path, allow_pickle=True) as npz:
+    with np.load(Path(model_path), allow_pickle=True) as npz:
         return {k: _normalize(npz[k]) for k in npz.files}
 
 
@@ -50,19 +42,9 @@ def save_model(model: Any, model_path: str, additional_data: Dict[str, Any] = No
 
     Saves an ONNX representation to `<model_path>.onnx`.
     """
-    if model is None:
-        raise ValueError("No model provided to save_model")
-
-    dest_dir = os.path.dirname(os.path.abspath(model_path))
-    if dest_dir and not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
+    os.makedirs(training_output_dir, exist_ok=True)
         
     if additional_data:
-        # Also include kept_indices and interaction_indices if not already there,
-        # but helper functions usually return them separately.
-        # We need to ensure they are passed in "additional_data" from the generic train loop
-        # or we manually inject them here if we have access, which we don't easily.
-        # So we should rely on caller to pass them.
         save_model_diagnostics(model_path, **additional_data)
 
     # Save full Python object (preserves TransformedTargetRegressor wrapper)
