@@ -1,12 +1,10 @@
-from typing import Any, Dict, Tuple, cast, List, Optional, Set
+from typing import Any, Dict, Tuple, cast, List, Optional
 import os
 import time
 import warnings
 import random
 from itertools import product, islice
 
-import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -16,127 +14,10 @@ from sklearn.preprocessing import PowerTransformer
 
 from shared.config import config
 
-# save_config is removed, using direct assignment
-from step03training.full_data.helpers import resolve_path
-from step03training.full_data.data_utils import (
-    prepare_plot_data,
-    print_comparison_metrics,
-    plot_scatter_comparison,
-    get_filtered_data,
-)
-from step03training.full_data.model_io import load_model_diagnostics
 import lightgbm as lgb
-# Note: onnxruntime is imported lazily where needed to avoid import issues on newer Python versions
-
 from step03training.full_data.config_utils import grid_base, around
 
-from shared.paths import vectors_file,index_file,scores_file
-
-
-def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]:
-    """Custom R2 metric for LightGBM evaluation."""
-    return "r2", float(r2_score(y_true, y_pred)), True
-
-
-class LivePlotCallback:
-    """Callback to plot training progress in real-time inside Jupyter notebooks."""
-
-    def __init__(
-        self,
-        update_interval: float = 5.0,
-        min_time_before_first_plot: float = 10.0,
-        save_path: Optional[str] = None,
-    ):
-        self.update_interval = update_interval
-        self.min_time = min_time_before_first_plot
-        self.save_path = save_path
-        if self.save_path:
-            os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
-        self.start_time = time.time()
-        self.last_plot_time = 0.0
-        self.history: Dict[str, List[float]] = {}  # Generalized history storage
-
-    def __call__(self, env: Any) -> None:
-        now = time.time()
-        elapsed = now - self.start_time
-
-        # Collect metrics
-        # env.evaluation_result_list looks like [('train', 'l2', 0.5, False), ('valid', 'l2', 0.6, False), ...]
-        for data_name, eval_name, result, _ in env.evaluation_result_list:
-            key = f"{data_name}_{eval_name}"
-            if key not in self.history:
-                self.history[key] = []
-            self.history[key].append(result)
-
-        if elapsed < self.min_time:
-            return
-
-        if now - self.last_plot_time < self.update_interval:
-            return
-
-        self.last_plot_time = now
-
-        try:
-            from IPython.display import clear_output
-
-            clear_output(wait=True)
-
-            # Group metrics by type (l2, rmse, l1)
-            metrics_found: Set[str] = set()
-            for key in self.history.keys():
-                parts = key.split("_")
-                if len(parts) >= 2:
-                    metrics_found.add(parts[1])
-
-            num_metrics = len(metrics_found)
-            if num_metrics == 0:
-                return
-
-            fig, axes = plt.subplots(1, num_metrics, figsize=(5 * num_metrics, 5))
-            if num_metrics == 1:
-                axes = [axes]
-
-            for i, metric in enumerate(sorted(list(metrics_found))):
-                ax = axes[i]
-                if f"train_{metric}" in self.history:
-                    data = self.history[f"train_{metric}"]
-                    ax.plot(data, label=f"Train {metric}")
-                    if data:
-                        ax.annotate(
-                            f"{data[-1]:.4f}",
-                            xy=(len(data) - 1, data[-1]),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                        )
-                if f"valid_{metric}" in self.history:
-                    data = self.history[f"valid_{metric}"]
-                    ax.plot(data, label=f"Valid {metric}")
-                    if data:
-                        ax.annotate(
-                            f"{data[-1]:.4f}",
-                            xy=(len(data) - 1, data[-1]),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                        )
-                ax.set_xlabel("Iteration")
-                ax.set_title(f"{metric.upper()} Progress")
-                ax.legend()
-                ax.grid(True)
-
-            plt.suptitle(f"Training Progress (Elapsed: {elapsed:.1f}s)")
-            plt.tight_layout()
-
-            if self.save_path:
-                try:
-                    plt.savefig(self.save_path)
-                except Exception:
-                    pass
-
-            plt.show()
-        except ImportError:
-            pass
-        except Exception:
-            pass
+from shared.paths import vectors_file, index_file, scores_file, training_output_dir
 
 
 def prepare_optimization_setup(
@@ -149,10 +30,8 @@ def prepare_optimization_setup(
                 f"Base config missing required key '{key}' for optimization."
             )
         param_grid[key] = around(key, base_cfg[key])
-    out_dir_val = config["training"]["output_dir"]
-    out_dir = resolve_path(out_dir_val)
-    os.makedirs(out_dir, exist_ok=True)
-    temp_model_base = os.path.join(out_dir, "temp_model")
+    os.makedirs(training_output_dir, exist_ok=True)
+    temp_model_base = os.path.join(training_output_dir, "temp_model")
     return (param_grid, temp_model_base)
 
 
@@ -253,7 +132,7 @@ def train_model_lightgbm_local(
 
         callbacks.append(pbar_callback)
         # Add live plotting callback (plots every 5s after first 10s)
-        graph_path = resolve_path(config["training"]["live_graph_path"])
+        graph_path = training_output_dir + "graph.png"
         callbacks.append(
             LivePlotCallback(
                 update_interval=60.0,
@@ -320,13 +199,6 @@ def train_model_lightgbm_local(
         else:
             metrics["n_iter"] = params["n_estimators"]
 
-    # Save transformer parameters for ONNX post-processing
-    if hasattr(transformer, "lambdas_"):
-        metrics["target_transform_lambdas"] = transformer.lambdas_
-        if hasattr(transformer, "_scaler"):
-            metrics["target_transform_mean"] = transformer._scaler.mean_
-            metrics["target_transform_scale"] = transformer._scaler.scale_
-
     # model.evals_result_ is populated if validation set is used
     if hasattr(model, "evals_result_"):
         evals = model.evals_result_
@@ -357,49 +229,7 @@ def train_model_lightgbm_local(
         # model_io.save_model usually handles just the model object + dicts.
         pass
 
-    # We return the WRAPPED model
     return final_model, metrics
-
-    # We return the WRAPPED model
-    return final_model, metrics
-
-    # Extract LightGBM-specific diagnostics
-    if hasattr(model, "best_iteration_"):
-        bi = int(getattr(model, "best_iteration_"))
-        if bi > 0:
-            metrics["n_iter"] = bi
-        elif "loss_curve_length" in metrics:
-            metrics["n_iter"] = metrics["loss_curve_length"]
-        else:
-            metrics["n_iter"] = params["n_estimators"]
-
-    # model.evals_result_ may be present
-    if hasattr(model, "evals_result_"):
-        evals_result = getattr(model, "evals_result_")
-        # try to extract train or validation loss sequences
-        # evals_result_ is dict(namespace -> metric -> list)
-
-        # LightGBM usually stores 'l2' or 'rmse' etc.
-        # evals_result = {'train': {'l2': [...]}, 'valid': {'l2': [...]}}
-        # We prefer validation loss if available
-        loss_curve = None
-        for ns in ["valid", "test", "train"]:
-            if ns in evals_result:
-                for metric_name in evals_result[ns]:
-                    loss_curve = evals_result[ns][metric_name]
-                    break
-            if loss_curve:
-                break
-
-        if loss_curve:
-            metrics["loss_curve"] = loss_curve
-            metrics["loss_curve_length"] = len(loss_curve)
-            metrics["has_loss_curve"] = True
-
-    if kept_features is not None:
-        metrics["kept_features"] = kept_features
-
-    return model, metrics
 
 
 def train_model(
@@ -535,174 +365,3 @@ def optimize_hyperparameters(
         results.append((merged, res_metrics))
 
     return results
-
-
-def compare_model_vs_data(
-    model_path: str,
-    
-    x:np.ndarray,y:np.ndarray,
-    plot: bool = True,
-    model: Any | None = None,
-    
-) -> None:
-    """Compare a trained model vs data.
-
-    This function requires a trained model to be supplied either as the `model`
-    argument (in-memory estimator) or as a saved model file on disk. If no
-    trained model is available, a RuntimeError is raised. This avoids silently
-    re-training the model during comparison.
-    """
-    # Load data using the full pipeline (including filtering and interactions) to ensure consistency with trained model
-    X=x
-    x_sample = X[:100]
-    # align y to the sample used for predictions
-    y_sample = y[: len(x_sample)]
-
-    # If no model provided, attempt to load from disk (common extensions).
-    if model is None:
-        found=model_path
-        #+".onnx"
-        print(f"Loading trained model from: {found}")
-
-        # If ONNX, use onnxruntime for inference
-        if found.lower().endswith(".onnx"):
-            import onnxruntime as ort
-
-            sess = ort.InferenceSession(
-                found, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
-            )
-
-            # Check for diagnostics to apply inverse transform
-            transformer_params = {}
-            try:
-                data = load_model_diagnostics(model_path)
-                if data:
-                    # Diagnostics might be nested in 'metrics' or top level depending on how saved
-                    # current impl in save_model saves dict as **additional_data.
-                    # so keys should be top level in .npz
-                    if "target_transform_lambdas" in data:
-                        transformer_params["lambdas"] = data["target_transform_lambdas"]
-                        transformer_params["mean"] = data.get("target_transform_mean")
-                        transformer_params["scale"] = data.get("target_transform_scale")
-                    elif "metrics" in data:
-                        # Handle nested metrics if that happens
-                        m = data["metrics"]
-                        if isinstance(m, dict) and "target_transform_lambdas" in m:
-                            transformer_params["lambdas"] = m[
-                                "target_transform_lambdas"
-                            ]
-                            transformer_params["mean"] = m.get("target_transform_mean")
-                            transformer_params["scale"] = m.get(
-                                "target_transform_scale"
-                            )
-            except Exception as e:
-                print(
-                    f"Warning: Could not load diagnostics for ONNX transform check: {e}"
-                )
-
-            # Prepare input name and run
-            input_name = sess.get_inputs()[0].name
-
-            def onnx_predict(X_arr: np.ndarray) -> np.ndarray:
-                # Ensure float32
-                Xf = X_arr.astype(np.float32)
-                out = sess.run(None, {input_name: Xf})
-                y_pred = np.asarray(out[0]).ravel()
-
-                # Apply Inverse Transform if parameters found
-                if "lambdas" in transformer_params:
-                    # Yeo-Johnson Inverse Application
-
-                    # 1. Inverse Standardize
-                    if (
-                        transformer_params.get("mean") is not None
-                        and transformer_params.get("scale") is not None
-                    ):
-                        mean = transformer_params["mean"]
-                        scale = transformer_params["scale"]
-                        y_pred = y_pred * scale + mean
-
-                    # 2. Inverse Yeo-Johnson
-                    lmbda = transformer_params["lambdas"]
-                    if isinstance(lmbda, np.ndarray) and lmbda.size == 1:
-                        lmbda = lmbda.item()
-
-                    y_inv = np.zeros_like(y_pred)
-
-                    if abs(lmbda) > 1e-7:
-                        pos_mask = y_pred >= 0
-                        neg_mask = ~pos_mask
-
-                        # Positive
-                        y_pos = y_pred[pos_mask]
-                        base_pos = y_pos * lmbda + 1
-                        base_pos = np.maximum(base_pos, 1e-9)
-                        y_inv[pos_mask] = np.power(base_pos, 1.0 / lmbda) - 1
-
-                        # Negative
-                        y_neg = y_pred[neg_mask]
-                        l2 = 2 - lmbda
-                        base_neg = 1 - y_neg * l2
-                        base_neg = np.maximum(base_neg, 1e-9)
-                        y_inv[neg_mask] = 1 - np.power(base_neg, 1.0 / l2)
-                    else:
-                        pos_mask = y_pred >= 0
-                        neg_mask = ~pos_mask
-                        y_inv[pos_mask] = np.exp(y_pred[pos_mask]) - 1
-                        y_inv[neg_mask] = 1 - np.exp(-y_pred[neg_mask])
-
-                    return y_inv
-
-                return y_pred
-
-            model = type("ONNXWrapper", (), {"predict": staticmethod(onnx_predict)})()
-        else:
-            model = joblib.load(found)
-    else:
-        print("Using provided in-memory model for comparison.")
-
-    # Use the supplied/loaded model for predictions (do not retrain here).
-    preds = model.predict(x_sample)
-    # metrics may be available from saved diagnostics; attempt to load them
-    try:
-        metrics = None
-        data = load_model_diagnostics(model_path)
-        if data is not None and "metrics" in data:
-            metrics = data["metrics"]
-    except Exception:
-        metrics = None
-
-    print_comparison_metrics(y_sample, preds, metrics)
-    y_plot, p_plot = prepare_plot_data(y_sample, preds)
-    if y_plot.size > 0 and p_plot.size > 0:
-        plot_scatter_comparison(y_plot, p_plot, plot)
-
-
-def plot_loss_curve(model_path: str, metrics: Dict[str, Any] | None = None) -> None:
-    try:
-        loss = None
-        if (
-            metrics is not None
-            and "loss_curve" in metrics
-            and (metrics["loss_curve"] is not None)
-        ):
-            loss = np.asarray(metrics["loss_curve"], dtype=float)
-        data = load_model_diagnostics(model_path)
-        if data is not None and "loss_curve" in data:
-            loss = np.asarray(data["loss_curve"], dtype=float)
-        if loss is None:
-            print("No loss curve available to plot.")
-            return
-        loss = loss.ravel()
-        if loss.size == 0:
-            print("Loss curve empty; nothing to plot.")
-            return
-        plt.figure(figsize=(6, 4))
-        plt.plot(np.arange(1, loss.size + 1), loss, "-o", linewidth=1)
-        plt.xlabel("Iteration")
-        plt.ylabel("Loss")
-        plt.title("Training Loss Curve")
-        plt.grid(True)
-        plt.show()
-    except Exception as e:
-        print("Failed to plot loss curve:", e)

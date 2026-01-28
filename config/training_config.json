@@ -9,8 +9,8 @@
     "output_dir": "step03training/full_data/output",
     "live_graph_path": "step03training/full_data/output/graph_hpo.png",
     "top": {
-        "best_score": 0.3948796234114994,
-        "training_time": 60.084514141082764,
+        "best_score": 0.3948984064845471,
+        "training_time": 38.57364535331726,
         "learning_rate": 0.007819515626402838,
         "n_estimators": 1620,
         "num_leaves": 512,

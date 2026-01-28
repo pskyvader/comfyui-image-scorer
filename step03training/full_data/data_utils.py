@@ -1,22 +1,14 @@
 import numpy as np
 import lightgbm as lgb
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn.metrics import r2_score
-import matplotlib.pyplot as plt
 import gc
 from tqdm import tqdm
-from typing import Tuple, Optional, Any, List
-from pathlib import Path
+from typing import Tuple
 import os
 
 from shared.io import load_jsonl
 from shared.config import config
-from shared.paths import (
-    training_output_dir,
-    filtered_data,
-    interaction_data,
-    processed_data,
-)
+from shared.paths import training_output_dir, filtered_data, interaction_data
 
 
 def load_training_vectors(vectors_path: str) -> np.ndarray:
@@ -37,87 +29,6 @@ def load_training_data(
             f"Mismatched vector and score counts: vectors={len(X)}, scores={len(y)}; input files may be corrupted."
         )
     return (X, y)
-
-
-def get_filtered_data(
-    vectors_path: str, scores_path: str, cache_file: Optional[str] = None
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Loads training data, filters unused features, adds interaction features, and caches the result.
-    Invalidates cache if source file (vectors.jsonl) is newer than cache.
-    Returns:
-        X_final: Features (Filtered + Interactions)
-        y: Target scores
-        kept_indices: Indices of feature columns kept from original X
-        interaction_indices: Indices of interaction features used relative to poly expansion of valid features
-    """
-    if cache_file is None:
-        # Default to training_output_dir/processed_data_cache.npz
-        cache_file = str(Path(training_output_dir) / "processed_data_cache.npz")
-
-    # Check cache validity
-    cache_valid = False
-    if os.path.exists(cache_file):
-        try:
-            # Check timestamp against vectors_path
-            src_mtime = os.path.getmtime(vectors_path)
-            cache_mtime = os.path.getmtime(cache_file)
-            if src_mtime > cache_mtime:
-                print(
-                    "Source data (vectors.jsonl) is newer than cache. Invalidating cache."
-                )
-            else:
-                cache_valid = True
-        except Exception:
-            pass  # Fallback to rebuild
-
-    if cache_valid:
-        print(f"Loading processed data from cache: {cache_file}")
-        try:
-            data = np.load(cache_file)
-            # Ensure integrity
-            if "X" in data and "y" in data and "kept_indices" in data:
-                print(f"Data ready (cached). Shape: {data['X'].shape}")
-                # Load interactions if available, else empty (backward compatibility)
-                inter_indices = (
-                    data["interaction_indices"]
-                    if "interaction_indices" in data
-                    else np.array([])
-                )
-                return data["X"], data["y"], data["kept_indices"], inter_indices
-            else:
-                print("Cache corrupted (missing keys). Rebuilding...")
-        except Exception as e:
-            print(f"Failed to load cache: {e}. Rebuilding...")
-
-    print("Cache not found or invalid. Building processed dataset...")
-    X, y = load_training_data(vectors_path, scores_path)
-
-    # Step 1: Filter Unused Features
-    X_filtered, kept_indices = filter_unused_features(
-        X, y, vectors_path_for_hashing=vectors_path
-    )
-
-    # Step 2: Add Interaction Features (Top 500)
-    print("Generating top interaction features...")
-    X_final, interaction_indices = add_interaction_features(
-        X_filtered, y, target_k=500, cache_source_path=vectors_path
-    )
-
-    # Ensure cache directory exists
-    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-
-    np.savez_compressed(
-        cache_file,
-        X=X_final,
-        y=y,
-        kept_indices=kept_indices,
-        interaction_indices=interaction_indices,
-    )
-    print(f"Saved processed data to cache: {cache_file}")
-
-    return X_final, y, kept_indices, interaction_indices
-
 
 def add_interaction_features(
     X: np.ndarray,
@@ -330,63 +241,6 @@ def filter_unused_features(
         print(f"Saved filtered data to cache: {filtered_data}")
 
     return X_filtered, kept_indices
-
-
-def plot_scatter_comparison(
-    y_plot: np.ndarray, p_plot: np.ndarray, plot: bool = True
-) -> None:
-    _, ax = plt.subplots(figsize=(6, 4))
-    ax.scatter(
-        y_plot, p_plot, alpha=0.7, s=30, edgecolors="k", linewidths=0.2, zorder=5
-    )
-    ymin = float(min(np.min(y_plot), np.min(p_plot)))
-    ymax = float(max(np.max(y_plot), np.max(p_plot)))
-    if not np.isfinite(ymin) or not np.isfinite(ymax):
-        print("Could not determine plot range; skipping perfect-prediction line.")
-    else:
-        margin = max((ymax - ymin) * 0.02, 1e-06)
-        ax.plot(
-            [ymin - margin, ymax + margin],
-            [ymin - margin, ymax + margin],
-            "r--",
-            label="perfect prediction",
-            linewidth=2.0,
-            zorder=10,
-        )
-        ax.set_xlim(ymin - margin, ymax + margin)
-        ax.set_ylim(ymin - margin, ymax + margin)
-        ax.set_aspect("equal", adjustable="box")
-    ax.legend()
-    ax.set_xlabel("Actual")
-    ax.set_ylabel("Predicted")
-    ax.set_title("Actual vs Predicted (sample)")
-    ax.grid(True)
-    if plot:
-        plt.show()
-
-
-def prepare_plot_data(y: Any, preds: Any) -> Tuple[np.ndarray, np.ndarray]:
-    y_sample = np.asarray(y[:100]).ravel()
-    preds = np.asarray(preds).ravel()
-    mask = np.isfinite(y_sample) & np.isfinite(preds)
-    if not mask.any():
-        print("No finite prediction/data pairs to plot; skipping compare plot.")
-        return (np.array([]), np.array([]))
-    return (y_sample[mask], preds[mask])
-
-
-def print_comparison_metrics(y: Any, preds: Any, metrics: Any) -> None:
-    y_sample = np.asarray(y).ravel()
-    preds = np.asarray(preds).ravel()
-    mask_all = np.isfinite(y_sample) & np.isfinite(preds)
-    if mask_all.any():
-        y_eval = y_sample[mask_all]
-        p_eval = preds[mask_all]
-        sample_r2 = float(r2_score(y_eval, p_eval))
-        print(f"Comparison metrics (sample): r2={sample_r2:.4f}, n={len(y_eval)}")
-    if metrics is not None and "r2" in metrics:
-        print(f"Stored metrics: r2={float(metrics['r2']):.4f}")
-
 
 __all__ = [
     "load_training_data",
