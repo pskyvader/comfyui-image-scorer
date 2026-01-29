@@ -4,58 +4,13 @@ import numpy as np
 import os
 import json
 
-# Module-level dynamic configuration (loaded from prepare_config.json when available)
-_SCHEMA_ORDER: List[str] = [
-    "cfg",
-    "steps",
-    "lora_weight",
-    "steps_cfg",
-    "lora",
-    "sampler",
-    "scheduler",
-    "model",
-    "width",
-    "height",
-    "aspect_ratio",
-    "negative_terms",
-    "positive_terms",
-]
-
-_SLOT_SIZES: Dict[str, int] = {
-    "cfg": 1,
-    "steps": 1,
-    "lora_weight": 1,
-    "steps_cfg": 1,
-    "lora": 6,
-    "sampler": 3,
-    "scheduler": 3,
-    "model": 4,
-    "width": 1,
-    "height": 1,
-    "aspect_ratio": 1,
-    "negative_terms": 1,
-    "positive_terms": 1,
-}
-
-_NORMALIZATION: Dict[str, float] = {
-    "cfg_max": 20.0,
-    "steps_max": 50.0,
-    "width_max": 4096.0,
-    "aspect_ratio_max": 5.0,
-}
-
-_EMBEDDING_DIM = 768
-
-# Cache information about loaded config to avoid re-reading files repeatedly
-_LOADED_CONFIG_PATH: Optional[str] = None
-
 
 def _set_defaults_from_prepare_config(data: Dict[str, Any]):
     """Apply values from parsed prepare_config.json to module state."""
     global _SCHEMA_ORDER, _SLOT_SIZES, _NORMALIZATION, _EMBEDDING_DIM
 
     # Vector schema
-    vs = data.get("vector_schema", {})
+    vs = data.get("vector_schema")
     order = vs.get("order")
     slots = vs.get("slots")
 
@@ -145,8 +100,8 @@ def get_slot_size(name: str) -> int:
 
 def assemble_feature_vector(
     metadata: Dict[str, Any],
-    pos_embedding: 'np.ndarray',
-    neg_embedding: 'np.ndarray',
+    pos_embedding: np.ndarray,
+    neg_embedding: np.ndarray,
     category_indices: Dict[str, int],
     prepare_config_path: Optional[str] = None,
 ) -> 'np.ndarray':

@@ -10,7 +10,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.001,
         "max": 0.5,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "n_estimators": {
         # Purpose: Number of boosting iterations (trees) to fit.
@@ -19,7 +19,7 @@ grid_base: Dict[str, Any] = {
         "min": 10,
         "max": 2000,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "num_leaves": {
         # Purpose: Maximum number of leaves in one tree. Main parameter to control model complexity.
@@ -28,7 +28,7 @@ grid_base: Dict[str, Any] = {
         "min": 2, 
         "max": 1024, 
         "step": 0.1, 
-        "random": 0.3
+        "random": 0.01
     },
     "max_depth": {
         # Purpose: Maximum depth of a tree. Limits the complexity of the model.
@@ -37,7 +37,7 @@ grid_base: Dict[str, Any] = {
         "min": 1, 
         "max": 100, 
         "step": 0.1, 
-        "random": 0.3
+        "random": 0.01
     },
     "min_child_samples": {
         # Purpose: Minimum number of data points needed in a leaf. Helps prevent overfitting.
@@ -46,7 +46,7 @@ grid_base: Dict[str, Any] = {
         "min": 1,
         "max": 200,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "reg_alpha": {
         # Purpose: L1 regularization term on weights. Increases sparsity (sets some weights to exactly zero).
@@ -56,7 +56,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "reg_lambda": {
         # Purpose: L2 regularization term on weights. Penalizes large weights to reduce overfitting.
@@ -66,7 +66,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.0,
         "max": 10.0,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "subsample": {
         # Purpose: Fraction of data samples used for each iteration (tree).
@@ -75,7 +75,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.1,
         "max": 1.0,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "colsample_bytree": {
         # Purpose: Fraction of features (columns) randomly selected for each iteration (tree).
@@ -85,7 +85,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.1,
         "max": 1.0,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "min_split_gain": {
         # Purpose: Minimum loss reduction required to make a further partition on a leaf node.
@@ -95,7 +95,7 @@ grid_base: Dict[str, Any] = {
         "min": 0.0,
         "max": 0.5,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
     "early_stopping_rounds": {
         # Purpose: Stops training if the validation score doesn't improve for this many rounds.
@@ -104,7 +104,7 @@ grid_base: Dict[str, Any] = {
         "min": 5,
         "max": 200,
         "step": 0.1,
-        "random": 0.3,
+        "random": 0.01,
     },
 }
 
@@ -137,8 +137,17 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
     result: List[Union[int, float]] = []
     candidates: Set[Union[int, float]] = set()
     if cell["type"] == "int":
+        higher=int(higher)
+        lower=int(lower)
+        v=int(v)
+        if v==lower and v>vmin:
+            lower-=1
+        
+        if v==higher and v<higher:
+            higher+=1
+            
         # Uniqueness: Use set to dedup, then sort
-        candidates = {int(higher), int(v), int(lower)}
+        candidates = {(higher), (v), (lower)}
     if cell["type"] == "float":
         candidates = {float(higher), float(v), float(lower)}
 

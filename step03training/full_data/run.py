@@ -16,8 +16,14 @@ from shared.config import config
 
 import lightgbm as lgb
 from step03training.full_data.config_utils import grid_base, around
+from step03training.full_data.analysis import LivePlotCallback
 
 from shared.paths import vectors_file, index_file, scores_file, training_output_dir
+
+
+def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]:
+    """Custom R2 metric for LightGBM evaluation."""
+    return "r2", float(r2_score(y_true, y_pred)), True
 
 
 def prepare_optimization_setup(
@@ -52,7 +58,6 @@ def evaluate_hyperparameter_combo(
     y: Optional[Any],
 ) -> Tuple[float, float]:
     _, metrics = train_model(
-        temp_model_base,
         config_dict=current_cfg,
         X=X,
         y=y,
@@ -243,7 +248,7 @@ def train_model(
         raise ValueError("Training must use CUDA device.")
 
     test_size = float(config["training"]["test_size"])
-    random_state = int(config["training"]["random_state"])
+    random_state = (config["training"]["random_state"])
     split_res = cast(
         Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
         tuple(train_test_split(X, y, test_size=test_size, random_state=random_state)),

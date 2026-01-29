@@ -197,7 +197,7 @@ def filter_unused_features(
         "objective": "regression",
         "metric": "l2",
         "verbosity": -1,
-        "n_estimators": 100,  # Enough to find gradients
+        "n_estimators": 500,  # Enough to find gradients
         "learning_rate": 0.1,
         "min_child_samples": 1,
         "device_type": device_name,

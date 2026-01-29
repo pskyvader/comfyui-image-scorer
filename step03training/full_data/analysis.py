@@ -1,19 +1,15 @@
-from step03training.full_data.data_utils import (
-    prepare_plot_data,
-    print_comparison_metrics,
-    plot_scatter_comparison,
-)
-
+from typing import Any, Dict, List, Optional, Set, Tuple
+import os
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
 
 from step03training.full_data.model_io import load_model_diagnostics, load_model
 
 
-import matplotlib.pyplot as plt
-from sklearn.metrics import r2_score
-
-
 def plot_scatter_comparison(
-    y_plot: np.ndarray, p_plot: np.ndarray, plot: bool = True1
+    y_plot: np.ndarray, p_plot: np.ndarray, plot: bool = True
 ) -> None:
     _, ax = plt.subplots(figsize=(6, 4))
     ax.scatter(
