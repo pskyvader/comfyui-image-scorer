@@ -1,4 +1,4 @@
-numpy
+numpy>=2.4.0
 onnxruntime-gpu; sys_platform != "darwin"
 onnxruntime; sys_platform == "darwin"
 transformers
@@ -6,3 +6,4 @@ sentence-transformers
 scikit-learn
 Pillow
 torch
+lightgbm

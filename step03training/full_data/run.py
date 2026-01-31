@@ -18,7 +18,7 @@ import lightgbm as lgb
 from step03training.full_data.config_utils import grid_base, around
 from step03training.full_data.analysis import LivePlotCallback
 
-from shared.paths import vectors_file, index_file, scores_file, training_output_dir
+from shared.paths import  training_output_dir
 
 
 def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]:
@@ -168,6 +168,7 @@ def train_model_lightgbm_local(
 
     # Construct final TransformedTargetRegressor with fitted components
     # This allows us to use .predict() normally (which inverses transform handles)
+    #transformer = PowerTransformer(method="yeo-johnson")
     final_model = TransformedTargetRegressor(regressor=model, transformer=transformer)
     # Manually set fitted attributes to bypass .fit()
     final_model.regressor_ = model
@@ -226,14 +227,6 @@ def train_model_lightgbm_local(
                 # Flag for notebook to know we have data
                 metrics["has_loss_curve"] = True
                 metrics["has_n_iter"] = True
-
-    # Save the model
-    # We save the wrapper so loading it works transparently
-    if kept_features is not None:
-        # If we have feature info, saved differently?
-        # model_io.save_model usually handles just the model object + dicts.
-        pass
-
     return final_model, metrics
 
 
@@ -248,7 +241,7 @@ def train_model(
         raise ValueError("Training must use CUDA device.")
 
     test_size = float(config["training"]["test_size"])
-    random_state = (config["training"]["random_state"])
+    random_state = config["training"]["random_state"]
     split_res = cast(
         Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
         tuple(train_test_split(X, y, test_size=test_size, random_state=random_state)),

@@ -37,7 +37,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     if rebuild:
         print("Rebuild requested: removing existing outputs...")
         remove_existing_outputs()
-
+        print("files removed")
     index_list, vectors_list, scores_list = load_existing_data()
     processed_files = {s.split("#", 1)[0] for s in index_list}
     error_log: List[dict[str, str]] = []
@@ -56,7 +56,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
             f"Collected {len(collected_data)} items. Limiting to {limit} as requested."
         )
         collected_data = collected_data[:limit]
-
+    print("encoding new images ...")
     image_vectors = encode_new_images(collected_data)
     schema = load_vector_schema()
     process_and_append_data(

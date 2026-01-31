@@ -97,6 +97,7 @@ def compare_model_vs_data(
     try:
         metrics = None
         data = load_model_diagnostics(model_path)
+        print (f"metrics data: {data}")
         if data is not None and "metrics" in data:
             metrics = data["metrics"]
     except Exception:

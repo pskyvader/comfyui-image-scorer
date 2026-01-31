@@ -6,6 +6,8 @@ root = Path(config["root"])
 image_root = config["image_root"]
 comfy_node_path = config["comfy_node_path"]
 prepare_config = config["prepare_config"]
+config_path = config["config_path"]
+training_config = config["training_config"]
 
 prepare_dir = os.path.join(root, config["prepare_dir"])
 print(f"prepare_dir: {prepare_dir}")

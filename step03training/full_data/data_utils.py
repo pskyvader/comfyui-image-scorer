@@ -30,6 +30,7 @@ def load_training_data(
         )
     return (X, y)
 
+
 def add_interaction_features(
     X: np.ndarray,
     y: np.ndarray,
@@ -197,7 +198,7 @@ def filter_unused_features(
         "objective": "regression",
         "metric": "l2",
         "verbosity": -1,
-        "n_estimators": 500,  # Enough to find gradients
+        "n_estimators": 300,  # Enough to find gradients
         "learning_rate": 0.1,
         "min_child_samples": 1,
         "device_type": device_name,
@@ -241,11 +242,3 @@ def filter_unused_features(
         print(f"Saved filtered data to cache: {filtered_data}")
 
     return X_filtered, kept_indices
-
-__all__ = [
-    "load_training_data",
-    "plot_scatter_comparison",
-    "prepare_plot_data",
-    "print_comparison_metrics",
-    "filter_unused_features",
-]

@@ -1,10 +1,17 @@
-try:
-    from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
-except Exception:
-    # Allow importing this package in test/discovery contexts where
-    # ComfyUI dependencies may not be available. Tests can import
-    # `nodes.py` directly when needed.
-    NODE_CLASS_MAPPINGS = {}
-    NODE_DISPLAY_NAME_MAPPINGS = {}
+from typing import Any, Dict
+from .aesthetic_score.node import AestheticScoreNode
+# from .text_score.node import TextScoreNode
+
+
+NODE_CLASS_MAPPINGS: Dict[str, Any] = {
+    "AestheticScoreNode": AestheticScoreNode,
+    # "TextScoreNode": TextScoreNode,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "AestheticScoreNode": "Calculate Aesthetic Score",
+    # "TextScoreNode": "Score Text+Params",
+}
+
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
