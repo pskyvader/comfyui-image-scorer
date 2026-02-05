@@ -13,7 +13,7 @@
             "lora": 13,
             "sampler": 4,
             "scheduler": 3,
-            "model": 9,
+            "model": 16,
             "width": 1,
             "height": 1,
             "aspect_ratio": 1,

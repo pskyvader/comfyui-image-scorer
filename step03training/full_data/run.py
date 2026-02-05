@@ -30,12 +30,20 @@ def prepare_optimization_setup(
     base_cfg: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], str]:
     param_grid: Dict[str, Any] = {}
-    for key in grid_base.keys():
+    chosen=0
+    limit=2
+    keys=list(grid_base.keys())
+    random.shuffle(keys)
+    for key in keys:
         if key not in base_cfg:
             raise ValueError(
                 f"Base config missing required key '{key}' for optimization."
             )
-        param_grid[key] = around(key, base_cfg[key])
+        if chosen<limit:
+            chosen+=1
+            param_grid[key] = around(key, base_cfg[key])
+        else:
+            param_grid[key]=[base_cfg[key]]
     os.makedirs(training_output_dir, exist_ok=True)
     temp_model_base = os.path.join(training_output_dir, "temp_model")
     return (param_grid, temp_model_base)
@@ -47,7 +55,7 @@ def generate_combos(
     keys = list(param_grid.keys())
     value_lists = [list(param_grid[k]) for k in keys]
     all_combos = [dict(zip(keys, vals)) for vals in product(*value_lists)]
-    random.shuffle(all_combos)
+    #random.shuffle(all_combos)
     return list(islice(iter(all_combos), max_combos))
 
 
@@ -275,6 +283,7 @@ def optimize_hyperparameters(
 
     for i in range(len(combos)):
         combo = combos[i]
+        print("_"*30)
         print(
             f"Evaluating hyperparameter combo {i+1}/{len(combos)}, with params: {combo}"
         )
@@ -331,7 +340,7 @@ def optimize_hyperparameters(
 
             if cond_a or cond_b:
                 print(
-                    f"--> Found new FASTEST model! (Score: {score:.4f}, Time: {t_time:.4f}s)"
+                    f"--> Found new FASTEST model! Old: {current_top_score:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s)"
                 )
                 new_fast = {**merged, "best_score": score, "training_time": t_time}
                 fast_cfg.update(new_fast)
@@ -344,16 +353,16 @@ def optimize_hyperparameters(
                 current_slow_score = (
                     slow_cfg["best_score"] if "best_score" in slow_cfg else -1000000.0
                 )
-                if score > current_slow_score:
+                if score > current_slow_score or (score>current_slow_score*0.99 and t_time<slow_cfg["training_time"]*0.98):
                     print(
-                        f"--> Found new SLOWEST model! (Score: {score:.4f}, Time: {t_time:.4f}s)"
+                        f"--> Found new SLOWEST model! Old {current_top_score:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s)"
                     )
                     new_slow = {**merged, "best_score": score, "training_time": t_time}
                     slow_cfg.update(new_slow)
 
                     res_metrics = {"r2": score, "training_time": t_time}
                     results.append((merged, res_metrics))
-                    if t_time > 300.0:
+                    if t_time > 600.0:
                         print(
                             "Slowest improved but still too slow; skipping remaining combos in this batch."
                         )

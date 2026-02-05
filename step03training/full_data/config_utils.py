@@ -35,7 +35,7 @@ grid_base: Dict[str, Any] = {
         # Speed: Deeper trees take longer to build.
         "type": "int", 
         "min": 1, 
-        "max": 100, 
+        "max": 120, 
         "step": 0.1, 
         "random": 0.01
     },
@@ -44,7 +44,7 @@ grid_base: Dict[str, Any] = {
         # Speed: no significant impact.
         "type": "int",
         "min": 1,
-        "max": 200,
+        "max": 400,
         "step": 0.1,
         "random": 0.01,
     },
@@ -78,8 +78,7 @@ grid_base: Dict[str, Any] = {
         "random": 0.01,
     },
     "colsample_bytree": {
-        # Purpose: Fraction of features (columns) randomly selected for each iteration (tree).
-        #          Yes, it uses a different random subset of columns for each tree.
+        # Purpose: Fraction of features (columns) randomly selected for each iteration (tree). It uses a different random subset of columns for each tree.
         # Speed: Lower values speed up training significantly if there are many features.
         "type": "float",
         "min": 0.1,
@@ -143,13 +142,15 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
         if v==lower and v>vmin:
             lower-=1
         
-        if v==higher and v<higher:
+        if v==higher and v<vmax:
             higher+=1
             
         # Uniqueness: Use set to dedup, then sort
         candidates = {(higher), (v), (lower)}
+        #candidates = {(higher), (lower)}
     if cell["type"] == "float":
         candidates = {float(higher), float(v), float(lower)}
+        #candidates = {float(higher), float(lower)}
 
     result = sorted(list(candidates), reverse=True)
     # Final check

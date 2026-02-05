@@ -10,6 +10,7 @@ from flask import Flask, request, send_from_directory, jsonify
 from shared.config import PROJECT_ROOT, config
 from step01ranking.utils import get_unscored_images, serve_file
 from step01ranking.scores import submit_scores_handler
+from step01ranking.cache import get_absolute_total, total_cached_items, get_cache
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,8 +46,15 @@ def serve_image_route(subpath: str) -> Any:
 
 @app.route("/unscored_count")
 def unscored_count() -> Any:
-    root, unscored = root_and_unscored()
-    return jsonify({"root": root, "count": len(unscored)})
+    root = image_root()
+    return jsonify(
+        {
+            "root": root,
+            "count": len(get_cache(fast=True)),
+            "total": get_absolute_total(),
+            "cached": total_cached_items(),
+        }
+    )
 
 
 @app.route("/random_unscored")
@@ -92,8 +100,11 @@ def submit_score_route() -> Any:
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--test-run", action="store_true", help="Verify configuration and exit")
+    parser.add_argument(
+        "--test-run", action="store_true", help="Verify configuration and exit"
+    )
     args = parser.parse_args()
 
     if args.test_run:

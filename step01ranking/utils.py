@@ -9,7 +9,7 @@ from step01ranking.cache import (
     in_cache,
     disable_from_cache,
     total_cached_items,
-    fast_serve,
+    fast_serve,set_absolute_total
 )
 from random import shuffle
 
@@ -35,6 +35,7 @@ def find_images(root_dir: str) -> List[str]:
                 full_path = os.path.join(path, name)
                 files.append(full_path.replace("\\", "/"))
     shuffle(files)
+    set_absolute_total(len(files))
     return files
 
 
@@ -67,7 +68,7 @@ def get_unscored_images(root: str) -> List[str]:
     images = find_images(root)
     limit = 100
     valid = 0
-    processed_limit = limit * 5
+    processed_limit = limit * 2
     processed = 0
     valid_cached = get_cache()
 
@@ -99,6 +100,7 @@ def get_unscored_images(root: str) -> List[str]:
             disable_from_cache(img)
             continue
         valid += 1
+        
     valid_cached = get_cache()
     print(f"valid: {valid}/{limit}, total processed: {processed}/{processed_limit}")
     print(f"total cached items: {total_cached_items()}, valid: {len(valid_cached)}")

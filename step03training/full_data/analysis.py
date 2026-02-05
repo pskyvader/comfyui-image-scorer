@@ -42,7 +42,7 @@ def plot_scatter_comparison(
 
 
 def prepare_plot_data(y: Any, preds: Any) -> Tuple[np.ndarray, np.ndarray]:
-    y_sample = np.asarray(y[:100]).ravel()
+    y_sample = np.asarray(y).ravel()
     preds = np.asarray(preds).ravel()
     mask = np.isfinite(y_sample) & np.isfinite(preds)
     if not mask.any():
@@ -80,7 +80,7 @@ def compare_model_vs_data(
     """
     # Load data using the full pipeline (including filtering and interactions) to ensure consistency with trained model
     X = x
-    x_sample = X[:100]
+    x_sample =X[:500]
     # align y to the sample used for predictions
     y_sample = y[: len(x_sample)]
 
@@ -97,7 +97,6 @@ def compare_model_vs_data(
     try:
         metrics = None
         data = load_model_diagnostics(model_path)
-        print (f"metrics data: {data}")
         if data is not None and "metrics" in data:
             metrics = data["metrics"]
     except Exception:
@@ -178,10 +177,6 @@ class LivePlotCallback:
         self.last_plot_time = now
 
         try:
-            from IPython.display import clear_output
-
-            clear_output(wait=True)
-
             # Group metrics by type (l2, rmse, l1)
             metrics_found: Set[str] = set()
             for key in self.history.keys():
@@ -196,6 +191,8 @@ class LivePlotCallback:
             fig, axes = plt.subplots(1, num_metrics, figsize=(5 * num_metrics, 5))
             if num_metrics == 1:
                 axes = [axes]
+            
+            print (f"metrics found: {metrics_found}")
 
             for i, metric in enumerate(sorted(list(metrics_found))):
                 ax = axes[i]

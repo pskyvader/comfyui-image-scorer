@@ -3,6 +3,7 @@ from time import time
 
 cache_list: Dict[str, bool] = {}
 last_time_served = -1.0
+absolute_total=0
 
 
 def clear_cache():
@@ -37,7 +38,7 @@ def remove_from_cache(image_path: str):
 
 def fast_serve():
     global last_time_served
-    return last_time_served > (time() - 10)
+    return last_time_served > (time() - 1)
 
 
 def get_cache(fast: bool = False) -> List[str]:
@@ -50,3 +51,11 @@ def get_cache(fast: bool = False) -> List[str]:
 def total_cached_items() -> int:
     global cache_list
     return len(cache_list)
+
+def set_absolute_total(total: int)->None:
+    global absolute_total
+    absolute_total=total 
+    
+def get_absolute_total()-> int:
+    global absolute_total
+    return absolute_total

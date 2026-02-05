@@ -5,6 +5,9 @@
 <head>
     <meta charset="UTF-8">
     <title>Step 1 Scoring Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
     <link rel="stylesheet" href="/style.css">
 </head>
 
@@ -13,7 +16,7 @@
     <div class="card">
         <header>
             <h2>Image Scoring Tool</h2>
-            <div class="meta-line" id="folder"></div>
+            <!-- <div class="meta-line" id="folder"></div> -->
             <div class="meta-line" id="counter"></div>
         </header>
 
@@ -70,7 +73,11 @@
         async function refreshCount() {
             const r = await fetch('/unscored_count');
             const d = await r.json();
-            document.getElementById('counter').innerText = d.count + ' unscored';
+            const count=d.count;
+            const total=d.total;
+            const cached=d.cached
+            document.getElementById('counter').innerText = 
+            count +"/"+ cached+ ' unscored' +"("+cached+"/"+total+" cached)";
             document.getElementById('folder').innerText = 'Folder: ' + d.root;
             document.getElementById('status').innerText = '';
         }
@@ -279,7 +286,8 @@
         });
 
         // initial load
-        refreshCount().then(() => loadNext());
+        loadNext().then(()=>refreshCount());
+        //refreshCount().then(() => loadNext());
     </script>
 
 </body>
