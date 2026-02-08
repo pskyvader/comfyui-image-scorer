@@ -68,7 +68,7 @@ def get_unscored_images(root: str) -> List[str]:
     images = find_images(root)
     limit = 100
     valid = 0
-    processed_limit = limit * 2
+    processed_limit = limit * 10
     processed = 0
     valid_cached = get_cache()
 

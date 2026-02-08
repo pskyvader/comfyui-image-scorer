@@ -66,8 +66,8 @@ def add_interaction_features(
     if n_interactions == 0:
         return X, np.array([])
 
-    # Batch Size Calculation (Target 4GB)
-    BATCH_MEMORY_TARGET = 4 * 1024**3
+    # Batch Size Calculation (Target 1GB)
+    BATCH_MEMORY_TARGET = 1 * 1024**3
     # Approx full poly width for memory calc
     n_features_total = n_features_in + n_interactions
     bytes_per_row = n_features_total * 8
