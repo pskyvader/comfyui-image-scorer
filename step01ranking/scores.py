@@ -1,38 +1,26 @@
-"""Score submission handlers for the ranking UI.
-
-This module provides helpers to normalize incoming score payloads and to
-update the corresponding per-image JSON metadata files. The handlers are
-written to be easily unit-testable (file I/O is isolated behind small helpers
-so it can be patched in tests).
-"""
-
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, List, Tuple
 from flask import jsonify
+from pathlib import Path
 
 from shared.io import atomic_write_json
-from step01ranking.utils import get_json_path, load_meta
-from step01ranking.cache import (
-    disable_from_cache,
-)
+from step01ranking.utils import get_json_path, load_metadata, image_root
+from step01ranking.cache import disable
 
 
 def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
-    """Write `score` into the JSON file at ``json_path``.
+    meta = load_metadata(json_path)#.replace(".json", ""))
+    if not meta:
+        return False, "Invalid metadata"
 
-    Returns (True, None) on success or (False, error_message) on failure.
-    """
-    meta, timestamp, err = load_meta(json_path)
-    if err:
-        return (False, err)
-    if meta is None or timestamp is None:
-        return (False, "Invalid metadata contents")
-    meta[timestamp]["score"] = score
+    ts = next(iter(meta.keys()))
+    meta[ts]["score"] = score
+
     try:
         atomic_write_json(json_path, meta, indent=4)
-    except Exception as exc:  # pragma: no cover - IO failure
-        return (False, f"Failed to write JSON: {exc}")
-    return (True, None)
+    except Exception as e:
+        return False, str(e)
 
+    return True, None
 
 def _normalize_items(data: Any) -> Tuple[List[Dict[str, Any]], Tuple[Any, int] | None]:
     if isinstance(data, dict) and "image" in data:
@@ -44,26 +32,44 @@ def _normalize_items(data: Any) -> Tuple[List[Dict[str, Any]], Tuple[Any, int] |
     return ([], (jsonify({"error": "Invalid payload, expected list or dict"}), 400))
 
 
-def submit_scores_handler(data: Any) -> Tuple[Any, int] | Any:
+
+def submit_scores_handler(data: Any):
     items, err_resp = _normalize_items(data)
     if err_resp:
         return err_resp
+    
+    # if not isinstance(data, (dict, list)):
+    #     error_message={"error": "Invalid payload"}
+    #     print("error message",error_message)
+    #     return jsonify(error_message), 400
+    root=image_root()
+    root_path = Path(root)
+    
+    # items = (
+    #     [{"image": k, "score": v} for k, v in data.items()]
+    #     if isinstance(data, dict)
+    #     else data
+    # )
 
-    results: Dict[str, List[Any]] = {"ok": [], "errors": []}
+    result = {"ok": [], "errors": []}
+
     for item in items:
         if not isinstance(item, dict) or "image" not in item or "score" not in item:
-            results["errors"].append({"item": item, "error": "Invalid item format"})
+            result["errors"].append(item)
             continue
-        img_path = item["image"]
-        score = item["score"]
-        json_path: str = get_json_path(img_path)
+
+        img = (str(root_path)+"\\"+item["image"]).replace("\\", "/")
+        score=item["score"]
+        
+        json_path: str = get_json_path(img)
+        print ("json path",json_path)
         ok, err = _write_score(json_path, score)
+        #ok, err = _write_score(get_json_path(img), item["score"])
+        
+        disable(img)
         if ok:
-            results["ok"].append(img_path)
-            disable_from_cache(img_path)
+            result["ok"].append(img)
         else:
-            results["errors"].append(
-                {"image": img_path, "error": err, "json_path": json_path}
-            )
-    status: int = 200 if not results["errors"] else 207
-    return jsonify(results), status
+            result["errors"].append({"image": img, "error": err})
+    #print (result, items)
+    return jsonify(result), (200 if not result["errors"] else 207)

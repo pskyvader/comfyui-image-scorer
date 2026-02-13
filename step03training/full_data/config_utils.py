@@ -146,11 +146,11 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
             higher+=1
             
         # Uniqueness: Use set to dedup, then sort
-        candidates = {(higher), (v), (lower)}
-        #candidates = {(higher), (lower)}
+        #candidates = {(higher), (v), (lower)}
+        candidates = {(higher), (lower)}
     if cell["type"] == "float":
-        candidates = {float(higher), float(v), float(lower)}
-        #candidates = {float(higher), float(lower)}
+        #candidates = {float(higher), float(v), float(lower)}
+        candidates = {float(higher), float(lower)}
 
     result = sorted(list(candidates), reverse=True)
     # Final check
@@ -167,10 +167,18 @@ def generate_random_config() -> Dict[str, Any]:
     cfg = {"best_score": -1000000.0, "training_time": 0.0}
     for key, cell in grid_base.items():
         vmin, vmax = cell["min"], cell["max"]
+        
+        # if cell["type"] == "int":
+        #     cfg[key] = int(random.choice((int(vmin), int(vmax))))
+        # else:
+        #     cfg[key] = float(random.choice((vmin, vmax)))
+
         if cell["type"] == "int":
-            cfg[key] = int(random.choice((int(vmin), int(vmax))))
+            cfg[key] = int(random.randint(int(vmin), int(vmax)))
         else:
-            cfg[key] = float(random.choice((vmin, vmax)))
+            cfg[key] = float(random.uniform(vmin, vmax))
+
+
 
     return cfg
 

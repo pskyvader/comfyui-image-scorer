@@ -18,7 +18,9 @@ import lightgbm as lgb
 from step03training.full_data.config_utils import grid_base, around
 from step03training.full_data.analysis import LivePlotCallback
 
-from shared.paths import  training_output_dir
+from shared.paths import training_output_dir
+
+_last_used_keys: Dict[str, List[str]] = {}
 
 
 def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]:
@@ -27,23 +29,36 @@ def r2_metric(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[str, float, bool]
 
 
 def prepare_optimization_setup(
-    base_cfg: Dict[str, Any],
+    base_cfg: Dict[str, Any], strategy: str
 ) -> Tuple[Dict[str, Any], str]:
+    global _last_used_keys
+    current_last_used = _last_used_keys[strategy] if strategy in _last_used_keys else []
     param_grid: Dict[str, Any] = {}
-    chosen=0
-    limit=2
-    keys=list(grid_base.keys())
+    chosen = 0
+    limit = 1
+    keys = list(grid_base.keys())
     random.shuffle(keys)
+    print(f"last used keys for {strategy}: {current_last_used}")
     for key in keys:
+        if key in current_last_used:
+            continue
         if key not in base_cfg:
             raise ValueError(
                 f"Base config missing required key '{key}' for optimization."
             )
-        if chosen<limit:
-            chosen+=1
+        if chosen < limit:
+            chosen += 1
             param_grid[key] = around(key, base_cfg[key])
+            current_last_used.append(key)
         else:
-            param_grid[key]=[base_cfg[key]]
+            param_grid[key] = [base_cfg[key]]
+
+    for key in current_last_used[:-1]:
+        param_grid[key] = [base_cfg[key]]
+
+    if len(current_last_used) == len(keys):
+        current_last_used = []
+    _last_used_keys[strategy] = current_last_used
     os.makedirs(training_output_dir, exist_ok=True)
     temp_model_base = os.path.join(training_output_dir, "temp_model")
     return (param_grid, temp_model_base)
@@ -55,7 +70,7 @@ def generate_combos(
     keys = list(param_grid.keys())
     value_lists = [list(param_grid[k]) for k in keys]
     all_combos = [dict(zip(keys, vals)) for vals in product(*value_lists)]
-    #random.shuffle(all_combos)
+    # random.shuffle(all_combos)
     return list(islice(iter(all_combos), max_combos))
 
 
@@ -176,7 +191,7 @@ def train_model_lightgbm_local(
 
     # Construct final TransformedTargetRegressor with fitted components
     # This allows us to use .predict() normally (which inverses transform handles)
-    #transformer = PowerTransformer(method="yeo-johnson")
+    # transformer = PowerTransformer(method="yeo-johnson")
     final_model = TransformedTargetRegressor(regressor=model, transformer=transformer)
     # Manually set fitted attributes to bypass .fit()
     final_model.regressor_ = model
@@ -274,7 +289,7 @@ def optimize_hyperparameters(
     strategy: str = "generic",
 ) -> List[Tuple[Dict[str, Any], Dict[str, float]]]:
 
-    param_grid, temp_model_base = prepare_optimization_setup(base_cfg)
+    param_grid, temp_model_base = prepare_optimization_setup(base_cfg, strategy)
     print(f"Optimizing hyperparameters over grid: {param_grid}")
 
     combos = generate_combos(param_grid, max_combos)
@@ -283,7 +298,7 @@ def optimize_hyperparameters(
 
     for i in range(len(combos)):
         combo = combos[i]
-        print("_"*30)
+        print("_" * 30)
         print(
             f"Evaluating hyperparameter combo {i+1}/{len(combos)}, with params: {combo}"
         )
@@ -353,16 +368,26 @@ def optimize_hyperparameters(
                 current_slow_score = (
                     slow_cfg["best_score"] if "best_score" in slow_cfg else -1000000.0
                 )
-                if score > current_slow_score or (score>current_slow_score*0.99 and t_time<slow_cfg["training_time"]*0.98):
+                if (
+                    score > current_slow_score
+                    and t_time < slow_cfg["training_time"] * 1.1
+                ) or (
+                    t_time > 60
+                    and score > current_slow_score * 0.95
+                    and t_time
+                    < min(
+                        slow_cfg["training_time"] * 0.99, slow_cfg["training_time"] - 1
+                    )
+                ):
                     print(
-                        f"--> Found new SLOWEST model! Old {current_top_score:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s)"
+                        f"--> Found new SLOWEST model! Old {current_slow_score:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s)"
                     )
                     new_slow = {**merged, "best_score": score, "training_time": t_time}
                     slow_cfg.update(new_slow)
 
                     res_metrics = {"r2": score, "training_time": t_time}
                     results.append((merged, res_metrics))
-                    if t_time > 600.0:
+                    if t_time > 300.0:
                         print(
                             "Slowest improved but still too slow; skipping remaining combos in this batch."
                         )

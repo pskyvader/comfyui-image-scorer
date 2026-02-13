@@ -38,6 +38,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
         print("Rebuild requested: removing existing outputs...")
         remove_existing_outputs()
         print("files removed")
+    print("loadin existing data...")
     index_list, vectors_list, scores_list = load_existing_data()
     processed_files = {s.split("#", 1)[0] for s in index_list}
     error_log: List[dict[str, str]] = []
@@ -48,6 +49,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
             f"Configured image_root does not exist or is not a directory: {image_root}"
         )
 
+    print("collecting files....")
     files = list(collect_files(image_root))
     collected_data = collect_valid_files(files, processed_files, error_log)
 

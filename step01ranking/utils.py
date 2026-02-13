@@ -1,56 +1,38 @@
 import os
 from pathlib import Path
-from typing import Any, List, Tuple, Dict
-from flask import send_from_directory
+from typing import Any, List, Dict
+from flask import send_from_directory, abort
+from urllib.parse import unquote
 from shared.io import load_single_entry_mapping
 from step01ranking.cache import (
-    add_to_cache,
-    get_cache,
+    add,
+    get,
     in_cache,
-    disable_from_cache,
-    total_cached_items,
-    fast_serve,set_absolute_total
+    disable,
+    fast_serve,
+    set_absolute_total,
 )
-from random import shuffle
+from shared.config import PROJECT_ROOT, config
+import random
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-
+_image_root=None
+_image_list_cache=[]
 
 def serve_file(subpath: str) -> Any:
-    directory = os.path.dirname(subpath) or "."
-    filename = os.path.basename(subpath)
-    return send_from_directory(directory, filename, conditional=True)
+    """Serve file relative to image_root, properly decoded."""
+    root = Path(image_root())
+    path = root / unquote(subpath)
+    if not path.exists() or not path.is_file():
+        abort(404)
+    return send_from_directory(str(path.parent), path.name, conditional=True)
 
 
 def get_json_path(img_path: str) -> str:
-    base: str = os.path.splitext(img_path)[0]
-    return base + ".json"
+    return os.path.splitext(img_path)[0] + ".json"
 
 
-def find_images(root_dir: str) -> List[str]:
-    files: List[str] = []
-    for path, _, filenames in os.walk(root_dir):
-        for name in filenames:
-            if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
-                full_path = os.path.join(path, name)
-                files.append(full_path.replace("\\", "/"))
-    shuffle(files)
-    set_absolute_total(len(files))
-    return files
-
-
-def load_meta(json_path: str) -> Tuple[Dict[str, Any] | None, str | None, str | None]:
-    payload, ts, err = load_single_entry_mapping(json_path)
-    if err:
-        if err == "not_found":
-            return (None, None, "JSON file missing")
-        if err.startswith("load_error"):
-            return (None, None, f"Failed to read JSON: {err}")
-        return (None, None, err)
-    return ({ts: payload}, ts, None)
-
-
-def load_metadata(image_path: str) -> Any | None:
+def load_metadata(image_path: str) -> Dict[str, Any] | None:
     metadata_path = get_json_path(image_path)
     payload, ts, err = load_single_entry_mapping(metadata_path)
     if err:
@@ -58,50 +40,87 @@ def load_metadata(image_path: str) -> Any | None:
     return {ts: payload}
 
 
-def get_unscored_images(root: str) -> List[str]:
-    if fast_serve():
-        valid_cached = get_cache(fast=True)
-        print(
-            f"Fast serve: returning cached images: {total_cached_items()}, valid: {len(valid_cached)}"
-        )
-        return valid_cached
-    images = find_images(root)
-    limit = 100
-    valid = 0
-    processed_limit = limit * 10
-    processed = 0
-    valid_cached = get_cache()
+def image_root() -> str:
+    global _image_root
+    if _image_root:
+        return _image_root
+    img_root = config["image_root"]
+    root_path = Path(img_root)
+    if not root_path.is_absolute():
+        root_path = PROJECT_ROOT.joinpath(root_path).resolve()
+    _image_root=str(root_path)
+    return _image_root
 
-    for img in images:
-        if in_cache(img):
+
+def find_images(root_dir: str) -> List[str]:
+    files: List[str] = []
+    for path, _, filenames in os.walk(root_dir):
+        for name in filenames:
+            if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
+                #files.append(os.path.join(path, name).replace("\\", "/"))
+                full_path = os.path.join(path, name)
+                files.append(full_path.replace("\\", "/"))
+
+    
+    
+    random.shuffle(files)
+    set_absolute_total(len(files))
+    return files
+
+
+def scan_batch(root: str, limit: int = 100) -> bool:
+    # if fast_serve():
+    #     return False
+
+    all_images = find_images(root)
+    added_any_unscored = False
+    batch_count = 0
+
+    for img in all_images:
+        if img in _image_list_cache or in_cache(img):
             continue
-        if (len(valid_cached) > 0 or valid > 0) and (
-            (valid >= limit) or (processed >= processed_limit)
-        ):
-            break
-        add_to_cache(img)
-        processed += 1
+        if img not in _image_list_cache:
+            _image_list_cache.append(img)
+        
+        add(img)
 
         meta = load_metadata(img)
-        if not meta:
-            disable_from_cache(img)
+        entry = next(iter(meta.values()), {}) if meta else {}
+        if not entry or not isinstance(entry, dict):
+            disable(img)
             continue
-        latest_entry = next(iter(meta.values()), None)
-        if not latest_entry:
-            disable_from_cache(img)
-            continue
-        if not isinstance(latest_entry, dict):
-            print(
-                f"Invalid metadata format for image {img}", "type", type(latest_entry)
-            )
-            disable_from_cache(img)
-            continue
-        if "score" in latest_entry:
-            disable_from_cache(img)
-            continue
-        valid += 1
         
-    valid_cached = get_cache()
-    print(f"valid: {valid}/{limit}, total processed: {processed}/{processed_limit}")
-    print(f"total cached items: {total_cached_items()}, valid: {len(valid_cached)}")
-    return valid_cached
+        if "score" in entry:
+            disable(img)
+            continue
+
+        added_any_unscored = True
+        batch_count += 1
+
+        if batch_count >= limit:
+            break
+
+    return added_any_unscored
+
+
+def get_unscored_images(root: str) -> List[str]:
+    """
+    Return **truly unscored images** for the client.
+    Paths are relative to image_root and use forward slashes.
+    """
+    cached = get(valid_only=True)  # cache already only valid images
+    root_path = Path(root)
+    unscored: List[str] = []
+
+    for img in cached:
+        #meta = load_metadata(img)
+        #entry = next(iter(meta.values()), {}) if meta else {}
+        #if entry and isinstance(entry, dict) and "score" not in entry:
+            # relative path for Flask + forward slashes
+        try:
+            rel_path = str(Path(img).relative_to(root_path))#.replace("\\", "/")
+        except ValueError:
+            rel_path = os.path.basename(img)
+        unscored.append(rel_path)
+    #print(cached[0],unscored[0])
+    return unscored

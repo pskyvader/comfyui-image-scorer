@@ -43,9 +43,12 @@ def get_component_vector(
     scheduler_idx: int,
     model_idx: int,
     lora_idx: int,
-    width_norm: float,
-    height_norm: float,
-    aspect_ratio_norm: float,
+    original_width_norm:float,
+    original_height_norm:float,
+    original_ar_norm:float,
+    final_width_norm:float,
+    final_height_norm:float,
+    final_ar_norm:float,
     pos_indices: WeightedIndices,
     neg_indices: WeightedIndices,
     slots: Dict[str, Any],
@@ -58,12 +61,19 @@ def get_component_vector(
         return [steps_norm]
     if name == "lora_weight":
         return [lora_weight]
-    if name == "width":
-        return [width_norm]
-    if name == "height":
-        return [height_norm]
-    if name == "aspect_ratio":
-        return [aspect_ratio_norm]
+    if name == "original_width":
+        return [original_width_norm]
+    if name == "original_height":
+        return [original_height_norm]
+    if name == "original_aspect_ratio":
+        return [original_ar_norm]
+    if name == "final_width":
+        return [final_width_norm]
+    if name == "final_height":
+        return [final_height_norm]
+    if name == "final_aspect_ratio":
+        return [final_ar_norm]
+    
     if name == "steps_cfg":
         return [steps_norm * cfg_norm]
     size = get_slot_size(name, slots, mode, dim)
@@ -91,9 +101,12 @@ def assemble_feature_vector(
     scheduler_idx: int,
     model_idx: int,
     lora_idx: int,
-    width_norm: float,
-    height_norm: float,
-    aspect_ratio_norm: float,
+    original_width_norm:float,
+    original_height_norm:float,
+    original_ar_norm:float,
+    final_width_norm:float,
+    final_height_norm:float,
+    final_ar_norm:float,
     pos_indices: WeightedIndices,
     neg_indices: WeightedIndices,
     slots: Dict[str, Any],
@@ -120,9 +133,12 @@ def assemble_feature_vector(
             scheduler_idx,
             model_idx,
             lora_idx,
-            width_norm,
-            height_norm,
-            aspect_ratio_norm,
+            original_width_norm,
+            original_height_norm,
+            original_ar_norm,
+            final_width_norm,
+            final_height_norm,
+            final_ar_norm,
             pos_indices,
             neg_indices,
             slots,

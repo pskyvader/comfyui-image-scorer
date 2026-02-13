@@ -114,10 +114,18 @@ def add_interaction_features(
             gc.collect()
             pbar.update(end_idx - i)
 
+    # Select Top K
+    k = min(target_k, n_interactions)
+
+
     # Compute Correlations (Pearson)
     numerator = (N * sum_xy) - (sum_x * sum_y)
     denominator_x = (N * sum_x_sq) - (sum_x**2)
     denominator_y = (N * sum_y_sq) - (sum_y**2)
+    #print(f"numerator: {np.sort(numerator)[-k:]}")
+
+    #print(f"denominator_x: {np.sort(denominator_x)[-k:]}")
+    #print(f"denominator_y: {denominator_y}")
 
     # Avoid div by zero / invalid sqrt
     denominator_x[denominator_x <= 0] = 1e-10
@@ -127,12 +135,13 @@ def add_interaction_features(
     f_scores = (correlation**2) / (1 - correlation**2 + 1e-10) * (N - 2)
     f_scores = np.nan_to_num(f_scores, nan=0.0)
 
-    # Select Top K
-    k = min(target_k, n_interactions)
+    
     top_k_indices_local = np.argsort(f_scores)[-k:]
     top_k_indices_local = np.sort(top_k_indices_local)
+    
+    #print(f"f_scores: {np.sort(f_scores)[-k:]}")
 
-    print(f"Selecting top {k} interaction features...")
+    #print(f"Selecting top {k} interaction features...")
 
     # Pass 2: Build
     X_interactions = np.zeros((n_samples, k), dtype=X.dtype)
@@ -169,7 +178,8 @@ def add_interaction_features(
 def filter_unused_features(
     X: np.ndarray,
     y: np.ndarray,
-    verbose: bool = True,
+    steps:int,
+    verbose: bool = True
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Trains a fast LightGBM model to identify and remove features with zero importance.
@@ -198,7 +208,7 @@ def filter_unused_features(
         "objective": "regression",
         "metric": "l2",
         "verbosity": -1,
-        "n_estimators": 300,  # Enough to find gradients
+        "n_estimators": steps,  # Enough to find gradients
         "learning_rate": 0.1,
         "min_child_samples": 1,
         "device_type": device_name,
@@ -240,5 +250,9 @@ def filter_unused_features(
     np.savez_compressed(filtered_data, X=X_filtered, kept_indices=kept_indices)
     if verbose:
         print(f"Saved filtered data to cache: {filtered_data}")
+
+    #print(f"X_filtered:{X_filtered}")    
+    #print(f"importances:{np.sort(importances)}")
+
 
     return X_filtered, kept_indices

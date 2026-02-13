@@ -1,28 +1,29 @@
 <!DOCTYPE html>
-<html>
-<!-- todo resolved: fixed error where when activating batch mode, the UI still shows the single mode. and show remaining images in batch mode -->
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <title>Step 1 Scoring Tool</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-
     <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
-
     <div class="card">
         <header>
             <h2>Image Scoring Tool</h2>
-            <!-- <div class="meta-line" id="folder"></div> -->
-            <div class="meta-line" id="counter"></div>
+            <div class="meta-line" id="counter">Loading images…</div>
         </header>
+        <div id="loader" class="loader">
+            <div class="spinner"></div>
+            <div class="loader-text">Loading…</div>
+        </div>
 
+        <!-- Single image preview + loader -->
+        <div class="preview" id="single-preview">
+            <img id="preview" alt="preview" class="hidden">
+        </div>
 
-        <!-- Single image preview area -->
-        <div class="preview" id="single-preview"><img id="preview" src="" alt="preview"></div>
 
         <!-- Batch mode toggle -->
         <div class="batch-wrapper">
@@ -30,7 +31,7 @@
                 <input id="batch-toggle" type="checkbox" onchange="toggleBatchMode(this.checked)"> <strong
                     class="batch-strong">Batch mode</strong>
             </label>
-            <div id="batch-controls" class="batch-controls">
+            <div id="batch-controls" class="batch-controls hidden">
                 <label class="batch-count-label">Count: <input id="batch-size" class="batch-size-input" type="number"
                         value="6" min="1" max="50"></label>
                 <button class="btn" onclick="fetchBatch()">Fetch Batch</button>
@@ -46,250 +47,26 @@
                 <button class="btn" onclick="submitScore(3)">3</button>
                 <button class="btn" onclick="submitScore(4)">4</button>
                 <button class="btn" onclick="submitScore(5)">5</button>
-            </div>
-            <button class="btn btn-gray" onclick="skipImage()">Skip</button>
-            <button class="btn btn-teal" onclick="refreshCount()">Refresh</button>
+                </div>
+                <br/>
+                <button class="btn btn-gray" onclick="skipImage()">Skip</button>
+                <button class="btn btn-teal hidden" onclick="refreshCount()">Refresh</button>
+            
         </div>
-
-
         <div id="meta" class="meta"></div>
-        <div id="batch-remaining" class="meta hidden"></div>
 
-        <!-- Batch image area -->
-
-        <div id="batch-area">
+        <!-- Batch grid -->
+        <div id="batch-area" class="hidden">
             <div id="batch-grid"></div>
+            <div id="batch-remaining" class="meta "></div>
         </div>
 
-        <footer>
-            <div id="status"></div>
-        </footer>
+
+        <!-- Footer status -->
+        <div id="status">Waiting for images…</div>
     </div>
 
-    <script>
-        let currentImage = null;
-        let currentBatch = [];
-
-        async function refreshCount() {
-            const r = await fetch('/unscored_count');
-            const d = await r.json();
-            const count=d.count;
-            const total=d.total;
-            const cached=d.cached
-            document.getElementById('counter').innerText = 
-            count +"/"+ cached+ ' unscored' +"("+cached+"/"+total+" cached)";
-            document.getElementById('folder').innerText = 'Folder: ' + d.root;
-            document.getElementById('status').innerText = '';
-        }
-
-        async function loadNext() {
-            if (document.getElementById('batch-toggle').checked) {
-                // If batch mode is on, fetch a batch
-                fetchBatch();
-                return;
-            }
-            // request one random unscored image
-            const res = await fetch('/random_unscored');
-            if (res.status === 204) {
-                alert('No more unscored images');
-                document.getElementById('preview').src = '';
-                document.getElementById('meta').innerText = '';
-                refreshCount();
-                return;
-            }
-
-            const data = await res.json();
-            currentImage = data.image;
-            document.getElementById('preview').src = '/image/' + encodeURIComponent(currentImage);
-
-            // load metadata
-            const jpath = currentImage.replace(/\.\w+$/, '.json');
-            try {
-                const metaRes = await fetch('/metadata/' + encodeURIComponent(jpath));
-                const metaText = await metaRes.text();
-                document.getElementById('meta').innerText = metaText;
-            } catch (e) {
-                document.getElementById('meta').innerText = 'No metadata found';
-            }
-
-            refreshCount();
-        }
-
-        async function submitScore(score) {
-            if (!currentImage) return;
-            await fetch('/submit_score', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: currentImage, score: score })
-            });
-            document.getElementById('status').innerText = 'Saved score ' + score;
-            // small delay so user sees the status
-            setTimeout(() => loadNext(), 250);
-        }
-
-        function skipImage() {
-            document.getElementById('status').innerText = 'Skipped';
-            setTimeout(() => loadNext(), 150);
-        }
-
-        // Batch mode functions
-        function toggleBatchMode(on) {
-            const batchControls = document.getElementById('batch-controls');
-            const batchArea = document.getElementById('batch-area');
-            const singlePreview = document.getElementById('single-preview');
-            const singleControls = document.getElementById('single-controls');
-            const meta = document.getElementById('meta');
-            const batchRemaining = document.getElementById('batch-remaining');
-
-            if (on) {
-                batchControls.classList.add('visible');
-                batchArea.classList.add('visible');
-                singlePreview.classList.add('hidden');
-                singleControls.classList.add('hidden');
-                meta.classList.add('hidden');
-                batchRemaining.classList.remove('hidden');
-            } else {
-                batchControls.classList.remove('visible');
-                batchArea.classList.remove('visible');
-                singlePreview.classList.remove('hidden');
-                singleControls.classList.remove('hidden');
-                meta.classList.remove('hidden');
-                batchRemaining.classList.add('hidden');
-            }
-
-            // Hide single preview image and meta in batch mode
-            if (on) {
-                // Clear single preview and meta
-                document.getElementById('preview').src = '';
-                document.getElementById('meta').innerText = '';
-                fetchBatch();
-            } else {
-                currentBatch = [];
-                document.getElementById('batch-grid').innerHTML = '';
-                document.getElementById('batch-remaining').innerText = '';
-                loadNext();
-            }
-        }
-
-        async function fetchBatch() {
-            const n = Number(document.getElementById('batch-size').value) || 5;
-            const res = await fetch('/random_unscored_batch?n=' + n);
-            if (res.status === 204) {
-                alert('No more unscored images');
-                document.getElementById('batch-grid').innerHTML = '';
-                document.getElementById('batch-remaining').innerText = '';
-                refreshCount();
-                return;
-            }
-            const data = await res.json();
-            currentBatch = data.images || [];
-            const grid = document.getElementById('batch-grid');
-            grid.innerHTML = '';
-            currentBatch.forEach(img => grid.appendChild(buildImageCard(img)));
-            // Show remaining images in batch mode
-            if (typeof data.remaining === 'number') {
-                document.getElementById('batch-remaining').innerText = data.remaining + ' images remaining';
-            } else {
-                document.getElementById('batch-remaining').innerText = '';
-            }
-            refreshCount();
-        }
-
-        function buildImageCard(imagePath) {
-            const container = document.createElement('div');
-            container.className = 'batch-card';
-            container.setAttribute('data-image', imagePath);
-
-            const img = document.createElement('img');
-            img.src = '/image/' + encodeURIComponent(imagePath);
-            img.alt = imagePath;
-
-            const label = document.createElement('div');
-            label.className = 'batch-card-label';
-            label.innerText = imagePath;
-
-            const btnWrap = document.createElement('div');
-            btnWrap.className = 'batch-card-btn-wrap';
-
-            for (let i = 1; i <= 5; i++) {
-                const b = document.createElement('button');
-                b.className = 'batch-score-btn';
-                b.innerText = String(i);
-                b.setAttribute('data-score', String(i));
-                b.onclick = function () {
-                    // toggle selection
-                    const prev = container.dataset.selectedScore;
-                    if (prev === b.getAttribute('data-score')) {
-                        delete container.dataset.selectedScore;
-                        b.classList.remove('selected');
-                    } else {
-                        container.dataset.selectedScore = b.getAttribute('data-score');
-                        // clear other buttons
-                        btnWrap.querySelectorAll('.batch-score-btn').forEach(x => x.classList.remove('selected'));
-                        b.classList.add('selected');
-                    }
-                };
-                btnWrap.appendChild(b);
-            }
-
-            container.appendChild(img);
-            container.appendChild(label);
-            container.appendChild(btnWrap);
-
-            return container;
-        }
-
-        async function submitBatchScores() {
-            const grid = document.getElementById('batch-grid');
-            const cards = grid.querySelectorAll('[data-image]');
-            const payload = [];
-            cards.forEach(card => {
-                const img = card.getAttribute('data-image');
-                const val = card.dataset.selectedScore;
-                if (val) payload.push({ image: img, score: Number(val) });
-            });
-
-            if (payload.length === 0) {
-                alert('No scores to submit');
-                return;
-            }
-
-            const res = await fetch('/submit_scores', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (res.status === 200 || res.status === 207) {
-                const body = await res.json();
-                const okCount = (body.ok || []).length;
-                const errCount = (body.errors || []).length;
-                document.getElementById('status').innerText = `Batch saved: ${okCount} ok, ${errCount} errors`;
-                // If any images were saved, fetch a fresh batch immediately to refill
-                if (okCount > 0) {
-                    // small delay so user sees the status briefly
-                    setTimeout(() => fetchBatch(), 200);
-                } else {
-                    // nothing saved, just refresh counts
-                    refreshCount();
-                }
-            } else {
-                alert('Batch submit failed');
-            }
-        }
-
-        // keyboard shortcuts 1-5 apply to single image mode
-        window.addEventListener('keydown', (e) => {
-            if (e.key >= '1' && e.key <= '5' && !document.getElementById('batch-toggle').checked) submitScore(Number(e.key));
-            if (e.key === 's') skipImage();
-            if (e.key === 'r') refreshCount();
-        });
-
-        // initial load
-        loadNext().then(()=>refreshCount());
-        //refreshCount().then(() => loadNext());
-    </script>
-
+    <script src="/client.js"></script>
 </body>
 
 </html>

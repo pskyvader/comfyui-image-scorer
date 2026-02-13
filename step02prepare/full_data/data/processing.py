@@ -101,9 +101,9 @@ def collect_valid_files(
         try:
             with Image.open(img_path) as img:
                 w, h = img.size
-                entry["width"] = w
-                entry["height"] = h
-                entry["aspect_ratio"] = round(w / h, 4) if h > 0 else 0.0
+                entry["final_width"] = w
+                entry["final_height"] = h
+                entry["final_aspect_ratio"] = round(w / h, 4) if h > 0 else 0.0
         except Exception as e:
             error_log.append({"file": file_id, "reason": f"image_read_error: {e}"})
             continue

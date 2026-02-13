@@ -27,14 +27,23 @@ def assemble_feature_vector(
 
     lora_w = float(metadata["lora_weight"])
 
-    width = float(metadata["width"])
-    width_norm = min(width / _NORMALIZATION["width_max"], 1.0)
+    original_width = float(metadata["original_width"])
+    original_width_norm = min(original_width / _NORMALIZATION["width_max"], 1.0)
 
-    height = float(metadata["height"])
-    height_norm = min(height / _NORMALIZATION["width_max"], 1.0)
+    original_height = float(metadata["original_height"])
+    original_height_norm = min(original_height / _NORMALIZATION["width_max"], 1.0)
 
-    ar = width / height if height > 0 else 1.0
-    ar_norm = min(ar / _NORMALIZATION["aspect_ratio_max"], 1.0)
+    original_ar = original_width / original_height if original_height > 0 else 1.0
+    original_ar_norm = min(original_ar / _NORMALIZATION["aspect_ratio_max"], 1.0)
+
+    final_width = float(metadata["final_width"])
+    final_width_norm = min(final_width / _NORMALIZATION["width_max"], 1.0)
+
+    final_height = float(metadata["final_height"])
+    final_height_norm = min(final_height / _NORMALIZATION["width_max"], 1.0)
+
+    final_ar = final_width / final_height if final_height > 0 else 1.0
+    final_ar_norm = min(final_ar / _NORMALIZATION["aspect_ratio_max"], 1.0)
 
     # 2. Build parts
     vector_parts: List[float] = []
@@ -50,12 +59,19 @@ def assemble_feature_vector(
             part = [lora_w]
         elif name == "steps_cfg":
             part = [steps_norm * cfg_norm]
-        elif name == "width":
-            part = [width_norm]
-        elif name == "height":
-            part = [height_norm]
-        elif name == "aspect_ratio":
-            part = [ar_norm]
+        elif name == "original_width":
+            part = [original_width_norm]
+        elif name == "original_height":
+            part = [original_height_norm]
+        elif name == "original_aspect_ratio":
+            part = [original_ar_norm]
+        elif name == "final_width":
+            part = [final_width_norm]
+        elif name == "final_height":
+            part = [final_height_norm]
+        elif name == "final_aspect_ratio":
+            part = [final_ar_norm]
+
         elif name in ["lora", "sampler", "scheduler", "model"]:
             idx = category_indices[name]
             part = one_hot(idx, get_slot_size(name))
@@ -73,7 +89,6 @@ def assemble_feature_vector(
             part = emb.tolist()
 
         vector_parts.extend(part)
-
 
     return np.array(vector_parts, dtype=np.float32)
 

@@ -4,18 +4,16 @@
     --muted: #9aa4b2;
     --accent: #60a5fa;
     --accent-2: #7dd3fc;
-    --btn: #111827;
 }
 
-
-
 body {
-    font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     background: linear-gradient(180deg, #071025 0%, #071a2a 100%);
     color: #e6eef6;
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 100vh;
 }
 
 .card {
@@ -30,49 +28,120 @@ body {
 
 header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 12px;
 }
 
 h2 {
     margin: 0;
-    font-weight: 600;
     font-size: 18px;
+    font-weight: 600;
 }
 
 .meta-line {
-    color: var(--muted);
     font-size: 13px;
+    color: var(--muted);
 }
+
+/* ───────────────────────────
+   Loader
+   ─────────────────────────── */
+
+.loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 0;
+}
+
+.loader-text {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ───────────────────────────
+   Image preview
+   ─────────────────────────── */
 
 .preview {
     background: #071022;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow:visible;
+    border-radius: 8px;
+    margin-top: 8px;
     position: relative;
-    height: 100%;
-    max-height: 60vh;
-    width: 100%;
 }
 
 .preview img {
-    width:auto;
-    height:100%;
     max-width: 90vw;
     max-height: 60vh;
-    
     border-radius: 8px;
 }
 
+/* ───────────────────────────
+   Controls
+   ─────────────────────────── */
+
 .controls {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
     justify-content: center;
     margin-top: 12px;
+}
+
+.score-btns {
+    display: flex;
+    gap: 8px;
+}
+
+.btn {
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #04212b;
+}
+
+/* ───────────────────────────
+   Footer
+   ─────────────────────────── */
+
+footer {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* ───────────────────────────
+   Visibility helpers
+   ─────────────────────────── */
+
+.hidden {
+    display: none !important;
+}
+
+.visible-flex {
+    display: flex !important;
 }
 
 .btn {

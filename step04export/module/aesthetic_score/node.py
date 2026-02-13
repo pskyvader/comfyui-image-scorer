@@ -122,8 +122,10 @@ class AestheticScoreNode:
         meta: Dict[str, Any] = {
             "steps": steps,
             "cfg": cfg,
-            "width": w,
-            "height": h,
+            "original_width": w,
+            "original_height": h,
+            "final_width": w,
+            "final_height": h,
             "lora_weight": lora_strength,
         }
 
