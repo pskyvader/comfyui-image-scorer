@@ -1,10 +1,144 @@
-from __future__ import annotations
 import json
+import jsonlines
 import os
 from pathlib import Path
-from typing import Any, Tuple, TypeVar, Callable
-from typing import List, cast
+from typing import (
+    Any,
+    Tuple,
+    TypeVar,
+    Callable,
+    Iterator,
+    List,
+    cast,
+    Set,
+    Dict,
+    Optional,
+)
 import numpy as np
+from PIL import Image
+from tqdm import tqdm
+import ast
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple, Dict, Any, Optional, Set
+from tqdm import tqdm
+import os
+
+
+def load_single_jsonl(filename: str) -> List[Any]:
+    data: List[Any] = []
+    if os.path.exists(filename):
+        with jsonlines.open(filename, mode="r") as reader:
+            for obj in reader:
+                data.append(obj)
+    return data
+
+
+def write_single_jsonl(filename: str, data: List[Any], mode: str) -> None:
+    file_path = Path(filename)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with jsonlines.open(file_path, mode=mode) as writer:
+        writer.write_all(data)
+
+
+def discover_files(root: str) -> Iterator[Tuple[str, str]]:
+    total_files = 0
+    for dirpath, _, files in os.walk(root):
+        file_set = set(files)
+        total_files += len(files)
+        for f in files:
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                base = f.rsplit(".", 1)[0]
+                json_name = base + ".json"
+
+                if json_name in file_set:
+                    yield (
+                        os.path.join(dirpath, f),
+                        os.path.join(dirpath, json_name),
+                    )
+    print(f"{total_files} discovered files", flush=True)
+
+
+def collect_single_file(
+    file: Tuple[str, str], processed_files: Set[str], root: str
+) -> Optional[Tuple[str, Dict[str, Any], str, str]]:
+    img_path, meta_path = file
+
+    file_id = os.path.relpath(img_path, root).replace("\\", "/")
+    if file_id in processed_files:
+        return None
+    entry, err = load_json(meta_path, expect=dict, default=None)
+    if err:
+        raise FileNotFoundError(f"Error while loading {file_id}: {err}")
+    if entry is None:
+        raise FileNotFoundError(f"File {file_id} not found or invalid")
+
+    timestamp = next(iter(entry.keys()))
+
+    entry = entry[timestamp] if timestamp in entry else entry
+
+    if "score" not in entry:
+        return None
+
+    return (img_path, entry, timestamp, file_id)
+
+
+def collect_valid_files(
+    files: List[Tuple[str, str]],
+    processed_files: Set[str],
+    root: str,
+    limit: int = 0,
+    max_workers: Optional[int] = None,
+) -> List[Tuple[str, Dict[str, Any], str, str]]:
+
+    collected_data: List[Tuple[str, Dict[str, Any], str, str]] = []
+
+    if not files:
+        return collected_data
+
+    # Good default for I/O-bound workloads
+    if max_workers is None:
+        cpu = os.cpu_count() or 1
+        max_workers = min(32, cpu * 5)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                collect_single_file,
+                file,
+                processed_files,
+                root,
+            )
+            for file in files
+        ]
+
+        try:
+            with tqdm(total=len(files), desc="Collecting", unit=" files") as pbar:
+                for future in as_completed(futures):
+                    result = future.result()  # raises immediately on error
+
+                    if result is not None:
+                        collected_data.append(result)
+
+                        if limit > 0 and len(collected_data) >= limit:
+                            for f in futures:
+                                f.cancel()
+                            executor.shutdown(wait=False, cancel_futures=True)
+
+                            break
+
+                    pbar.update(1)
+
+        except Exception:
+            for f in futures:
+                f.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+    print(f"{len(collected_data)} Collected files", flush=True)
+
+    return collected_data
+
 
 T = TypeVar("T")
 
@@ -21,10 +155,18 @@ def _recursive_parse_json(obj: Any) -> Any:
         ):
             try:
                 parsed = json.loads(obj)
-                if isinstance(parsed, (dict, list)):
-                    return _recursive_parse_json(parsed)
-            except Exception:
-                pass
+            except Exception as e:
+                # print(
+                #     f"parse json failed for {obj} . {e}. Retrying as python dictionary"
+                # )
+                try:
+                    parsed = ast.literal_eval(obj)
+                except Exception as e:
+                    raise Warning(f"parse python dictionary failed for {obj} . {e}")
+
+            if isinstance(parsed, (dict, list)):
+                return _recursive_parse_json(parsed)
+
     return obj
 
 
@@ -38,12 +180,11 @@ def load_json(
     path_obj = Path(path)
     if not path_obj.exists():
         return default, "not_found"
-    try:
-        with path_obj.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-            data = _recursive_parse_json(data)
-    except Exception as exc:  # pragma: no cover - io errors are environment specific
-        return default, f"load_error:{exc}"
+
+    with path_obj.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+        data = _recursive_parse_json(data)
+
     if expect is not None and not isinstance(data, expect):
         return default, "invalid_type"
     return data, None

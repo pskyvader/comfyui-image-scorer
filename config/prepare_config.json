@@ -1,56 +1,16 @@
 {
     "prompt_representation": {
+        "name": "all-mpnet-base-v2",
         "mode": "embedding",
-        "dim": 768,
-        "model": "all-mpnet-base-v2"
-    },
-    "vector_schema": {
-        "slots": {
-            "cfg": 1,
-            "steps": 1,
-            "lora_weight": 1,
-            "steps_cfg": 1,
-            "lora": 13,
-            "sampler": 39,
-            "scheduler": 10,
-            "model": 16,
-            "original_width": 1,
-            "original_height": 1,
-            "original_aspect_ratio": 1,
-            "final_width": 1,
-            "final_height": 1,
-            "final_aspect_ratio": 1,
-            "negative_terms": 1,
-            "positive_terms": 1
-        },
-        "order": [
-            "cfg",
-            "steps",
-            "lora_weight",
-            "steps_cfg",
-            "lora",
-            "sampler",
-            "scheduler",
-            "model",
-            "original_width",
-            "original_height",
-            "original_aspect_ratio",
-            "final_width",
-            "final_height",
-            "final_aspect_ratio",
-            "negative_terms",
-            "positive_terms"
-        ]
+        "output_dim": 768,
+        "device": "cuda"
     },
     "vision_model": {
-        "name": "google/siglip-base-patch16-224",
+        "name": "convnext_large_in22k",
+        "weights": "IMAGENET22K_V1",
         "device": "cuda",
-        "encoding_batch_size": 128
-    },
-    "normalization": {
-        "cfg_max": 20.0,
-        "steps_max": 50.0,
-        "width_max": 4096,
-        "aspect_ratio_max": 5.0
+        "output_dim": 1536,
+        "encoding_batch_size": 16,
+        "variable_input": true
     }
 }

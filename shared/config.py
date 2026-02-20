@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any,  Union, Optional, Iterator
+from typing import Dict, Any, Union, Optional, Iterator
 from collections.abc import MutableMapping
 
 from shared.io import load_json
@@ -11,7 +11,11 @@ PathLike = Union[str, Path]
 ConfigDict = Dict[str, Any]
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = PROJECT_ROOT.joinpath("config", "config.json")
-SUB_CONFIG_MAPPING = {"prepare": "prepare_config", "training": "training_config"}
+SUB_CONFIG_MAPPING = {
+    "prepare": "prepare_config",
+    "training": "training_config",
+    "vector": "vector_config",
+}
 
 
 def _get_config_file(path: PathLike) -> Path:
@@ -53,8 +57,10 @@ class AutoSaveDict(MutableMapping):
     def get(self, key: str, default: Any = _sentinel) -> Any:
         if default is not _sentinel:
             # We strictly ban default values to avoid hidden hardcoded behavior
-            raise ValueError(f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files.")
-        
+            raise ValueError(
+                f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files."
+            )
+
         # If no default is provided, it behaves like __getitem__ (raises KeyError if missing)
         return self[key]
 
@@ -90,18 +96,19 @@ class AutoSaveDict(MutableMapping):
 class Config(MutableMapping):
     """
     Configuration Manager.
-    
+
     STRICT POLICY:
     It is strictly forbidden to provide a default value when accessing configuration keys.
-    The goal is to ensure that ALL configuration values are loaded explicitly from the 
+    The goal is to ensure that ALL configuration values are loaded explicitly from the
     configuration files (JSON) and absolutely nowhere else.
-    
+
     This prevents hidden hardcoded values in the codebase and ensures that the
     configuration files are the single source of truth.
-    
+
     Usage of .get(key, default) will raise a ValueError.
     Use .get(key) (without default) or direct access [key]. Both will raise KeyError if missing.
     """
+
     def __init__(self, config_file: PathLike = CONFIG_FILE):
         self._root_path = _get_config_file(config_file)
         self._cache: Dict[str, Any] = {}
@@ -110,9 +117,11 @@ class Config(MutableMapping):
 
     def get(self, key: str, default: Any = _sentinel) -> Any:
         if default is not _sentinel:
-             # We strictly ban default values to avoid hidden hardcoded behavior
-            raise ValueError(f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files.")
-        
+            # We strictly ban default values to avoid hidden hardcoded behavior
+            raise ValueError(
+                f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files."
+            )
+
         # If no default is provided, it behaves like __getitem__ (raises KeyError if missing)
         return self[key]
 
@@ -187,7 +196,9 @@ class Config(MutableMapping):
         # If key is section name
         if key in SUB_CONFIG_MAPPING:
             if not isinstance(value, dict):
-                raise ValueError(f"Subconfig must be a dict, current type: {type(value)}")
+                raise ValueError(
+                    f"Subconfig must be a dict, current type: {type(value)}"
+                )
             self._cache[key] = value
             if key in self._wrappers:
                 del self._wrappers[key]

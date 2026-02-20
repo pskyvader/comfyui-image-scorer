@@ -1,0 +1,130 @@
+{
+    "vectors": [
+        {
+            "name": "image",
+            "type": "image",
+            "max_normalization": null,
+            "slot_size": 1536
+        },
+        {
+            "name": "cfg",
+            "type": "float",
+            "max_normalization": 20.0,
+            "slot_size": 1
+        },
+        {
+            "name": "steps",
+            "type": "int",
+            "max_normalization": 50,
+            "slot_size": 1
+        },
+        {
+            "name": "original_width",
+            "type": "int",
+            "max_normalization": 4096,
+            "slot_size": 1
+        },
+        {
+            "name": "original_height",
+            "type": "int",
+            "max_normalization": 4096,
+            "slot_size": 1
+        },
+        {
+            "name": "original_aspect_ratio",
+            "type": "float",
+            "max_normalization": 5.0,
+            "slot_size": 1
+        },
+        {
+            "name": "final_width",
+            "type": "int",
+            "max_normalization": 4096,
+            "slot_size": 1
+        },
+        {
+            "name": "final_height",
+            "type": "int",
+            "max_normalization": 4096,
+            "slot_size": 1
+        },
+        {
+            "name": "final_aspect_ratio",
+            "type": "float",
+            "max_normalization": 5.0,
+            "slot_size": 1
+        },
+        {
+            "name": "sharpness",
+            "type": "float",
+            "max_normalization": 1000.0,
+            "slot_size": 1
+        },
+        {
+            "name": "noise_score",
+            "type": "float",
+            "max_normalization": 1000.0,
+            "slot_size": 1
+        },
+        {
+            "name": "contrast",
+            "type": "float",
+            "max_normalization": 255.0,
+            "slot_size": 1
+        },
+        {
+            "name": "colorfulness",
+            "type": "float",
+            "max_normalization": 100.0,
+            "slot_size": 1
+        },
+        {
+            "name": "artifact_score",
+            "type": "float",
+            "max_normalization": 1.0,
+            "slot_size": 1
+        },
+        {
+            "name": "lora_weight",
+            "type": "float",
+            "max_normalization": null,
+            "slot_size": 1
+        },
+        {
+            "name": "lora",
+            "type": "map",
+            "max_normalization": null,
+            "slot_size": 40
+        },
+        {
+            "name": "sampler",
+            "type": "map",
+            "max_normalization": null,
+            "slot_size": 50
+        },
+        {
+            "name": "scheduler",
+            "type": "map",
+            "max_normalization": null,
+            "slot_size": 40
+        },
+        {
+            "name": "model",
+            "type": "map",
+            "max_normalization": null,
+            "slot_size": 40
+        },
+        {
+            "name": "negative_prompt",
+            "type": "embedding",
+            "max_normalization": null,
+            "slot_size": 768
+        },
+        {
+            "name": "positive_prompt",
+            "type": "embedding",
+            "max_normalization": null,
+            "slot_size": 768
+        }
+    ]
+}
