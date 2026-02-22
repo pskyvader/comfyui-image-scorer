@@ -4,8 +4,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
-
-from external_modules.step03training.full_data.model_io import load_model_diagnostics, load_model
+from shared.loaders.training_loader import training_loader
 
 
 def plot_scatter_comparison(
@@ -65,11 +64,9 @@ def print_comparison_metrics(y: Any, preds: Any, metrics: Any) -> None:
 
 
 def compare_model_vs_data(
-    model_path: str,
     x: np.ndarray,
     y: np.ndarray,
     plot: bool = True,
-    model: Any | None = None,
 ) -> None:
     """Compare a trained model vs data.
 
@@ -80,27 +77,18 @@ def compare_model_vs_data(
     """
     # Load data using the full pipeline (including filtering and interactions) to ensure consistency with trained model
     X = x
-    x_sample =X[:500]
+    x_sample = X[:500]
     # align y to the sample used for predictions
     y_sample = y[: len(x_sample)]
-
-    # If no model provided, attempt to load from disk.
-    if model is None:
-        print(f"Loading trained model from: {model_path}")
-        model = load_model(model_path)
-    else:
-        print("Using provided in-memory model for comparison.")
+    model = training_loader.load_training_model()
 
     # Use the supplied/loaded model for predictions (do not retrain here).
     preds = model.predict(x_sample)
     # metrics may be available from saved diagnostics; attempt to load them
-    try:
-        metrics = None
-        data = load_model_diagnostics(model_path)
-        if data is not None and "metrics" in data:
-            metrics = data["metrics"]
-    except Exception:
-        metrics = None
+    metrics = None
+    data = training_loader.load_training_model_diagnostics()
+    if data is not None and "metrics" in data:
+        metrics = data["metrics"]
 
     print_comparison_metrics(y_sample, preds, metrics)
     y_plot, p_plot = prepare_plot_data(y_sample, preds)
@@ -108,7 +96,7 @@ def compare_model_vs_data(
         plot_scatter_comparison(y_plot, p_plot, plot)
 
 
-def plot_loss_curve(model_path: str, metrics: Dict[str, Any] | None = None) -> None:
+def plot_loss_curve(metrics: Dict[str, Any] | None = None) -> None:
     try:
         loss = None
         if (
@@ -117,7 +105,7 @@ def plot_loss_curve(model_path: str, metrics: Dict[str, Any] | None = None) -> N
             and (metrics["loss_curve"] is not None)
         ):
             loss = np.asarray(metrics["loss_curve"], dtype=float)
-        data = load_model_diagnostics(model_path)
+        data = training_loader.load_training_model_diagnostics()
         if data is not None and "loss_curve" in data:
             loss = np.asarray(data["loss_curve"], dtype=float)
         if loss is None:
@@ -191,8 +179,8 @@ class LivePlotCallback:
             fig, axes = plt.subplots(1, num_metrics, figsize=(5 * num_metrics, 5))
             if num_metrics == 1:
                 axes = [axes]
-            
-            print (f"metrics found: {metrics_found}")
+
+            print(f"metrics found: {metrics_found}")
 
             for i, metric in enumerate(sorted(list(metrics_found))):
                 ax = axes[i]

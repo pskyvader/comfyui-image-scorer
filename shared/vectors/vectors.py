@@ -136,7 +136,7 @@ class VectorList:
             elif c["type"] == self._IMAGE:
                 current_vector = c["vector"]
                 current_vector.path_list = self.image_paths
-                current_vector.create_vector_list_from_paths(max_batch_size=16)
+                current_vector.create_vector_list_from_paths()
                 self.sorted_vectors[v]["vector"] = current_vector
 
     def validate_and_convert(self, data: List[List[str]], name: str, target_size: int):

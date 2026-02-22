@@ -1,23 +1,12 @@
-from typing import List, Tuple, Dict, Any, Iterable, Generator
+import os
 from tqdm import tqdm
 from PIL import Image
 import numpy as np
-from joblib import Parallel, delayed
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any
-from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple, Dict, Any, Optional
+from skimage.feature import local_binary_pattern
 
 from .vectors.image_vector import ImageVector
-
-
-
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any, Optional, Set
-from tqdm import tqdm
-import os
-
-
 
 
 def process_single_batch(
@@ -53,6 +42,11 @@ class ImageAnalysis(ImageVector):
             (img_path, _, _, _) = data
             self.path_list.append(img_path)
 
+        R, G, B = 255, 0, 0
+        rg = R - G
+        yb = 0.5 * (R + G) - B
+        self.max_colorfulness = np.sqrt(rg**2 + yb**2) + 0.3 * np.sqrt(rg**2 + yb**2)
+
     def _image_size(self, image: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
         w, h = image.size
         entry["final_width"] = w
@@ -79,12 +73,17 @@ class ImageAnalysis(ImageVector):
         Higher = more contrast.
         """
         rgb: np.ndarray = np.asarray(img, dtype=np.float32) / 255.0
-        # Convert to luminance (ITU-R BT.601)
+
+        # Convert to luminance using ITU-R BT.601
         luminance: np.ndarray = (
             0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
         )
 
-        entry["contrast"] = float(np.std(luminance))
+        # Standard deviation of luminance
+        contrast_value = float(np.std(luminance))
+
+        # Normalize by maximum possible std (0.5 for [0,1] images)
+        entry["contrast"] = contrast_value / 0.5
         return entry
 
     def _sharpness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
@@ -122,7 +121,11 @@ class ImageAnalysis(ImageVector):
 
         residual: np.ndarray = gray - blurred
 
-        entry["noise_score"] = float(np.var(residual))
+        # entry["noise_score"] = float(np.var(residual))
+        entry["noise_score"] = (
+            float(np.var(residual)) / 65025.0
+        )  # 255^2 max for uint8 images
+
         return entry
 
     def _colorfulness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
@@ -145,70 +148,79 @@ class ImageAnalysis(ImageVector):
         mean_rg: float = float(np.mean(rg))
         mean_yb: float = float(np.mean(yb))
 
-        entry["colorfulness"] = float(
+        colorfulness_raw = float(
             np.sqrt(std_rg**2 + std_yb**2) + 0.3 * np.sqrt(mean_rg**2 + mean_yb**2)
         )
+        entry["colorfulness"] = (
+            colorfulness_raw / self.max_colorfulness
+        )  # approx max for 0-255 channels
+
         return entry
 
-    def _artifact_score2(
+    def _artifact_score(
         self, img: Image.Image, entry: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Simple JPEG blockiness detector.
-        Measures discontinuities at 8px boundaries.
-        Higher = more block artifacts.
-        """
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
-        h: int
-        w: int
-        h, w = gray.shape
-
-        vertical_edges: float = 0.0
-        horizontal_edges: float = 0.0
-
-        for x in range(8, w, 8):
-            vertical_edges += float(np.mean(np.abs(gray[:, x] - gray[:, x - 1])))
-
-        for y in range(8, h, 8):
-            horizontal_edges += float(np.mean(np.abs(gray[y, :] - gray[y - 1, :])))
-
-        entry["artifact_score"] = float((vertical_edges + horizontal_edges) / (h + w))
-        return entry
-    
-    
-    
-    
-    def _artifact_score(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
         gray = np.asarray(img.convert("L"), dtype=np.float32)
         h, w = gray.shape
 
-        # Compute valid 8px boundaries
-        vertical_positions = np.arange(8, w, 8)
-        horizontal_positions = np.arange(8, h, 8)
+        # Sample step proportional to image size (max 8 px, min 4 px)
+        step_x = max(4, min(8, w // 256))
+        step_y = max(4, min(8, h // 256))
+
+        vertical_positions = np.arange(step_x, w, step_x)
+        horizontal_positions = np.arange(step_y, h, step_y)
 
         if len(vertical_positions) > 0:
             vertical = np.abs(
-                gray[:, vertical_positions] - gray[:, vertical_positions - 1]
+                gray[:, vertical_positions] - gray[:, vertical_positions - step_x]
             ).mean()
         else:
             vertical = 0.0
 
         if len(horizontal_positions) > 0:
             horizontal = np.abs(
-                gray[horizontal_positions, :] - gray[horizontal_positions - 1, :]
+                gray[horizontal_positions, :] - gray[horizontal_positions - step_y, :]
             ).mean()
         else:
             horizontal = 0.0
 
-        entry["artifact_score"] = float((vertical + horizontal) / 2.0)
+        # Normalize by image intensity range to reduce scale differences
+        intensity_range = gray.max() - gray.min() or 1.0
+        entry["artifact_score"] = float((vertical + horizontal) / 2.0 / intensity_range)
+
         return entry
 
-            
-        
-        
-    
-    
-    
+    def _edge_density(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
+
+        dx = np.roll(gray, -1, axis=1) - np.roll(gray, 1, axis=1)
+        dy = np.roll(gray, -1, axis=0) - np.roll(gray, 1, axis=0)
+
+        grad_mag = np.sqrt(dx**2 + dy**2)
+
+        # Normalize by number of pixels to make comparable across resolutions
+        entry["edge_density"] = float(
+            np.mean(grad_mag) / (gray.shape[0] * gray.shape[1])
+        )
+        return entry
+
+    def _texture_lbp(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
+
+        # LBP parameters
+        P = 8  # number of neighbors
+        R = 1  # radius
+        lbp = local_binary_pattern(gray, P, R, method="uniform")
+
+        # Histogram of LBP codes
+        n_bins = int(lbp.max() + 1)
+        hist, _ = np.histogram(
+            lbp.ravel(), bins=n_bins, range=(0, n_bins), density=True
+        )
+
+        # Use uniformity as texture score: higher = more variation
+        entry["texture_lbp"] = float(np.std(hist))
+        return entry
 
     def analyze_image_batch(
         self,
@@ -231,6 +243,8 @@ class ImageAnalysis(ImageVector):
             current_entry = self._image_size(current_image, current_entry)
             current_entry = self._noise_score(current_image, current_entry)
             current_entry = self._sharpness(current_image, current_entry)
+            current_entry = self._edge_density(current_image, current_entry)
+            current_entry = self._texture_lbp(current_image, current_entry)
 
             processed_data = (
                 current_data[0],
@@ -241,18 +255,12 @@ class ImageAnalysis(ImageVector):
             data_batch[i] = processed_data
         return data_batch
 
-
- 
-
     def analyze_images_from_paths(
         self,
-        batch_size: int = 4,
-        max_workers: Optional[int] = None,
+        batch_size: int = 32,
+        max_workers: int=64,
     ) -> List[Tuple[str, Dict[str, Any], str, str]]:
-        batch_size=32
-        max_workers=64
         total: int = len(self.path_list)
-        num_batches: int = (total + batch_size - 1) // batch_size
 
         if total == 0:
             self.processed_data = []
@@ -282,7 +290,7 @@ class ImageAnalysis(ImageVector):
             ]
 
             try:
-                with tqdm(total= total, desc="Analyzed", unit=" files") as pbar:
+                with tqdm(total=total, desc="Analyzed", unit=" files") as pbar:
                     for future in as_completed(futures):
                         result = future.result()  # raises immediately if a batch fails
                         results_nested.append(result)
@@ -295,9 +303,7 @@ class ImageAnalysis(ImageVector):
                 raise
 
         # Flatten
-        self.processed_data = [
-            item for batch in results_nested for item in batch
-        ]
+        self.processed_data = [item for batch in results_nested for item in batch]
 
         print(f"total analyzed images: {len(self.processed_data)}")
 

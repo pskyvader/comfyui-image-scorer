@@ -1,17 +1,17 @@
 from PIL import Image
-from typing import List, Any
+from typing import List, Any, Dict
 from tqdm import tqdm
 import torch
-from torch import nn
 from torchvision import transforms
 import numpy as np
 from ..loaders.model_loader import model_loader
 from ..config import config
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional
+from typing import List
 from tqdm import tqdm
-import os
 from collections import defaultdict, OrderedDict
+
+from .helpers import l2_normalize_batch
+from ..io import load_json, atomic_write_json
 
 
 class ImageVector:
@@ -29,9 +29,16 @@ class ImageVector:
                 ),
             ]
         )
+        self.vector_size_path = "./image_vector_size.json"
+        try:
+            self.vector_sizes, _ = load_json(
+                self.vector_size_path, expect=dict, default={}
+            )
+        except:
+            self.vector_sizes = {}
 
-        # Dictionary to track seen batch shapes
-        self._seen_shapes = defaultdict(bool)
+        # only use dedicated memory
+        torch.cuda.set_per_process_memory_fraction(0.99, 0)
 
     def array_to_pil(self, arr: Any) -> List[Image.Image]:
         arr = np.asarray(arr)
@@ -93,7 +100,9 @@ class ImageVector:
             return out
         raise TypeError(f"Unsupported image type: {type(image)}")
 
-    def create_image_vector_batch(self, current_batch: List[Image.Image]) -> List[List[float]]:
+    def create_image_vector_batch(
+        self, current_batch: List[Image.Image]
+    ) -> List[List[float]]:
         """
         Encodes a batch of images into vectors. Assumes all images in the batch
         have the same size.
@@ -108,16 +117,6 @@ class ImageVector:
         transform = self._transform
         device = next(model.parameters()).device
 
-        # # --- Selectively enable benchmark ---
-        # if self._seen_shapes[batch_shape]:
-        #     # This shape has been seen before → enable benchmark
-        #     torch.backends.cudnn.benchmark = True
-        # else:
-        #     # First time seeing this shape → disable benchmark to skip profiling overhead
-        #     torch.backends.cudnn.benchmark = False
-        #     self._seen_shapes[batch_shape] = True
-
-        # --- Prepare batch tensor ---
         batch_tensor = torch.stack([transform(img) for img in current_batch], dim=0).to(
             device, non_blocking=True
         )
@@ -130,27 +129,11 @@ class ImageVector:
         if vector_length != self.vector_length:
             raise RuntimeError(f"Unexpected vector length {vector_length}")
 
-        return outputs.detach().cpu().float().numpy().tolist()
+        processed = outputs.detach().cpu().float().numpy()
+        normalized = l2_normalize_batch(processed)
+        return normalized.tolist()
 
-    # def create_image_vector_batch(
-    #     self, current_batch: List[Image.Image]
-    # ) -> List[List[float]]:
-    #     (model, processor, vector_length) = model_loader.load_vision_model()
-    #     inputs = processor(images=current_batch, return_tensors="pt")
-    #     inputs = {k: v.to(model.device) for k, v in inputs.items()}
-    #     with torch.no_grad():
-    #         outputs = model.get_image_features(**inputs)
-    #     batch_vecs = outputs.cpu().numpy().astype(float).tolist()
-    #     for vec in batch_vecs:
-    #         if len(vec) != vector_length:
-    #             msg = f"CLIP returned unexpected vector length {len(vec)}, expected {vector_length}"
-    #             raise RuntimeError(msg)
-    #     return batch_vecs
-
-
-    def measure_image_vram_bytes(
-        self, width: int, height: int, channels: int = 3
-    ) -> int:
+    def get_batch_size(self, width: int, height: int, max_memory: float = 0.8) -> int:
         """
         Estimate realistic peak GPU memory in bytes for a single image.
         Measures the memory used by activations + intermediate buffers,
@@ -158,46 +141,93 @@ class ImageVector:
 
         Uses the device specified in your vision model config.
         """
+        width_str = str(width)
+        height_str = str(height)
+        vector_width: Dict[str, int] = {}
+        if self.vector_sizes:
+            if width_str in self.vector_sizes:
+                vector_width = self.vector_sizes[width_str]
+                if height_str in vector_width:
+                    return vector_width[height_str]
+
         # Get device from config
         self.prepare_config = config["prepare"]
         vision_model_config = self.prepare_config["vision_model"]
         device: str = vision_model_config["device"]
 
-        # Create dummy image directly on the device
-        dummy_image = torch.randn(1, channels, height, width, device=device)
-
         # --------------------------
         # Step 1: Measure model-only memory
         # --------------------------
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats(device)
-        with torch.no_grad():
-            pass  # model already loaded
-        model_mem = torch.cuda.max_memory_allocated(device)
+        props = torch.cuda.get_device_properties(device)
+        total_memory = int(props.total_memory)
+        torch.backends.cudnn.benchmark = True
 
-        # --------------------------
-        # Step 2: Measure memory with dummy image
-        # --------------------------
-        # torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats(device)
-        with torch.no_grad():
-            _ = self.model(dummy_image)
-        total_mem = torch.cuda.max_memory_allocated(device)
+        channels = 3
 
-        # --------------------------
-        # Step 3: Compute per-image VRAM
-        # --------------------------
-        print(f"before {model_mem}, after {total_mem}")
-        image_vram = total_mem - model_mem
+        max_size = 100
+        min_size = 1
+        last_size = 0
+        while not max_size == min_size:
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats(device)
+            initial_mem = int(torch.cuda.max_memory_allocated(device))
+            current_size = int((max_size + min_size) / 2)
+            if current_size == last_size:
+                max_size = min_size = current_size
+                print(f"repeated size, setting final size: {current_size} ")
+                break
+            last_size = current_size
+            print("----")
+            print(
+                f"for size ({width},{height}) trying batch size {current_size} (min: {min_size}, max: {max_size})...."
+            )
+            batch_tensor = torch.zeros(
+                (current_size, channels, height, width), dtype=torch.float32
+            ).to(device)
 
-        # Optional safety margin (15%) for CUDA overhead / fragmentation
-        image_vram = int(image_vram * 1.5)
+            # --------------------------
+            # Step 2: Measure memory with dummy image
+            # --------------------------
+            try:
+                with torch.no_grad():
+                    _ = self.model(batch_tensor)
+            except Exception as e:
+                max_size = current_size
+                print(e)
+                print("setting new max size: ", max_size)
+                continue
 
-        return image_vram
+            final_mem = int(torch.cuda.max_memory_allocated(device))
 
-    def create_vector_list_from_paths(
-        self, max_batch_size: int = 4
-    ) -> list[list[float]]:
+            image_vram = final_mem - initial_mem
+            print(
+                f"for batch size {current_size}, memory: {image_vram} ({final_mem}-{initial_mem}) (total memory:{total_memory})"
+            )
+            if image_vram > total_memory:
+                max_size = current_size
+                print(
+                    f"max dedicated memory exceeded,setting new max batch size: {max_size}"
+                )
+            else:
+                min_size = current_size
+                print("setting new min size: ", min_size)
+
+        batch_size = max(int(max_size * max_memory), 1)
+        print(
+            f"setting final size: {batch_size} (max memory allowed: {max_memory*100}% )"
+        )
+        vector_width[height_str] = batch_size
+        vector_width = dict(
+            sorted(vector_width.items(), reverse=True, key=lambda x: int(x[0]))
+        )
+        self.vector_sizes[width_str] = vector_width
+        self.vector_sizes = dict(
+            sorted(self.vector_sizes.items(), reverse=True, key=lambda x: int(x[0]))
+        )
+        atomic_write_json(self.vector_size_path, self.vector_sizes, indent=4)
+        return batch_size
+
+    def create_vector_list_from_paths(self) -> list[list[float]]:
         """
         Exact-size bucketing with controlled RAM and VRAM usage.
 
@@ -241,18 +271,10 @@ class ImageVector:
         with tqdm(total=total, desc="Encoded", unit=self.name) as pbar:
             max_batch_size = 0
             for bucket_idx, (size, items) in enumerate(bucket_list, start=1):
-
                 num_items = len(items)
-
-                if num_items > max_batch_size:
-                    width, height = size
-                    bytes_per_image = self.measure_image_vram_bytes(width, height)
-                    # todo: transform print in secondsry tqdm
-                    max_batch_size = max(
-                        int((total_memory * 0.8) // bytes_per_image), max_batch_size + 1
-                    )
-                else:
-                    bytes_per_image = -1
+                # if num_items > max_batch_size:
+                width, height = size
+                max_batch_size = self.get_batch_size(width, height, 0.9)
 
                 if num_items > max_batch_size * 2:
                     torch.backends.cudnn.benchmark = True
@@ -263,7 +285,6 @@ class ImageVector:
                     f"Processing bucket {bucket_idx}/{total_buckets} | "
                     f"Image size: {size} | "
                     f"Elements in bucket: {num_items} | "
-                    f"Bytes per image: {bytes_per_image} | "
                     f"Batch size: {max_batch_size}"
                 )
 
@@ -291,8 +312,7 @@ class ImageVector:
                     # Explicit cleanup (important for VRAM stability)
                     del current_batch
                     del batch_vecs
-
-                    # torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
 
         self.vector_list.extend(vectors)
         return self.vector_list

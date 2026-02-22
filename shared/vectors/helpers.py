@@ -4,6 +4,13 @@ from PIL import Image
 import torch
 
 
+def l2_normalize_batch(vectors: np.ndarray) -> np.ndarray:
+    eps: float = 1e-12
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.maximum(norms, eps)
+    return vectors / norms
+
+
 def get_value_from_entry(entry: Dict[str, Any], name: str):
     custom_text: Dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
     # print(

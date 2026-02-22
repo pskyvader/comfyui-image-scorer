@@ -57,29 +57,41 @@
         {
             "name": "sharpness",
             "type": "float",
-            "max_normalization": 1000.0,
+            "max_normalization": 1.0,
             "slot_size": 1
         },
         {
             "name": "noise_score",
             "type": "float",
-            "max_normalization": 1000.0,
+            "max_normalization": 1.0,
             "slot_size": 1
         },
         {
             "name": "contrast",
             "type": "float",
-            "max_normalization": 255.0,
+            "max_normalization": 1.0,
             "slot_size": 1
         },
         {
             "name": "colorfulness",
             "type": "float",
-            "max_normalization": 100.0,
+            "max_normalization": 1.0,
             "slot_size": 1
         },
         {
             "name": "artifact_score",
+            "type": "float",
+            "max_normalization": 1.0,
+            "slot_size": 1
+        },
+        {
+            "name": "edge_density",
+            "type": "float",
+            "max_normalization": 1.0,
+            "slot_size": 1
+        },
+        {
+            "name": "texture_lbp",
             "type": "float",
             "max_normalization": 1.0,
             "slot_size": 1

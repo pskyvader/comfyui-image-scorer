@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple, Dict
+from typing import Any, Optional, Tuple
 import torch
 from torch import nn
 import timm
@@ -6,22 +6,14 @@ from ..config import config
 from sentence_transformers import SentenceTransformer
 
 
-
-
 class ModelLoader:
     def __init__(self):
         self.embedding_model: Optional[Tuple[Any, int]] = None
-        self.vision_model: Optional[Tuple[nn.Module, int,int]] = None
+        self.vision_model: Optional[Tuple[nn.Module, int, int]] = None
         self.cnn_model = None
-        self.filtered_data = None
-        self.interaction_data = None
-        self.trained_model = None
         self.prepare_config = config["prepare"]
-        #torch.backends.cudnn.benchmark = True
 
-
-
-    def load_vision_model(self) -> Tuple[nn.Module, int,int]:
+    def load_vision_model(self) -> Tuple[nn.Module, int, int]:
         if self.vision_model is not None:
             return self.vision_model
 
@@ -56,9 +48,9 @@ class ModelLoader:
 
         # No processor for ConvNeXt
         props = torch.cuda.get_device_properties(device)
-        total_memory= int(props.total_memory)
-        
-        self.vision_model = (model, output_dim,total_memory)
+        total_memory = int(props.total_memory)
+
+        self.vision_model = (model, output_dim, total_memory)
         return self.vision_model
 
     def load_embedding_model(self) -> Tuple[Any, int]:
@@ -69,7 +61,7 @@ class ModelLoader:
         name: str = embedding_config["name"]
         output_dim: int = embedding_config["output_dim"]
         device: str = embedding_config["device"]
-        mode: str = embedding_config["mode"]
+        # mode: str = embedding_config["mode"]
 
         if device != "cuda":
             raise RuntimeError("`clip_device` not set to 'cuda'")

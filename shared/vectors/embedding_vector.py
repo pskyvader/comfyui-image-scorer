@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 import numpy as np
 from tqdm import tqdm
-from .helpers import get_value_from_entry
+from .helpers import get_value_from_entry, l2_normalize_batch
 from ..loaders.model_loader import model_loader
 
 
@@ -35,9 +35,11 @@ class EmbeddingVector:
                 f"CLIP returned unexpected vector length "
                 f"{processed.shape[-1]}, expected {vector_length}"
             )
+        
+        normalized=l2_normalize_batch(processed)
 
         # Convert to Python lists only once at the end
-        return processed.tolist()
+        return normalized.tolist()
 
     def create_vector_list(self, batch_size: int = 4) -> List[List[float]]:
         total = len(self.value_list)

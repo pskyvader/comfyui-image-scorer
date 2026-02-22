@@ -1,17 +1,15 @@
 import torch
-from typing import Dict, Any, List,Tuple
+from typing import Dict, Any, List, Tuple
 import numpy as np
 from .model import ScorerModel
-from ...shared.helpers import prepare_image_batch, export_image_batch, load_maps
+from ...shared.helpers import export_image_batch, load_maps
 from ...shared.feature_assembler import (
     map_categorical_value,
     apply_feature_filter,
     apply_interaction_features,
     assemble_feature_vector,
 )
-from ..paths import prepare_config
-from ...shared.config import config
-
+from ...shared.paths import prepare_config
 
 from sentence_transformers import SentenceTransformer
 
@@ -21,6 +19,8 @@ from transformers.models.siglip import modeling_siglip, processing_siglip
 from ...shared.vectors.vectors import VectorList
 from ...shared.image_analysis import ImageAnalysis
 from ...shared.vectors.image_vector import ImageVector
+
+
 class AestheticScoreNode:
     def __init__(self):
         SIGLIP_ID: str = prepare_config["vision_model"][
@@ -118,7 +118,7 @@ class AestheticScoreNode:
         if not (float(lora_strength) >= 0.0):
             raise ValueError("'lora_strength' must be a non-negative float.")
 
-        entry:Dict[str,Any]={
+        entry: Dict[str, Any] = {
             "steps": steps,
             "cfg": cfg,
             "sampler": sampler,
@@ -129,34 +129,38 @@ class AestheticScoreNode:
             "positive_prompt": positive,
             "negative_prompt": negative,
         }
-        image_analysis=ImageAnalysis([])
-        images_list=image_analysis.prepare_image_batch(image)
-        processed_data:List[Tuple[str,Dict[str,Any],str,str]]=[]
+        image_analysis = ImageAnalysis([])
+        images_list = image_analysis.prepare_image_batch(image)
+        processed_data: List[Tuple[str, Dict[str, Any], str, str]] = []
         for i in range(0, len(images_list), batch_size):
             current_batch = images_list[i : i + batch_size]
-            data:Tuple[str,Dict[str,Any],str,str]=("",entry,"","")
-            data_batch:List[Tuple[str,Dict[str,Any],str,str]]=[data]*len(current_batch)
-            data_batch=image_analysis.analyze_image_batch(current_batch,data_batch)
+            data: Tuple[str, Dict[str, Any], str, str] = ("", entry, "", "")
+            data_batch: List[Tuple[str, Dict[str, Any], str, str]] = [data] * len(
+                current_batch
+            )
+            data_batch = image_analysis.analyze_image_batch(current_batch, data_batch)
             processed_data.extend(data_batch)
 
-        vector_list = VectorList(processed_data,[],[],[],add_new=False,merge_lists=False)
+        vector_list = VectorList(
+            processed_data, [], [], [], add_new=False, merge_lists=False
+        )
         vector_list.create_vectors()
-        image_vector:ImageVector =vector_list.sorted_vectors["image"]["vector"]
-        
-        processed_images: List[List[float]]=[]
+        image_vector: ImageVector = vector_list.sorted_vectors["image"]["vector"]
+        batch_size = image_vector.get_batch_size(
+            images_list[0].size[0], images_list[0].size[1]
+        )
+        processed_images: List[List[float]] = []
         for i in range(0, len(images_list), batch_size):
             current_batch = images_list[i : i + batch_size]
-            current_processed_images=image_vector.create_image_vector_batch(current_batch)
+            current_processed_images = image_vector.create_image_vector_batch(
+                current_batch
+            )
             processed_images.extend(current_processed_images)
 
-        image_vector.vector_list=processed_images
-        vector_list.sorted_vectors["image"]["vector"]=image_vector
+        image_vector.vector_list = processed_images
+        vector_list.sorted_vectors["image"]["vector"] = image_vector
 
-        final_vectors=vector_list.join_vectors()
-
-        
-
-
+        final_vectors = vector_list.join_vectors()
 
         encode = self.mpnet.encode
         pos_vec: np.ndarray = np.asarray(encode(positive))

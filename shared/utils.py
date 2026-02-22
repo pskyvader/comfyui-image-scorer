@@ -5,7 +5,7 @@ tests. They are written to be defensive and to avoid raising for bad input where
 possible.
 """
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple
 import ast
 
 
