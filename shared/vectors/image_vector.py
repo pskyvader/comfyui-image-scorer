@@ -12,6 +12,7 @@ from collections import defaultdict, OrderedDict
 
 from .helpers import l2_normalize_batch
 from ..io import load_json, atomic_write_json
+from ..paths import vectors_size_file
 
 
 class ImageVector:
@@ -29,11 +30,8 @@ class ImageVector:
                 ),
             ]
         )
-        self.vector_size_path = "./image_vector_size.json"
         try:
-            self.vector_sizes, _ = load_json(
-                self.vector_size_path, expect=dict, default={}
-            )
+            self.vector_sizes, _ = load_json(vectors_size_file, expect=dict, default={})
         except:
             self.vector_sizes = {}
 
@@ -224,7 +222,7 @@ class ImageVector:
         self.vector_sizes = dict(
             sorted(self.vector_sizes.items(), reverse=True, key=lambda x: int(x[0]))
         )
-        atomic_write_json(self.vector_size_path, self.vector_sizes, indent=4)
+        atomic_write_json(vectors_size_file, self.vector_sizes, indent=4)
         return batch_size
 
     def create_vector_list_from_paths(self) -> list[list[float]]:

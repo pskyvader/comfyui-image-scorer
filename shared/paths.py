@@ -5,8 +5,11 @@ from pathlib import Path
 root = Path(config["root"])
 output_dir = os.path.join(root, "output")
 maps_dir = os.path.join(output_dir, "maps")
-vectors_dir = os.path.join(output_dir, "vectors")
+config_dir = os.path.join(output_dir, "config")
 
+vectors_size_file = os.path.join(output_dir, "image_vector_size.json")
+
+vectors_dir = os.path.join(output_dir, "vectors")
 vectors_file = os.path.join(vectors_dir, config["vectors_file"])
 scores_file = os.path.join(vectors_dir, config["scores_file"])
 index_file = os.path.join(vectors_dir, config["index_file"])
@@ -27,7 +30,6 @@ interaction_data = os.path.join(models_dir, config["interaction_data"])
 image_root = config["image_root"]
 comfy_node_path = config["comfy_node_path"]
 prepare_config = config["prepare_config"]
-config_path = config["config_path"]
 training_config = config["training_config"]
 vector_config = config["vector_config"]
 

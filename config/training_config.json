@@ -5,6 +5,7 @@
     "max_combos": 9,
     "save_on_improvement": true,
     "device": "cuda",
+    "objective": "multiclass",
     "verbosity": 1,
     "top": {
         "best_score": 0.22580645161290322,

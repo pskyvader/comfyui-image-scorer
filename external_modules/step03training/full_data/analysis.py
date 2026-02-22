@@ -96,34 +96,61 @@ def compare_model_vs_data(
         plot_scatter_comparison(y_plot, p_plot, plot)
 
 
-def plot_loss_curve(metrics: Dict[str, Any] | None = None) -> None:
+def plot_loss_curve(result_metrics: Dict[str, Any] | None = None) -> None:
     try:
-        loss = None
+        curves = None
+
+        # Priority 1: passed result_metrics
         if (
-            metrics is not None
-            and "loss_curve" in metrics
-            and (metrics["loss_curve"] is not None)
+            result_metrics is not None
+            and "curves" in result_metrics
+            and result_metrics["curves"] is not None
         ):
-            loss = np.asarray(metrics["loss_curve"], dtype=float)
+            curves = result_metrics["curves"]
+
+        # Priority 2: load from disk
         data = training_loader.load_training_model_diagnostics()
-        if data is not None and "loss_curve" in data:
-            loss = np.asarray(data["loss_curve"], dtype=float)
-        if loss is None:
-            print("No loss curve available to plot.")
+        if data is not None and "curves" in data:
+            curves = data["curves"]
+
+        if curves is None:
+            print("No curves available to plot.")
             return
-        loss = loss.ravel()
-        if loss.size == 0:
-            print("Loss curve empty; nothing to plot.")
-            return
+
         plt.figure(figsize=(6, 4))
-        plt.plot(np.arange(1, loss.size + 1), loss, "-o", linewidth=1)
+
+        plotted = False
+
+        for dataset_name, metrics_dict in curves.items():
+            if dataset_name != "valid":
+                continue
+            for metric_name, values in metrics_dict.items():
+                values = np.asarray(values, dtype=float).ravel()
+                if values.size == 0:
+                    continue
+
+                plt.plot(
+                    np.arange(1, values.size + 1),
+                    values,
+                    label=f"{dataset_name}_{metric_name}",
+                    linewidth=1,
+                )
+                plotted = True
+
+        if not plotted:
+            print("Curves are empty; nothing to plot.")
+            return
+
         plt.xlabel("Iteration")
-        plt.ylabel("Loss")
-        plt.title("Training Loss Curve")
+        plt.ylabel("Metric Value")
+        plt.title("Training Curves")
+        plt.legend()
         plt.grid(True)
+        plt.tight_layout()
         plt.show()
+
     except Exception as e:
-        print("Failed to plot loss curve:", e)
+        print("Failed to plot curves:", e)
 
 
 class LivePlotCallback:

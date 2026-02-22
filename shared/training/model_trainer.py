@@ -10,15 +10,11 @@ from sklearn.metrics import (
     accuracy_score,
     log_loss,
 )
-
 from sklearn.model_selection import train_test_split
-
-# from sklearn.compose import TransformedTargetRegressor
-# from sklearn.preprocessing import PowerTransformer
+import lightgbm as lgb
 
 from shared.config import config
 
-import lightgbm as lgb
 from external_modules.step03training.full_data.config_utils import grid_base
 from external_modules.step03training.full_data.analysis import LivePlotCallback
 
@@ -78,7 +74,7 @@ class ModelTrainer:
             self.training_model = lgb.LGBMRegressor(**params)
             self.eval_metrics = ["l2", "rmse", "l1", self.r2_metric]
 
-    def create_callbacks(self, pbar: Any) -> None:
+    def create_callbacks(self, progress_bar: Any) -> None:
         # Setup callbacks for logging
         callbacks: List[Any] = []
         # Always suppress default logger to ensure clean output
@@ -93,10 +89,10 @@ class ModelTrainer:
 
         if self.user_verbosity >= 0:
             # Use tqdm progress bar
-            def pbar_callback(_):
-                pbar.update(1)
+            def progress_bar_callback(_):
+                progress_bar.update(1)
 
-            callbacks.append(pbar_callback)
+            callbacks.append(progress_bar_callback)
             # Add live plotting callback (plots every 5s after first 10s)
             graph_path = models_dir + "graph.png"
             callbacks.append(
@@ -109,23 +105,12 @@ class ModelTrainer:
 
         self.callbacks = callbacks
 
-    # def create_final_model(self):
-    #     """Construct final TransformedTargetRegressor with fitted components
-    #     This allows us to use .predict() normally (which inverses transform handles)
-    #     transformer = PowerTransformer(method="yeo-johnson")
-    #     """
-    #     self.final_model = TransformedTargetRegressor(
-    #         regressor=self.training_model, transformer=self.transformer
-    #     )
-    #     # Manually set fitted attributes to bypass .fit()
-    #     self.final_model.regressor_ = self.training_model
-    #     self.final_model.transformer_ = self.transformer
-    #     # Fix for manually initialized TransformedTargetRegressor
-    #     self.final_model._training_dim = 1
-
     def create_metrics(
-        self, y_test: np.ndarray, y_pred: np.ndarray, training_time: float
+        self, y_test, y_pred, training_time: float
     ):
+        if not self.training_model:
+            raise ModuleNotFoundError("training model not found")
+
         model = self.training_model
         model_type = type(model).__name__
 
@@ -178,38 +163,29 @@ class ModelTrainer:
         # Ranking usually uses internal metrics only
 
         # Extract LightGBM evaluation results
-        evals = getattr(model, "evals_result_", None)
+        evaluation_results = getattr(model, "evals_result_", None)
         metric_dict = None
-        if evals:
-            target_set = (
-                "valid" if "valid" in evals else "train" if "train" in evals else None
-            )
+        if evaluation_results:
+            target_set = "valid" if "valid" in evaluation_results else None
+            if not target_set:
+                print(f"Warning: not valid set found, trying training...")
+                target_set = "train" if "train" in evaluation_results else None
             if target_set:
-                metric_dict = evals[target_set]
+                metric_dict = evaluation_results[target_set]
 
         primary_metric = self.eval_metrics[0]
         if metric_dict:
-            # Store all metrics from LightGBM
-            for metric_name, values in metric_dict.items():
-                self.result_metrics[f"{metric_name}_curve"] = values
-                self.result_metrics[f"{metric_name}_final"] = values[-1]
+            self.result_metrics["curves"] = {}
+
+            for dataset_name, metrics_dict in evaluation_results.items():
+                self.result_metrics["curves"][dataset_name] = {}
+
+                for metric_name, values in metrics_dict.items():
+                    self.result_metrics["curves"][dataset_name][metric_name] = values
 
             # Define main score = first metric in eval_metric list
             if primary_metric in metric_dict:
                 self.result_metrics["score"] = metric_dict[primary_metric][-1]
-
-    # def apply_transform(self, y_train, y_test  ):
-    #     # Manually handle Target Transformation to support eval_set
-    #     # LightGBM needs transformed targets for validation to match training
-
-    #     # Reshape for transformer (requires 2D)
-    #     y_train_2d = y_train.reshape(-1, 1)
-    #     y_test_2d = y_test.reshape(-1, 1)
-
-    #     # Fit on train, transform both
-    #     y_train_trans = self.transformer.fit_transform(y_train_2d).ravel()
-    #     y_test_trans = self.transformer.transform(y_test_2d).ravel()
-    #     return y_train_trans, y_test_trans
 
     def train_model(
         self,
@@ -217,6 +193,8 @@ class ModelTrainer:
         X: np.ndarray,
         y: np.ndarray,
     ) -> Tuple[Any, Dict[str, Any]]:
+        if not self.training_model:
+            self.create_training_model(config_dict)
 
         if config["training"]["device"] != "cuda":
             raise ValueError("Training must use CUDA device.")
@@ -230,11 +208,9 @@ class ModelTrainer:
             ),
         )
         x_train, x_test, y_train, y_test = split_res
-        #  y_train_trans, y_test_trans=self.apply_transform(y_train, y_test )
 
-        self.create_training_model(config_dict)
-        pbar = tqdm(total=self.n_estimators, desc="Training LightGBM")
-        self.create_callbacks(pbar)
+        progress_bar = tqdm(total=self.n_estimators, desc="Training LightGBM")
+        self.create_callbacks(progress_bar)
         start = time.time()
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -262,25 +238,21 @@ class ModelTrainer:
                 self.training_model.fit(**parameters)
 
             if self.user_verbosity >= 0:
-                pbar.close()
+                progress_bar.close()
 
         training_time = time.time() - start
-        # self.create_final_model()
 
-        # Evaluate using the wrapper (handles inverse transform automatically)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 category=UserWarning,
                 message=".*X does not have valid feature names.*",
             )
-            # y_pred = self.final_model.predict(x_test)
             y_pred = self.training_model.predict(x_test)
 
         self.create_metrics(y_test, y_pred, training_time)
 
-        # return self.final_model, self.metrics
-        return self.training_model, self.metrics
+        return self.training_model, self.result_metrics
 
 
 model_trainer = ModelTrainer()
