@@ -266,10 +266,6 @@ class ImageAnalysis(ImageVector):
             self.processed_data = []
             return self.processed_data
 
-        # Default: CPU-bound workload → match CPU count
-        if max_workers is None:
-            max_workers = os.cpu_count() or 1
-
         # Build batch argument list explicitly
         batches = [
             (

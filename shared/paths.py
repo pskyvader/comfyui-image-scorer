@@ -3,11 +3,11 @@ from shared.config import config
 from pathlib import Path
 
 root = Path(config["root"])
+config_dir = os.path.join(root, "config")
 output_dir = os.path.join(root, "output")
 maps_dir = os.path.join(output_dir, "maps")
-config_dir = os.path.join(output_dir, "config")
 
-vectors_size_file = os.path.join(output_dir, "image_vector_size.json")
+vectors_size_file = os.path.join(config_dir, "image_vector_size.json")
 
 vectors_dir = os.path.join(output_dir, "vectors")
 vectors_file = os.path.join(vectors_dir, config["vectors_file"])

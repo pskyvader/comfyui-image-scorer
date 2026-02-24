@@ -272,7 +272,7 @@ class ImageVector:
                 num_items = len(items)
                 # if num_items > max_batch_size:
                 width, height = size
-                max_batch_size = self.get_batch_size(width, height, 0.9)
+                max_batch_size = self.get_batch_size(width, height, 0.85)
 
                 if num_items > max_batch_size * 2:
                     torch.backends.cudnn.benchmark = True

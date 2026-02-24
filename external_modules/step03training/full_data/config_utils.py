@@ -105,6 +105,16 @@ grid_base: Dict[str, Any] = {
         "step": 0.1,
         "random": 0.01,
     },
+    "test_size": {
+        # Purpose: Minimum loss reduction required to make a further partition on a leaf node.
+        # Speed: Can improve speed by pruning the tree early (similar to max_depth).
+        # Starting at zero: A good first non-zero step is around 0.1 or 0.01.
+        "type": "float",
+        "min": 0.001,
+        "max": 0.999,
+        "step": 0.1,
+        "random": 0.01,
+    },
 }
 
 

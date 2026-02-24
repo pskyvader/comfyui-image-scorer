@@ -3,6 +3,7 @@ import os
 import random
 from itertools import product, islice
 import numpy as np
+from tqdm.auto import tqdm
 
 from external_modules.step03training.full_data.config_utils import grid_base, around
 
@@ -11,6 +12,7 @@ from shared.training.model_trainer import model_trainer
 from shared.config import config
 
 _last_used_keys: Dict[str, List[str]] = {}
+
 
 def prepare_optimization_setup(
     base_cfg: Dict[str, Any], strategy: str
@@ -63,14 +65,16 @@ def evaluate_hyperparameter_combo(
     temp_model_base: str,
     X: np.ndarray,
     y: np.ndarray,
-) -> Tuple[float, float]:
+) -> Tuple[float, float, str]:
     _, metrics = model_trainer.train_model(
         config_dict=current_cfg,
         X=X,
         y=y,
+        enable_plotting=True
     )
-    score = float(metrics["r2"])
+    score = float(metrics["score"])
     training_time = float(metrics["training_time"])
+    primary_metric = str(metrics["primary_metric"])
     try:
         os.remove(temp_model_base + ".npz")
     except Exception:
@@ -79,28 +83,38 @@ def evaluate_hyperparameter_combo(
         os.remove(temp_model_base + ".pkl")
     except Exception:
         pass
-    return score, training_time
+    return score, training_time, primary_metric
 
 
-def update_top_config(current_config: Dict[str, Any], score: float, t_time: float):
+def update_top_config(
+    current_config: Dict[str, Any],
+    score: float,
+    t_time: float,
+    primary_metric: str,
+    higher_is_better: bool,
+):
     training_section = config["training"]
     top_cfg = training_section["top"]
     current_top_score = top_cfg["best_score"] if "best_score" in top_cfg else -1000000.0
-    if score > current_top_score:
+    better = (
+        score > current_top_score if higher_is_better else score < current_top_score
+    )
+    if better:
         print(
-            f"--> Found new TOP model! (old: {current_top_score:.4f}, new: {score:.4f})"
+            f"--> Found new TOP model! (old {primary_metric}: {current_top_score:.4f}, new: {score:.4f}) (time: {t_time:.4f}s) ( {"Higher" if higher_is_better else "Lower"} is better)"
         )
-        new_top: Dict[str, Any] = {
-            **current_config,
-            "best_score": score,
-            "training_time": t_time,
-        }
-        top_cfg.update(new_top)
+        top_cfg.update(current_config)
         return True
     return False
 
 
-def update_fastest_config(current_config: Dict[str, Any], score: float, t_time: float):
+def update_fastest_config(
+    current_config: Dict[str, Any],
+    score: float,
+    t_time: float,
+    primary_metric: str,
+    higher_is_better: bool,
+):
     training_section = config["training"]
     top_cfg = training_section["top"]
 
@@ -114,25 +128,36 @@ def update_fastest_config(current_config: Dict[str, Any], score: float, t_time: 
         fast_cfg["training_time"] if "training_time" in fast_cfg else 999999.0
     )
 
-    cond_a = score > current_fast_score
+    better = (
+        score > current_fast_score if higher_is_better else score < current_fast_score
+    )
 
-    cond_b = (t_time < current_fast_time*0.95) and (score >= 0.95 * current_top_score)
+    better_weighted = (
+        score >= 0.95 * current_top_score
+        if higher_is_better
+        else score <= 1.05 * current_top_score
+    )
 
-    if cond_a or cond_b:
+    cond_b = (
+        t_time < min(current_fast_time * 0.95, current_fast_time - 1)
+    ) and better_weighted
+
+    if better or cond_b:
         print(
-            f"--> Found new FASTEST model! Old (fastest): {current_fast_score:.4f}, {current_fast_time:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s)"
+            f"--> Found new FASTEST model! Old {primary_metric} (fastest): {current_fast_score:.4f}, {current_fast_time:.4f} (Score: {score:.4f}, Time: {t_time:.4f}s) ( {"Higher" if higher_is_better else "Lower"} is better)"
         )
-        new_fast: Dict[str, Any] = {
-            **current_config,
-            "best_score": score,
-            "training_time": t_time,
-        }
-        fast_cfg.update(new_fast)
+        fast_cfg.update(current_config)
         return True
     return False
 
 
-def update_slowest_config(current_config: Dict[str, Any], score: float, t_time: float):
+def update_slowest_config(
+    current_config: Dict[str, Any],
+    score: float,
+    t_time: float,
+    primary_metric: str,
+    higher_is_better: bool,
+):
     training_section = config["training"]
 
     slow_cfg = training_section["slowest"]
@@ -140,29 +165,32 @@ def update_slowest_config(current_config: Dict[str, Any], score: float, t_time: 
     current_slow_score = (
         slow_cfg["best_score"] if "best_score" in slow_cfg else -1000000.0
     )
-    
+
     current_slow_time = (
         slow_cfg["training_time"] if "training_time" in slow_cfg else 1000000.0
     )
-    
-    
-    cond_a = score > current_slow_score and t_time < current_slow_time * 1.1
+
+    better = (
+        score > current_slow_time if higher_is_better else score < current_slow_time
+    )
+
+    better_weighted = (
+        score >= 0.95 * current_slow_score
+        if higher_is_better
+        else score <= 1.05 * current_slow_score
+    )
+
+    cond_a = better and t_time < current_slow_time * 1.1
     cond_b = (
         t_time > 60
-        and score > current_slow_score * 0.95
-        and t_time
-        < min(current_slow_time * 0.99, current_slow_time - 1)
+        and better_weighted
+        and t_time < min(current_slow_time * 0.99, current_slow_time - 1)
     )
     if cond_a or cond_b:
         print(
-            f"--> Found new SLOWEST model! Old (slowest) {current_slow_score:.4f},{current_slow_time:.4f}s (Score: {score:.4f}, Time: {t_time:.4f}s)"
+            f"--> Found new SLOWEST model! Old {primary_metric} (slowest) {current_slow_score:.4f},{current_slow_time:.4f}s (Score: {score:.4f}, Time: {t_time:.4f}s) ( {"Higher" if higher_is_better else "Lower"} is better:)"
         )
-        new_slow: Dict[str, Any] = {
-            **current_config,
-            "best_score": score,
-            "training_time": t_time,
-        }
-        slow_cfg.update(new_slow)
+        slow_cfg.update(current_config)
         return True
     return False
 
@@ -176,33 +204,41 @@ def optimize_hyperparameters(
 ) -> List[Tuple[Dict[str, Any], Dict[str, float]]]:
 
     param_grid, temp_model_base = prepare_optimization_setup(base_cfg, strategy)
+    #todo: use tqdm for progress bar and logging instead of print statements
     print(f"Optimizing hyperparameters over grid: {param_grid}")
 
     combos = generate_combos(param_grid, max_combos)
     current_cfg = base_cfg.copy()
     results: List[Tuple[Dict[str, Any], Dict[str, float]]] = []
 
-    for i in range(len(combos)):
-        combo = combos[i]
-        print("_" * 30)
-        print(
-            f"Evaluating hyperparameter combo {i+1}/{len(combos)}, with params: {combo}"
-        )
+    #for i, combo in enumerate(tqdm(combos,position=1, desc=f"HPO Search ({strategy})", unit="combo")):
+    for i, combo in enumerate(combos):
         merged = {**current_cfg, **combo}
-        # print("merged:", merged)
-        score, t_time = evaluate_hyperparameter_combo(merged, temp_model_base, X=X, y=y)
-        print(f"r2={score:.4f}, time={t_time:.4f}s for Evaluated params {combo}")
+        score, t_time, primary_metric = evaluate_hyperparameter_combo(
+            merged, temp_model_base, X=X, y=y
+        )
+        print(
+            f"[{i+1}/{len(combos)}] score ({primary_metric})={score:.4f}, time={t_time:.4f}s"
+        )
 
-        res_metrics = {"r2": score, "training_time": t_time}
+        res_metrics = {"best_score": score, "training_time": t_time}
         results.append((merged, res_metrics))
-        update_top_config(merged, score, t_time)
+        merged.update(res_metrics)
+        higher_is_better = model_trainer.METRIC_DIRECTIONS[
+            config["training"]["objective"]
+        ][primary_metric]
+        update_top_config(merged, score, t_time, primary_metric, higher_is_better)
 
         # Update Fastest (Track Restricted)
         if strategy == "FASTEST":
-            update_fastest_config(merged, score, t_time)
+            update_fastest_config(
+                merged, score, t_time, primary_metric, higher_is_better
+            )
         # Update Slowest (Track Restricted)
         if strategy == "SLOWEST":
-            updated = update_slowest_config(merged, score, t_time)
+            updated = update_slowest_config(
+                merged, score, t_time, primary_metric, higher_is_better
+            )
             if updated and t_time > 300.0:
                 print(
                     "Slowest improved but still too slow; skipping remaining combos in this batch."

@@ -47,7 +47,7 @@ class TrainingLoader:
         self._reset_models()
 
     def load_vectors(self) -> np.ndarray:
-        if self.use_cache and self.vectors:
+        if self.use_cache and self.vectors is not None:
             return self.vectors
 
         vectors = load_single_jsonl(vectors_file)
@@ -56,7 +56,7 @@ class TrainingLoader:
         return self.vectors
 
     def load_scores(self) -> np.ndarray:
-        if self.use_cache and self.scores:
+        if self.use_cache and self.scores is not None:
             return self.scores
 
         scores = load_single_jsonl(scores_file)
@@ -65,7 +65,7 @@ class TrainingLoader:
         return self.scores
 
     def load_filtered_data(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        if self.use_cache and self.filtered_data:
+        if self.use_cache and self.filtered_data is not None:
             return self.filtered_data
 
         if os.path.exists(filtered_data):
@@ -90,7 +90,7 @@ class TrainingLoader:
         return saved_data
 
     def load_interaction_data(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        if self.use_cache and self.interaction_data:
+        if self.use_cache and self.interaction_data is not None:
             return self.interaction_data
 
         if os.path.exists(interaction_data):

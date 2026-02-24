@@ -52,7 +52,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     print(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
     collected_data = collect_valid_files(
-        files, processed_files, image_root, limit, max_workers=20
+        files, processed_files, image_root, limit, max_workers=40
     )
 
     if len(collected_data) == 0:
@@ -67,9 +67,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
 
     print("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
-    processed_data = image_analysis.analyze_images_from_paths(
-        batch_size=config["prepare"]["vision_model"]["encoding_batch_size"]
-    )
+    processed_data = image_analysis.analyze_images_from_paths()
 
     vectors_list_parser = VectorList(
         processed_data,

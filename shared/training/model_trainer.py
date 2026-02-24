@@ -1,4 +1,6 @@
-from typing import Any, Dict, Tuple, cast, List
+from typing import Any, Dict, Tuple, cast, List, Optional
+
+import os
 import time
 import warnings
 import numpy as np
@@ -9,24 +11,51 @@ from sklearn.metrics import (
     root_mean_squared_error,
     accuracy_score,
     log_loss,
+    f1_score,
+    precision_score,
+    recall_score,
 )
+
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
 from shared.config import config
+from shared.training.plot import plot_metric, LivePlotCallback
 
 from external_modules.step03training.full_data.config_utils import grid_base
-from external_modules.step03training.full_data.analysis import LivePlotCallback
 
 from shared.paths import models_dir
 
 
 class ModelTrainer:
+
+    METRIC_DIRECTIONS: Dict[str, Dict[str, bool]] = {
+        "lambdarank": {
+            "ndcg": True,  # higher is better
+        },
+        "multiclass": {
+            "multi_logloss": False,  # lower is better
+            "multi_error": False,
+        },
+        "binary": {
+            "binary_logloss": False,
+            "auc": True,
+        },
+        "regression": {
+            "l2": False,
+            "rmse": False,
+            "l1": False,
+            "r2": True,
+        },
+    }
+
     def __init__(self) -> None:
         self.training_model = None
         self.eval_metrics: List[Any] = []
         # self.final_model = None
         self.n_estimators = None
+        self.test_size = None
         self.early_stopping_rounds = None
         self.user_verbosity = config["training"]["verbosity"]
         self.callbacks = None
@@ -55,6 +84,8 @@ class ModelTrainer:
         self.n_estimators = int(params["n_estimators"])
         if "early_stopping_rounds" in params:
             self.early_stopping_rounds = int(params.pop("early_stopping_rounds"))
+        if "test_size" in params:
+            self.test_size = float(params.pop("test_size"))
         objective = params["objective"]
 
         # Ranking
@@ -74,7 +105,7 @@ class ModelTrainer:
             self.training_model = lgb.LGBMRegressor(**params)
             self.eval_metrics = ["l2", "rmse", "l1", self.r2_metric]
 
-    def create_callbacks(self, progress_bar: Any) -> None:
+    def create_callbacks(self, progress_bar: Any, enable_plotting: bool = False) -> None:
         # Setup callbacks for logging
         callbacks: List[Any] = []
         # Always suppress default logger to ensure clean output
@@ -87,27 +118,24 @@ class ModelTrainer:
                 )
             )
 
+        self.plot_callback = None
         if self.user_verbosity >= 0:
             # Use tqdm progress bar
             def progress_bar_callback(_):
                 progress_bar.update(1)
 
             callbacks.append(progress_bar_callback)
-            # Add live plotting callback (plots every 5s after first 10s)
-            graph_path = models_dir + "graph.png"
-            callbacks.append(
-                LivePlotCallback(
-                    update_interval=60.0,
-                    min_time_before_first_plot=120.0,
-                    save_path=graph_path,
-                )
-            )
+            # Add plotting callback only if enabled (not during HPO temporary evaluations)
+            if enable_plotting:
+                graph_path = os.path.join(models_dir, "graph.png")
+                self.plot_callback = LivePlotCallback(save_path=graph_path, frequency=30)
+                callbacks.append(self.plot_callback)
 
         self.callbacks = callbacks
 
     def create_metrics(
-        self, y_test, y_pred, training_time: float
-    ):
+        self, y_test: np.ndarray, y_pred: np.ndarray, training_time: float
+    ) -> None:
         if not self.training_model:
             raise ModuleNotFoundError("training model not found")
 
@@ -130,28 +158,65 @@ class ModelTrainer:
         )
 
         # Objective-aware external metrics
-        objective = model.get_params().get("objective")
+        objective = model.get_params()["objective"]
 
         if objective in {"regression", "regression_l2", "l2"}:
-            mae = float(mean_absolute_error(y_test, y_pred))
-            rmse = float(root_mean_squared_error(y_test, y_pred))
+            # Flatten arrays for regression (predictions are 1D)
+            y_pred_flat = np.asarray(y_pred).ravel()
+            y_test_flat = np.asarray(y_test).ravel()
+
+            mae = float(mean_absolute_error(y_test_flat, y_pred_flat))
+            rmse = float(root_mean_squared_error(y_test_flat, y_pred_flat))
+            r2 = float(r2_score(y_test_flat, y_pred_flat))
 
             self.result_metrics.update(
                 {
                     "mae": mae,
                     "rmse": rmse,
+                    "r2": r2,
                 }
             )
 
         elif objective in {"multiclass", "binary"}:
             # Classification metrics
-            if objective == "binary":
-                predictions = (y_pred > 0.5).astype(int)
+            y_pred_flat = np.asarray(y_pred)
+            if y_pred_flat.ndim > 1:
+                if objective == "binary":
+                    predictions = (y_pred_flat[:, 1] > 0.5).astype(int)
+                else:
+                    predictions = np.argmax(y_pred_flat, axis=1)
             else:
-                predictions = np.argmax(y_pred, axis=1)
+                predictions = (
+                    (y_pred_flat > 0.5).astype(int)
+                    if objective == "binary"
+                    else y_pred_flat
+                )
 
             acc = float(accuracy_score(y_test, predictions))
             self.result_metrics["accuracy"] = acc
+
+            # F1-scores (better for imbalanced datasets)
+            try:
+                macro_f1 = float(
+                    f1_score(y_test, predictions, average="macro", zero_division=0)
+                )
+                weighted_f1 = float(
+                    f1_score(y_test, predictions, average="weighted", zero_division=0)
+                )
+                macro_precision = float(
+                    precision_score(
+                        y_test, predictions, average="macro", zero_division=0
+                    )
+                )
+                macro_recall = float(
+                    recall_score(y_test, predictions, average="macro", zero_division=0)
+                )
+                self.result_metrics["macro_f1"] = macro_f1
+                self.result_metrics["weighted_f1"] = weighted_f1
+                self.result_metrics["macro_precision"] = macro_precision
+                self.result_metrics["macro_recall"] = macro_recall
+            except Exception:
+                pass
 
             # log loss only if probabilities available
             try:
@@ -174,7 +239,7 @@ class ModelTrainer:
                 metric_dict = evaluation_results[target_set]
 
         primary_metric = self.eval_metrics[0]
-        if metric_dict:
+        if metric_dict and evaluation_results:
             self.result_metrics["curves"] = {}
 
             for dataset_name, metrics_dict in evaluation_results.items():
@@ -186,31 +251,35 @@ class ModelTrainer:
             # Define main score = first metric in eval_metric list
             if primary_metric in metric_dict:
                 self.result_metrics["score"] = metric_dict[primary_metric][-1]
+                self.result_metrics["primary_metric"] = primary_metric
 
     def train_model(
         self,
         config_dict: Dict[str, Any],
         X: np.ndarray,
         y: np.ndarray,
+        enable_plotting: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
-        if not self.training_model:
-            self.create_training_model(config_dict)
-
         if config["training"]["device"] != "cuda":
             raise ValueError("Training must use CUDA device.")
 
-        test_size = float(config["training"]["test_size"])
+        # test_size = float(config["training"]["test_size"])
+        # test_size=config_dict.pop("test_size")
+        self.create_training_model(config_dict)
+
         random_state = config["training"]["random_state"]
         split_res = cast(
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
             tuple(
-                train_test_split(X, y, test_size=test_size, random_state=random_state)
+                train_test_split(
+                    X, y, test_size=self.test_size, random_state=random_state
+                )
             ),
         )
         x_train, x_test, y_train, y_test = split_res
 
         progress_bar = tqdm(total=self.n_estimators, desc="Training LightGBM")
-        self.create_callbacks(progress_bar)
+        self.create_callbacks(progress_bar, enable_plotting=enable_plotting)
         start = time.time()
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -239,6 +308,9 @@ class ModelTrainer:
 
             if self.user_verbosity >= 0:
                 progress_bar.close()
+                # Plot final training results only once
+                #if self.plot_callback is not None:
+                #    self.plot_callback.plot_final_results()
 
         training_time = time.time() - start
 
