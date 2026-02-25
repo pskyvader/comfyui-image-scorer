@@ -2,7 +2,6 @@ import numpy as np
 import os
 from typing import Any, Optional, Tuple, Dict
 from pathlib import Path
-from torch import nn
 import pickle
 import base64
 
@@ -29,12 +28,9 @@ class TrainingLoader:
         self.scores: Optional[np.ndarray] = None
         self.use_cache = use_cache
 
-    def toggle_cache(self, use_cache: bool):
-        self.use_cache = use_cache
-        if not use_cache:
-            self._reset_models()
 
-    def _reset_models(self):
+
+    def _reset_models(self) -> None:
         self.vectors = None
         self.scores = None
         self.training_model = None
@@ -42,7 +38,7 @@ class TrainingLoader:
         self.filtered_data = None
         self.interaction_data = None
 
-    def remove_training_models(self):
+    def remove_training_models(self) -> None:
         remove_directory(Path(models_dir))
         self._reset_models()
 

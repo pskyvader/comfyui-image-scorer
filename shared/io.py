@@ -6,7 +6,6 @@ from typing import (
     Any,
     Tuple,
     TypeVar,
-    Callable,
     Iterator,
     List,
     cast,
@@ -15,7 +14,6 @@ from typing import (
     Optional,
 )
 import numpy as np
-from PIL import Image
 from tqdm import tqdm
 import ast
 
@@ -155,7 +153,7 @@ def _recursive_parse_json(obj: Any) -> Any:
         ):
             try:
                 parsed = json.loads(obj)
-            except Exception as e:
+            except Exception:
                 # print(
                 #     f"parse json failed for {obj} . {e}. Retrying as python dictionary"
                 # )
@@ -241,11 +239,7 @@ def load_single_entry_mapping(
     return (payload, str(key), None)
 
 
-def load_or_default(path: str, factory: Callable[[], T]) -> T:
-    data, err = load_json(path, expect=None, default=None)
-    if err:
-        return factory()
-    return data if data is not None else factory()
+
 
 
 def load_index_list(path: str, fallback: list[Any]) -> Tuple[list[Any], str | None]:
@@ -269,22 +263,7 @@ def load_index_set(path: str, fallback: list[str]) -> Tuple[set[str], str | None
         return set(), "invalid_type"
 
 
-def load_json_list_robust(path: str) -> list[Any]:
-    data, err = load_json_list(path, [])
-    if err and os.path.exists(path):
-        try:
-            corrupt_path = f"{path}.corrupt"
-            i = 1
-            while os.path.exists(corrupt_path):
-                corrupt_path = f"{path}.corrupt-{i}"
-                i += 1
-            os.replace(path, corrupt_path)
-            print(f"Error loading {path}: {err}. Moved corrupt file to {corrupt_path}")
-        except Exception as e2:
-            print(
-                f"Error loading {path}: {err}; additionally failed to move corrupt file: {e2}"
-            )
-    return data
+
 
 
 VECTOR_KEYS: Tuple[str, ...] = ("vector", "features", "vec", "embedding")

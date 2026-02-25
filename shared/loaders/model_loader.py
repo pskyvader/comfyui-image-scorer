@@ -10,7 +10,7 @@ class ModelLoader:
     def __init__(self):
         self.embedding_model: Optional[Tuple[Any, int]] = None
         self.vision_model: Optional[Tuple[nn.Module, int, int]] = None
-        self.cnn_model = None
+        self.cnn_model: Optional[Any] = None
         self.prepare_config = config["prepare"]
 
     def load_vision_model(self) -> Tuple[nn.Module, int, int]:

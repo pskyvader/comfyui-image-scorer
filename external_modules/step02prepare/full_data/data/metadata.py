@@ -1,6 +1,6 @@
 import os
 from typing import Any, Dict, List, Tuple
-from shared.io import atomic_write_json, load_single_entry_mapping
+from .....shared.io import atomic_write_json, load_single_entry_mapping
 
 
 def write_error_log(error_log: List[Dict[str, str]], path: str) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, NamedTuple, Dict, Any
-from external_modules.step02prepare.full_data.config.manager import load_vector_schema
+from .manager import load_vector_schema
 
 
 class ComponentInfo(NamedTuple):
@@ -34,9 +34,3 @@ def get_feature_vector_length(
     dim: int,
 ) -> int:
     return sum(get_slot_size(name, slots, mode, dim) for name in get_vector_order())
-
-
-def get_total_vector_length(
-    slots: Dict[str, Any], mode: str, dim: int, image_vec_len: int = IMAGE_VEC_LEN
-) -> int:
-    return image_vec_len + get_feature_vector_length(slots, mode, dim)

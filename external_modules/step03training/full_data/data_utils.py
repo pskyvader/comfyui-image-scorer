@@ -6,9 +6,9 @@ from tqdm import tqdm
 from typing import Tuple
 import os
 
-from shared.io import load_single_jsonl
-from shared.config import config
-from shared.paths import (
+from ...shared.io import load_single_jsonl
+from ...shared.config import config
+from ...shared.paths import (
     filtered_data,
     interaction_data,
     vectors_file,

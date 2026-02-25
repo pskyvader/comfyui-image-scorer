@@ -1,14 +1,12 @@
 import argparse
 import sys
 import os
-from pathlib import Path
 from typing import Dict, List
 
 # Ensure project root is on sys.path so package imports work when running as a script
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from shared.config import ensure_dir
-from shared.paths import (
+from ...shared.config import ensure_dir
+from ...shared.paths import (
     text_data_file,
     text_index_file,
     image_root,
@@ -16,9 +14,9 @@ from shared.paths import (
 )
 
 
-from external_modules.step02prepare.full_data.data.manager import collect_files
-from external_modules.step02prepare.full_data.data.metadata import write_error_log
-from external_modules.step02prepare.text_data.text_processing import (
+from ..full_data.data.manager import collect_files
+from ..full_data.data.metadata import write_error_log
+from .text_processing import (
     load_text_index,
     save_text_index,
     process_text_files,

@@ -21,6 +21,8 @@ class ImageVector:
         # self.image_list: List[Image.Image]
         self.path_list: List[str] = []
         self.vector_list: List[List[float]] = []
+        self.model: Any = None
+        self.vector_length: int = 0
         self._transform = transforms.Compose(
             [
                 transforms.ToTensor(),
@@ -72,7 +74,7 @@ class ImageVector:
             return [Image.fromarray(arr).convert("RGB")]
         raise ValueError(f"Unsupported ndarray shape: {arr.shape}")
 
-    def prepare_image_batch(self, image: Any) -> list[Image.Image]:
+    def prepare_image_batch(self, image: Any) -> List[Image.Image]:
         """
         Convert various image inputs into a list of RGB PIL Images.
         Accepts torch.Tensor, numpy arrays, PIL.Image, or list/tuple of these.
@@ -225,7 +227,7 @@ class ImageVector:
         atomic_write_json(vectors_size_file, self.vector_sizes, indent=4)
         return batch_size
 
-    def create_vector_list_from_paths(self) -> list[list[float]]:
+    def create_vector_list_from_paths(self) -> List[List[float]]:
         """
         Exact-size bucketing with controlled RAM and VRAM usage.
 

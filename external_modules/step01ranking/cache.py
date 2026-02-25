@@ -55,12 +55,7 @@ def _get_meta(key: str) -> str | None:
 # ───────────────────────────
 # lifecycle / scan flags
 # ───────────────────────────
-def reset() -> None:
-    """Clear the cache and reset scanning state."""
-    with _get_conn() as conn:
-        conn.execute("DELETE FROM cache")
-        conn.execute("DELETE FROM meta")
-        conn.commit()
+
 
 
 def start_scan() -> None:
@@ -119,11 +114,6 @@ def get(valid_only: bool = True) -> List[str]:
 
 
 _last_served: float = 0.0
-
-
-def fast_serve() -> bool:
-    """Return True if the cache was served recently (last second)."""
-    return _last_served > time() - 1
 
 
 def total_cached() -> int:

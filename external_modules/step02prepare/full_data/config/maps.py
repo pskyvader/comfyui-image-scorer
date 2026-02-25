@@ -2,9 +2,9 @@ from __future__ import annotations
 import json
 import os
 from typing import List, Tuple
-from shared.config import ensure_dir
-from shared.io import load_json
-from shared.paths import maps_dir
+from .....shared.config import ensure_dir
+from .....shared.io import load_json
+from .....shared.paths import maps_dir
 
 
 def map_dir_path(maps_dir: str, name: str, path: str | None = None) -> str:

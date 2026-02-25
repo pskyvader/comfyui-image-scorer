@@ -1,9 +1,8 @@
-import os
 from tqdm import tqdm
 from PIL import Image
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 from skimage.feature import local_binary_pattern
 
 from .vectors.image_vector import ImageVector

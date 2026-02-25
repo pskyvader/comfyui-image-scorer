@@ -16,6 +16,7 @@ class VectorList:
         scores_list: List[int],
         add_new: bool,
         merge_lists: bool = False,
+        read_only: bool = False,
     ) -> None:
 
         self._IMAGE = "image"
@@ -37,19 +38,20 @@ class VectorList:
         self.sorted_vectors: Dict[str, Any] = {}
         self.configure_sorted_vectors()
         self.merge_lists = merge_lists
+        self.read_only=read_only
         if self.merge_lists:
             self.split_vectors()
 
         for data in raw_data:
             image_path, entry, timestamp, file_id = data
-            unique_id = f"{file_id}#{timestamp}"
-            self.unique_ids.append(unique_id)
-            self.scores.append(entry["score"])
-
-            self.image_paths.append(image_path)
             self.entries.append(entry)
-            self.timestamps.append(timestamp)
-            self.file_ids.append(file_id)
+            if not self.read_only:
+                unique_id = f"{file_id}#{timestamp}"
+                self.unique_ids.append(unique_id)
+                self.scores.append(entry["score"])
+                self.image_paths.append(image_path)
+                self.timestamps.append(timestamp)
+                self.file_ids.append(file_id)
 
         self.image_vectors: Dict[str, ImageVector] = {}
         self.map_vectors: Dict[str, MapVector] = {}
@@ -59,7 +61,7 @@ class VectorList:
         self.final_vector: List[List[float]] = []
 
 
-    def configure_sorted_vectors(self):
+    def configure_sorted_vectors(self) -> None:
         image_type: List[Dict[str, Any]] = []
         map_type: List[Dict[str, Any]] = []
         int_type: List[Dict[str, Any]] = []
@@ -108,7 +110,7 @@ class VectorList:
                 **current_type,
             }
 
-    def create_vectors(self):
+    def create_vectors(self) -> None:
         # split by data type
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
@@ -139,7 +141,7 @@ class VectorList:
                 current_vector.create_vector_list_from_paths()
                 self.sorted_vectors[v]["vector"] = current_vector
 
-    def validate_and_convert(self, data: List[List[str]], name: str, target_size: int):
+    def validate_and_convert(self, data: List[List[str]], name: str, target_size: int) -> np.ndarray:
         try:
             return np.array(data, dtype=float)
         except ValueError:
@@ -153,7 +155,7 @@ class VectorList:
                 f"Actual lengths at those indices: {lengths[bad_indices[:5]]}"
             )
 
-    def join_vectors(self):
+    def join_vectors(self) -> List[List[float]]:
         clean_arrays: list[np.ndarray] = []
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
@@ -167,7 +169,7 @@ class VectorList:
         self._update_lists()
         return self.final_vector
 
-    def _update_lists(self):
+    def _update_lists(self) -> None:
         if not self.merge_lists:
             self.vectors_list.extend(self.final_vector)
         else:

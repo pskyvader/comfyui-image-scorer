@@ -52,16 +52,7 @@ def one_hot(index: int, length: int) -> List[int]:
     return v
 
 
-def binary_presence(indices: List[int], length: int) -> List[int]:
-    """Return a binary presence vector with 1s at the supplied indices.
 
-    Indices outside [0, length) are ignored.
-    """
-    v = [0] * length
-    for i in indices:
-        if 0 <= i < length:
-            v[i] = 1
-    return v
 
 
 def weighted_presence(*args: Any) -> List[float]:

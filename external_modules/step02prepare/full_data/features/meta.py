@@ -1,5 +1,5 @@
 from typing import Dict, Any, Tuple
-from shared.utils import parse_custom_text, first_present
+from .....shared.utils import parse_custom_text, first_present
 
 
 def parse_entry_meta(

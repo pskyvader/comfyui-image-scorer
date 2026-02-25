@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Union, Optional, Iterator
 from collections.abc import MutableMapping
 
-from shared.io import load_json
+from .io import load_json
 
 PathLike = Union[str, Path]
 ConfigDict = Dict[str, Any]

@@ -2,10 +2,10 @@ from typing import List, Dict, Any, Tuple
 from collections.abc import MutableMapping
 import numpy as _np
 from .utils import one_hot, weighted_presence
-from external_modules.step02prepare.full_data.config.schema import (
+from ..config.schema import (
     get_slot_size,
 )
-from shared.config import config
+from .....shared.config import config
 
 WeightedIndices = List[Tuple[int, float]]
 

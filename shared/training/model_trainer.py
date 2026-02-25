@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple, cast, List, Optional
+from typing import Any, Dict, Tuple, cast, List
 
 import os
 import time
@@ -16,16 +16,15 @@ from sklearn.metrics import (
     recall_score,
 )
 
-import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
-from shared.config import config
-from shared.training.plot import plot_metric, LivePlotCallback
+from ..config import config
+from ..training.plot import LivePlotCallback
 
-from external_modules.step03training.full_data.config_utils import grid_base
+from ...external_modules.step03training.full_data.config_utils import grid_base
 
-from shared.paths import models_dir
+from ..paths import models_dir
 
 
 class ModelTrainer:
@@ -76,6 +75,7 @@ class ModelTrainer:
             "verbosity": -1,
             "objective": config["training"]["objective"],
             "device_type": "gpu",
+            "importance_type": "gain",
         }
         # Dynamically load grid parameters
         for key in grid_base.keys():
@@ -105,7 +105,7 @@ class ModelTrainer:
             self.training_model = lgb.LGBMRegressor(**params)
             self.eval_metrics = ["l2", "rmse", "l1", self.r2_metric]
 
-    def create_callbacks(self, progress_bar: Any, enable_plotting: bool = False) -> None:
+    def create_callbacks(self, progress_bar: Any, status_bar: Any, enable_plotting: bool = False) -> None:
         # Setup callbacks for logging
         callbacks: List[Any] = []
         # Always suppress default logger to ensure clean output
@@ -128,7 +128,7 @@ class ModelTrainer:
             # Add plotting callback only if enabled (not during HPO temporary evaluations)
             if enable_plotting:
                 graph_path = os.path.join(models_dir, "graph.png")
-                self.plot_callback = LivePlotCallback(save_path=graph_path, frequency=30)
+                self.plot_callback = LivePlotCallback(save_path=graph_path, frequency=30, status_bar=status_bar)
                 callbacks.append(self.plot_callback)
 
         self.callbacks = callbacks
@@ -278,8 +278,9 @@ class ModelTrainer:
         )
         x_train, x_test, y_train, y_test = split_res
 
-        progress_bar = tqdm(total=self.n_estimators, desc="Training LightGBM")
-        self.create_callbacks(progress_bar, enable_plotting=enable_plotting)
+        progress_bar = tqdm(total=self.n_estimators, desc="Training LightGBM",position=0)
+        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}")
+        self.create_callbacks(progress_bar, enable_plotting=enable_plotting, status_bar=status_bar)
         start = time.time()
         with warnings.catch_warnings():
             warnings.filterwarnings(

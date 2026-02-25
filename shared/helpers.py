@@ -7,7 +7,7 @@ import base64
 import json
 import os
 import shutil
-from .paths import maps_dir, prepare_config, output_dir, models_dir,vectors_dir
+from .paths import maps_dir, models_dir,vectors_dir
 
 import torch
 
@@ -20,10 +20,6 @@ def remove_directory(directory_path: Path) -> None:
         except OSError as e:
             print(f"Warning: Could not remove {directory_path}: {e}")
 
-
-def remove_existing_outputs() -> None:
-    directory_path = Path(output_dir)
-    remove_directory(directory_path)
 
 def remove_vectors() -> None:
     directory_path = Path(vectors_dir)
@@ -42,13 +38,13 @@ def one_hot(idx: int, size: int) -> List[float]:
     return vec
 
 
-def get_slot_size(name: str) -> int:
-    _SLOT_SIZES = prepare_config["vector_schema"]["slots"]
-    base = int(_SLOT_SIZES.get(name, 1))
-    # Embedding slots result in a vector of length `dim` (from config)
-    if name in ["positive_terms", "negative_terms"]:
-        return int(prepare_config["prompt_representation"]["dim"])
-    return base
+# def get_slot_size(name: str) -> int:
+#     _SLOT_SIZES = prepare_config["vector_schema"]["slots"]
+#     base = int(_SLOT_SIZES.get(name, 1))
+#     # Embedding slots result in a vector of length `dim` (from config)
+#     if name in ["positive_terms", "negative_terms"]:
+#         return int(prepare_config["prompt_representation"]["dim"])
+#     return base
 
 
 def load_maps() -> Dict[str, Dict[str, int]]:
@@ -110,7 +106,7 @@ def load_model_diagnostics(model_path: str) -> Dict[str, Any]:
         return {k: _normalize(npz[k]) for k in npz.files}
 
 
-def get_param(key, data):
+def get_param(key: str, data: Dict[str, Any]) -> Any:
     if key in data:
         return data[key]
     if "metrics" in data:

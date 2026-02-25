@@ -7,6 +7,7 @@ from sklearn.preprocessing import PolynomialFeatures
 
 from ..config import config
 from ..loaders.training_loader import training_loader
+from .model_trainer import model_trainer
 
 
 class DataTransformer:
@@ -16,68 +17,83 @@ class DataTransformer:
         )
         pass
 
-    def filter_unused_features(
-        self, x: np.ndarray, y: np.ndarray, steps: int, verbose: bool = True
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def filter_unused_features(self, x: np.ndarray, y: np.ndarray, steps: int, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Trains a fast LightGBM model to identify and remove features with zero importance.
-        Returns the filtered X dataset and the indices of the kept features.
+        Trains a fast LightGBM model to identify and remove features with zero importance
+        and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
         Handles its own caching via 'filtered_data_cache.npz'.
         """
         filtered_data_cached = training_loader.load_filtered_data()
         if filtered_data_cached:
             return filtered_data_cached
 
-        device_name: str = str(config["training"]["device"])
         user_verbosity = int(config["training"]["verbosity"])
-        if device_name == "cuda":
-            device_name = "gpu"
 
-        params: Dict[str, Any] = {
+        # Create training model using shared trainer with minimal config
+        config_dict: Dict[str, Any] = {
             "objective": "regression",
-            "metric": "l2",
-            "verbosity": -1,
-            "n_estimators": steps,  # Enough to find gradients
-            "learning_rate": 0.1,
-            "min_child_samples": 1,
-            "device_type": device_name,
+            "n_estimators": steps,
         }
-        model = lgb.LGBMRegressor(**params)
+        model_trainer.create_training_model(config_dict)
+        model = model_trainer.training_model
 
         # Setup callbacks for logging
-        callbacks: List[Any] = []
-        # Always suppress default logger to ensure clean output
-        callbacks.append(lgb.log_evaluation(period=-1))
+        callbacks: List[Any] = [lgb.log_evaluation(period=-1)]  # suppress default logger
 
         if user_verbosity >= 0:
             # Use tqdm progress bar
-            pbar = tqdm(total=params["n_estimators"], desc="Training LightGBM")
+            pbar = tqdm(total=steps, desc="Training LightGBM")
 
             def pbar_callback(_):
                 pbar.update(1)
 
             callbacks.append(pbar_callback)
 
+        # Train the model
         model.fit(x, y, callbacks=callbacks)
 
+        # Get feature importances (gain)
         importances = model.feature_importances_
-        mask = importances > 0
-        kept_indices = np.where(mask)[0]
+        n_features = len(importances)
 
-        if len(kept_indices) == 0:
-            if verbose:
-                print("Warning: No important features found. Keeping all features.")
-            return (x, np.arange(x.shape[1]))
+        if verbose:
+            n_zeros = np.sum(importances == 0)
+            print(f"Found {n_zeros} features with zero gain out of {n_features} total features.")
 
-        X_filtered = x[:, mask]
+        # --- Step 1: remove all zero-gain features
+        nonzero_mask = importances > 0
+        nonzero_importances = importances[nonzero_mask]
+        nonzero_indices = np.where(nonzero_mask)[0]
+
+        # --- Step 2: cumulative gain pruning
+        sorted_idx = np.argsort(nonzero_importances)[::-1]  # descending
+        sorted_importances = nonzero_importances[sorted_idx]
+        sorted_indices = nonzero_indices[sorted_idx]
+
+        cumulative = np.cumsum(sorted_importances)
+        cumulative /= cumulative[-1]  # normalize to 1
+
+        # Keep features until cumulative gain reaches threshold (e.g., 95%)
+        cum_threshold = 0.95
+        keep_mask = cumulative <= cum_threshold
+
+        # Always keep at least one feature
+        if not np.any(keep_mask):
+            keep_mask[0] = True
+
+        kept_indices = sorted_indices[keep_mask]
+
+        # Apply mask to X
+        X_filtered = x[:, kept_indices]
 
         if verbose:
             n_dropped = x.shape[1] - X_filtered.shape[1]
-            print(f"Dropped {n_dropped} unused features. New shape: {X_filtered.shape}")
+            print(f"Dropped {n_dropped} features. New shape: {X_filtered.shape}")
 
+        # Cache filtered data
         filtered_data = training_loader.save_filtered_data(X_filtered, kept_indices)
         if verbose:
-            print(f"Saved filtered data to cache")
+            print("Saved filtered data to cache")
 
         return filtered_data
 

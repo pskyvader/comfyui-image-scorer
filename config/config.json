@@ -1,7 +1,5 @@
 {
-    "root": "D:/Programming/Python/comfyui-image-scorer",
     "image_root": "E:/ComfyUI/output",
-    "comfy_node_path": "E:/ComfyUI/custom_nodes/ComfyUI-Image-Scorer",
     "config_path": "config",
     "config_file": "config/config.json",
     "prepare_config": "config/prepare_config.json",

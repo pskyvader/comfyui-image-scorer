@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Any, List, Tuple, Dict
+from typing import Any, List, Dict
 from PIL import Image
 import torch
 
@@ -11,7 +11,7 @@ def l2_normalize_batch(vectors: np.ndarray) -> np.ndarray:
     return vectors / norms
 
 
-def get_value_from_entry(entry: Dict[str, Any], name: str):
+def get_value_from_entry(entry: Dict[str, Any], name: str) -> Any:
     custom_text: Dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
     # print(
     #     f"entry: {entry}, name: {name}, custom_text: {custom_text}, type: {type(entry)}",
@@ -29,31 +29,7 @@ def get_value_from_entry(entry: Dict[str, Any], name: str):
     return current_value
 
 
-def load_clip() -> Tuple[Any, Any]:
-    global _clip_model, _clip_processor
-    if _clip_model is not None:
-        return
-    device = config["vision_model"]["device"]
-    VISION_MODEL_ID = config["vision_model"]["name"]
-    if device != "cuda":
-        raise RuntimeError("`clip_device` not set to 'cuda'")
 
-    try:
-        print(f"Loading Vision Model: {VISION_MODEL_ID}...")
-        model = AutoModel.from_pretrained(VISION_MODEL_ID, local_files_only=True)
-        processor = AutoProcessor.from_pretrained(
-            VISION_MODEL_ID, local_files_only=True, use_fast=True
-        )
-    except Exception:
-        # Fallback to online if not in cache (and if internet is available)
-        print("Vision model not found in cache, attempting download...")
-        model = AutoModel.from_pretrained(VISION_MODEL_ID)
-        processor = AutoProcessor.from_pretrained(VISION_MODEL_ID)
-    model = model.eval()
-    model.to(device)
-    _clip_model = model
-    _clip_processor = processor
-    print(f"Vision model loaded on device: {device} ")
 
 
 def export_image_batch(pil_images: List[Image.Image]) -> torch.Tensor:

@@ -5,9 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 
-from shared.loaders.training_loader import training_loader
-from shared.config import config
-from shared.paths import models_dir
+from ..loaders.training_loader import training_loader
+from ..config import config
 
 
 class PlotManager:
@@ -148,8 +147,12 @@ class PlotManager:
         x: np.ndarray, y: np.ndarray, plot: bool = True, limit: int = 500
     ) -> None:
         """Compare a trained model vs data."""
-        x_sample = x[:limit]
-        y_sample = y[: len(x_sample)]
+        rng = np.random.default_rng()
+        indices = rng.choice(len(x), size=limit, replace=False)
+        
+        
+        x_sample = x[indices]
+        y_sample = y[indices]
         model = training_loader.load_training_model()
 
         if model is None:
@@ -266,17 +269,18 @@ class PlotManager:
 class LivePlotCallback:
     """Callback to plot training progress only at the end of training."""
 
-    def __init__(self, save_path: Optional[str] = None, frequency: int = 30) -> None:
+    def __init__(self, save_path: Optional[str] = None, frequency: int = 30, status_bar=None) -> None:
         """Initialize callback to plot only final results."""
         self.save_path = save_path
         if self.save_path:
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
-        self.last_plot_time = 0.0
+        self.last_plot_time = time.time()
         self.history: Dict[str, Dict[str, List[float]]] = {
             "valid": {},
             "train": {},
         }
         self.frequency = frequency
+        self.status_bar = status_bar
 
     def __call__(self, env: Any) -> None:
         """Collect metrics during training (do not plot live)."""
@@ -286,7 +290,12 @@ class LivePlotCallback:
             if eval_name not in self.history[data_name]:
                 self.history[data_name][eval_name] = []
             self.history[data_name][eval_name].append(result)
-            
+        time_now = time.time()
+        if time_now - self.last_plot_time > self.frequency:
+            with self.status_bar:
+                self.status_bar.set_description("Plotting final results...")
+                self.plot_final_results()
+                self.last_plot_time = time_now
 
     def plot_final_results(self) -> None:
         """Plot the final training results once, after training ends."""

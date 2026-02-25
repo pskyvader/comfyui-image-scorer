@@ -3,13 +3,12 @@ import os
 import random
 from itertools import product, islice
 import numpy as np
-from tqdm.auto import tqdm
 
-from external_modules.step03training.full_data.config_utils import grid_base, around
+from .config_utils import grid_base, around
 
-from shared.paths import models_dir
-from shared.training.model_trainer import model_trainer
-from shared.config import config
+from ...shared.paths import models_dir
+from ...shared.training.model_trainer import model_trainer
+from ...shared.config import config
 
 _last_used_keys: Dict[str, List[str]] = {}
 
@@ -133,9 +132,9 @@ def update_fastest_config(
     )
 
     better_weighted = (
-        score >= 0.95 * current_top_score
+        score > current_top_score*0.95
         if higher_is_better
-        else score <= 1.05 * current_top_score
+        else score < current_top_score*1.05
     )
 
     cond_b = (
@@ -175,9 +174,9 @@ def update_slowest_config(
     )
 
     better_weighted = (
-        score >= 0.95 * current_slow_score
+        score > 0.95 * current_slow_score
         if higher_is_better
-        else score <= 1.05 * current_slow_score
+        else score < 1.05*current_slow_score
     )
 
     cond_a = better and t_time < current_slow_time * 1.1

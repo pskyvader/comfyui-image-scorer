@@ -3,14 +3,14 @@ import os
 from typing import Dict, List, Set, Tuple, TextIO, Any
 from PIL import Image
 
-from external_modules.step02prepare.full_data.data.metadata import load_metadata_entry
-from external_modules.step02prepare.full_data.features.meta import parse_entry_meta
+from ..full_data.data.metadata import load_metadata_entry
+from ..full_data.features.meta import parse_entry_meta
 
-from external_modules.step02prepare.full_data.features.terms import extract_terms
+from ..full_data.features.terms import extract_terms
 
-from shared.config import config
-from shared.io import load_index_set, atomic_write_json
-from shared.paths import image_root
+from ...shared.config import config
+from ...shared.io import load_index_set, atomic_write_json
+from ...shared.paths import image_root
 
 
 def extract_text_components(entry: Dict[str, Any]) -> Dict[str, Any]:

@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import os
 import numpy as np
-from shared.paths import training_output_dir,models_dir
+from ...shared.paths import models_dir
 
 
 def _normalize(val: Any) -> Any:
@@ -41,7 +41,7 @@ def load_model(model_path: str) -> Any:
         return pickle.loads(model_bytes)
 
 
-def save_model(model: Any, model_path: str, additional_data: Dict[str, Any] = None) -> None:
+def save_model(model: Any, model_path: str, additional_data: Optional[Dict[str, Any]] = None) -> None:
     """Save a trained model to disk.
     
     Saves both the model and diagnostic data into a single .npz file.
