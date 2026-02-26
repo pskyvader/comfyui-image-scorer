@@ -5,17 +5,23 @@ from threading import Thread
 from time import sleep
 from flask import Flask, request, send_from_directory, jsonify
 
-# Add project root for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import argparse
 
-from external_modules.step01ranking.utils import (
+if __name__ == "__main__":
+    root_path = str(Path(__file__).parents[2])
+    sys.path.insert(0, root_path)
+    if __package__ is None:
+        __package__="external_modules.step01ranking"
+
+
+from .utils import (
     get_unscored_images,
     serve_file,
     image_root,
     scan_batch,
 )
-from external_modules.step01ranking.scores import submit_scores_handler
-from external_modules.step01ranking.cache import (
+from .scores import submit_scores_handler
+from .cache import (
     get_absolute_total,
     total_cached,
     is_scanning,
@@ -171,7 +177,6 @@ def submit_scores_route():
 # Run server
 # ───────────────────────────────
 if __name__ == "__main__":
-    import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--test-run", action="store_true")

@@ -325,34 +325,3 @@ class LivePlotCallback:
             plt.show()
         except Exception as e:
             print(f"Failed to plot final results: {e}")
-
-
-# Backward compatibility: function-level access
-def plot_scatter_comparison(*args: Any, **kwargs: Any) -> None:
-    """Backward compatible wrapper for scatter comparison plotting."""
-    PlotManager.plot_scatter_comparison(*args, **kwargs)
-
-
-def prepare_plot_data(*args: Any, **kwargs: Any) -> Tuple[np.ndarray, np.ndarray]:
-    """Backward compatible wrapper for plot data preparation."""
-    return PlotManager.prepare_plot_data(*args, **kwargs)
-
-
-def print_comparison_metrics(*args: Any, **kwargs: Any) -> None:
-    """Backward compatible wrapper for comparison metrics."""
-    PlotManager.print_comparison_metrics(*args, **kwargs)
-
-
-def compare_model_vs_data(*args: Any, **kwargs: Any) -> None:
-    """Backward compatible wrapper for model vs data comparison."""
-    PlotManager.compare_model_vs_data(*args, **kwargs)
-
-
-def plot_loss_curve(*args: Any, **kwargs: Any) -> None:
-    """Backward compatible wrapper for loss curve plotting."""
-    PlotManager.plot_loss_curve(*args, **kwargs)
-
-
-def plot_metric(*args: Any, **kwargs: Any) -> None:
-    """Backward compatible wrapper for metric plotting."""
-    PlotManager.plot_metric(*args, **kwargs)

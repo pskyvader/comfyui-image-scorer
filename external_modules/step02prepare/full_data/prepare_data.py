@@ -6,8 +6,13 @@ from typing import Dict
 
 # Ensure package imports resolve when running this file as a script per the project instructions
 
-root_path = str(Path(__file__).parent.parent.parent.parent)
-sys.path.insert(0, root_path)
+if __name__ == "__main__":
+    root_path = str(Path(__file__).parents[3])
+    sys.path.insert(0, root_path)
+    if __package__ is None:
+        __package__="external_modules.step02prepare.full_data"
+
+
 
 from shared.io import (
     load_single_jsonl,
@@ -24,7 +29,7 @@ from shared.vectors.vectors import VectorList
 from shared.image_analysis import ImageAnalysis
 
 
-from external_modules.step02prepare.full_data.data.processing import (
+from .data.processing import (
     check_for_leakage,
 )
 

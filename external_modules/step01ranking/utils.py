@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, List, Dict
 from flask import send_from_directory, abort
 from urllib.parse import unquote
-from ...shared.io import load_single_entry_mapping
+from shared.io import load_single_entry_mapping
 from .cache import (
     add,
     get,
@@ -11,7 +11,7 @@ from .cache import (
     disable,
     set_absolute_total,
 )
-from ...shared.config import PROJECT_ROOT, config
+from shared.config import PROJECT_ROOT, config
 import random
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}

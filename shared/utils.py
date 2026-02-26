@@ -5,7 +5,7 @@ tests. They are written to be defensive and to avoid raising for bad input where
 possible.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 import ast
 
 
@@ -39,42 +39,3 @@ def first_present(d: Dict[str, Any], keys: Tuple[str, ...], default: Any = None)
         if k in d and d[k] is not None:
             return d[k]
     return default
-
-
-def one_hot(index: int, length: int) -> List[int]:
-    """Return a one-hot encoded vector of ``length`` with 1 at ``index``.
-
-    Out-of-range indexes produce a zero vector rather than raising.
-    """
-    v = [0] * length
-    if 0 <= index < length:
-        v[index] = 1
-    return v
-
-
-
-
-
-def weighted_presence(*args: Any) -> List[float]:
-    """Build a weighted presence vector.
-
-    Supported call signatures:
-    - weighted_presence(indexed_terms: List[Tuple[int, float]], length: int)
-      where ``indexed_terms`` is a list of (index, weight).
-    - weighted_presence(indices: List[int], weights: List[float], length: int)
-
-    Values outside the valid range are ignored. If multiple weights are
-    provided for the same index, the maximum weight is kept.
-    """
-    if len(args) == 2 and isinstance(args[0], list) and isinstance(args[1], int):
-        indexed_terms, length = args
-    elif len(args) == 3 and isinstance(args[0], list) and isinstance(args[1], list) and isinstance(args[2], int):
-        indices, weights, length = args
-        indexed_terms = list(zip(indices, weights))
-    else:
-        raise TypeError('Invalid arguments for weighted_presence')
-    v = [0.0] * length
-    for idx, weight in indexed_terms:
-        if 0 <= idx < length:
-            v[idx] = max(v[idx], float(weight))
-    return v

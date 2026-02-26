@@ -13,6 +13,7 @@ from ...shared.loaders.training_loader import training_loader
 class AestheticScoreNode:
     def __init__(self):
         pass
+
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
         return {
@@ -72,7 +73,7 @@ class AestheticScoreNode:
         #     raise TypeError(
         #         f"'image' could not be processed into a batch of images: {e}"
         #     )
-        if len(image)<1:
+        if len(image) < 1:
             raise ValueError("'image' must contain at least one image.")
         if not positive.strip():
             raise ValueError("The 'positive' prompt must be a non-empty string.")
@@ -101,7 +102,7 @@ class AestheticScoreNode:
             "lora_strength": lora_strength,
             "positive_prompt": positive,
             "negative_prompt": negative,
-            #"score":-1
+            # "score":-1
         }
         image_analysis = ImageAnalysis([])
         images_list = image_analysis.prepare_image_batch(image)
@@ -135,80 +136,12 @@ class AestheticScoreNode:
         vector_list.sorted_vectors["image"]["vector"] = image_vector
 
         final_vectors = vector_list.join_vectors()
-        matrix=np.array(final_vectors, dtype=np.float32)
-        
-        filtered_vectors=data_transformer.apply_feature_filter(matrix)
-        model=training_loader.load_training_model()
+        matrix = np.array(final_vectors, dtype=np.float32)
+
+        filtered_vectors = data_transformer.apply_feature_filter(matrix)
+        model = training_loader.load_training_model()
         all_scores = model.predict(filtered_vectors)
         print(f"all_scores: {all_scores}")
-        
-        # encode = self.mpnet.encode
-        # pos_vec: np.ndarray = np.asarray(encode(positive))
-        # neg_vec: np.ndarray = np.asarray(encode(negative))
-        # w, h = images[0].size  # Assume all same size in batch
-        # meta: Dict[str, Any] = {
-        #     "steps": steps,
-        #     "cfg": cfg,
-        #     "original_width": w,
-        #     "original_height": h,
-        #     "final_width": w,
-        #     "final_height": h,
-        #     "lora_weight": lora_strength,
-        # }
-
-        # cat_indices = {
-        #     "sampler": map_categorical_value(self.maps, "sampler", sampler),
-        #     "scheduler": map_categorical_value(self.maps, "scheduler", scheduler),
-        #     "model": map_categorical_value(self.maps, "model", model_name),
-        #     "lora": map_categorical_value(self.maps, "lora", lora_name),
-        # }
-        # print(f"meta length: {len(meta)}")
-        # print(f"pos_vec length: {len(pos_vec)}")
-        # print(f"neg_vec length: {len(neg_vec)}")
-
-        # # same meta vector for all images
-        # meta_vec = assemble_feature_vector(meta, pos_vec, neg_vec, cat_indices)
-        # print(f"meta vector length: {len(meta_vec)}")
-
-        # all_scores: List[float] = []
-        # images_list: List[Any] = images
-
-        # # Process images in batches and collect scores for all images in original order
-        # idx = 0
-        # IMAGE_VEC_LEN = prepare_config["prompt_representation"]["dim"]
-        # while idx < len(images_list):
-        #     current_batch = images_list[idx : idx + batch_size]
-        #     idx += batch_size
-
-        #     full_vecs: List[np.ndarray] = []
-
-        #     inputs = self.siglip_processor(images=current_batch, return_tensors="pt")
-        #     try:
-        #         inputs = {k: v.to(self.siglip_model.device) for k, v in inputs.items()}
-        #     except Exception:
-        #         # Best-effort; if moving to device fails, pass raw inputs to the model
-        #         pass
-        #     with torch.no_grad():
-        #         vision_outputs = self.siglip_model.get_image_features(**inputs)
-
-        #     # vision_vecs = vision_outputs.cpu().numpy().astype(float).tolist()
-        #     vision_vecs = (
-        #         vision_outputs.pooler_output.cpu().numpy().astype(float).tolist()
-        #     )
-
-        #     for vec in vision_vecs:
-        #         if len(vec) != IMAGE_VEC_LEN:
-        #             msg = f"CLIP returned unexpected vision vector length {len(vec)}, expected {IMAGE_VEC_LEN}"
-        #             raise RuntimeError(msg)
-
-        #     for i in range(len(current_batch)):
-        #         full_vecs.append(np.hstack([vision_vecs[i], meta_vec]))
-
-        #     filtered_vecs = apply_feature_filter(full_vecs)
-        #     final_vecs = apply_interaction_features(filtered_vecs)
-
-        #     batch_scores = list(self.model.predict(final_vecs))
-        #     all_scores.extend(batch_scores)
 
         # Now we have `images_list` and `all_scores` matching by index
         n_images = len(images_list)

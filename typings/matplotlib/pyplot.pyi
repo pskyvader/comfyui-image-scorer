@@ -1,5 +1,4 @@
 from typing import Any, Tuple
-from numpy import ndarray
 
 # Minimal stubs for matplotlib.pyplot functions used in the project.
 

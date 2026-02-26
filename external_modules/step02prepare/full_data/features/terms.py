@@ -160,38 +160,3 @@ def extract_terms(
     filtered = filter_terms(all_terms, connectors, splitters)
     deduped = deduplicate_terms(filtered)
     return deduped
-
-
-def map_terms_to_indices(
-    terms: List[WeightedTerm], map_name: str, max_slots: int
-) -> Tuple[List[Tuple[int, float]], List[str]]:
-    indexed: List[Tuple[int, float]] = []
-    statuses: List[str] = []
-    for term, weight in terms:
-        idx, _, st = get_or_add(map_name, term, max_slots)
-        indexed.append((idx, weight))
-        statuses.append(st)
-    return (indexed, statuses)
-
-
-def get_categorical_indices(
-    slots: Dict[str, int],
-    sampler_name: str | None,
-    scheduler_name: str | None,
-    model_name: str | None,
-    lora_name: str | None,
-) -> Tuple[Tuple[int, int, int, int], Tuple[str, str, str, str]]:
-    sampler_idx, _, sampler_st = get_or_add(
-        "sampler", sampler_name or "", slots["sampler"] if "sampler" in slots else 0
-    )
-    scheduler_idx, _, scheduler_st = get_or_add(
-        "scheduler", scheduler_name or "", slots["scheduler"] if "scheduler" in slots else 0
-    )
-    model_idx, _, model_st = get_or_add(
-        "model", model_name or "", slots["model"] if "model" in slots else 0
-    )
-    lora_idx, _, lora_st = get_or_add("lora", lora_name or "", slots["lora"] if "lora" in slots else 0)
-    return (
-        (sampler_idx, scheduler_idx, model_idx, lora_idx),
-        (sampler_st, scheduler_st, model_st, lora_st),
-    )

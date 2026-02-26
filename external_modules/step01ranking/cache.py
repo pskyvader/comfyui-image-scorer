@@ -1,15 +1,14 @@
 import sqlite3
-from pathlib import Path
 from typing import List
 from time import time
+from shared.paths import cache_file
 
-DB_PATH = Path(__file__).parent / "cache.db"
 
 # ───────────────────────────
 # SQLite helpers
 # ───────────────────────────
 def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(cache_file)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -55,7 +54,6 @@ def _get_meta(key: str) -> str | None:
 # ───────────────────────────
 # lifecycle / scan flags
 # ───────────────────────────
-
 
 
 def start_scan() -> None:

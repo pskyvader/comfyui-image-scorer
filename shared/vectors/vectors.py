@@ -8,6 +8,12 @@ from .embedding_vector import EmbeddingVector
 
 
 class VectorList:
+    _IMAGE = "image"
+    _INT = "int"
+    _FLOAT = "float"
+    _MAP = "map"
+    _EMBEDDING = "embedding"
+
     def __init__(
         self,
         raw_data: List[Tuple[str, Dict[str, Any], str, str]],
@@ -19,26 +25,21 @@ class VectorList:
         read_only: bool = False,
     ) -> None:
 
-        self._IMAGE = "image"
-        self._INT = "int"
-        self._FLOAT = "float"
-        self._MAP = "map"
-        self._EMBEDDING = "embedding"
         self.add_new = add_new
         self.index_list = index_list
         self.vectors_list = vectors_list
         self.scores_list = scores_list
         self.image_paths: List[str] = []
         self.entries: List[Any] = []
-        self.timestamps: List[Any] = []
-        self.file_ids: List[str] = []
+        # self.timestamps: List[Any] = []
+        # self.file_ids: List[str] = []
         self.unique_ids: List[str] = []
         self.scores: List[int] = []
         self.vector_config = config["vector"]["vectors"]
         self.sorted_vectors: Dict[str, Any] = {}
         self.configure_sorted_vectors()
         self.merge_lists = merge_lists
-        self.read_only=read_only
+        self.read_only = read_only
         if self.merge_lists:
             self.split_vectors()
 
@@ -50,16 +51,15 @@ class VectorList:
                 self.unique_ids.append(unique_id)
                 self.scores.append(entry["score"])
                 self.image_paths.append(image_path)
-                self.timestamps.append(timestamp)
-                self.file_ids.append(file_id)
+                # self.timestamps.append(timestamp)
+                # self.file_ids.append(file_id)
 
-        self.image_vectors: Dict[str, ImageVector] = {}
-        self.map_vectors: Dict[str, MapVector] = {}
-        self.int_vectors: Dict[str, IntVector] = {}
-        self.float_vectors: Dict[str, FloatVector] = {}
-        self.embedding_vectors: Dict[str, EmbeddingVector] = {}
+        # self.image_vectors: Dict[str, ImageVector] = {}
+        # self.map_vectors: Dict[str, MapVector] = {}
+        # self.int_vectors: Dict[str, IntVector] = {}
+        # self.float_vectors: Dict[str, FloatVector] = {}
+        # self.embedding_vectors: Dict[str, EmbeddingVector] = {}
         self.final_vector: List[List[float]] = []
-
 
     def configure_sorted_vectors(self) -> None:
         image_type: List[Dict[str, Any]] = []
@@ -114,7 +114,7 @@ class VectorList:
         # split by data type
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
-            #print(f"Vector config for {v}: {c}")
+            # print(f"Vector config for {v}: {c}")
             if c["type"] == self._MAP:
                 current_vector = c["vector"]
                 current_vector.parse_value_list(self.entries, self.add_new)
@@ -141,7 +141,9 @@ class VectorList:
                 current_vector.create_vector_list_from_paths()
                 self.sorted_vectors[v]["vector"] = current_vector
 
-    def validate_and_convert(self, data: List[List[str]], name: str, target_size: int) -> np.ndarray:
+    def validate_and_convert(
+        self, data: List[List[str]], name: str, target_size: int
+    ) -> np.ndarray:
         try:
             return np.array(data, dtype=float)
         except ValueError:
@@ -177,39 +179,37 @@ class VectorList:
         self.index_list.extend(self.unique_ids)
         self.scores_list.extend(self.scores)
 
-
-        
     def fix_row(self, row: List[float], expected_total: int) -> List[float]:
         difference = expected_total - len(row)
-        if difference<0:
+        if difference < 0:
             raise ValueError(
                 f"Initial row has more values than expected. Expected total: {expected_total}, actual total: {len(row)}"
             )
-        vector_length=0
-        last_map_index=0
+        vector_length = 0
+        last_map_index = 0
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
             previous_length = vector_length
-            vector_length+=c["slot_size"]
-            previous_vector=row[:previous_length]
+            vector_length += c["slot_size"]
+            previous_vector = row[:previous_length]
             subrow = row[previous_length:vector_length]
-            remaining_vector=row[vector_length:]
+            remaining_vector = row[vector_length:]
             if c["type"] == self._MAP:
-                last_map_index=vector_length
-                #map vectors are one hot, 
-                #find if subrow has more than 1 non zero slot
-                #search for index of second non zero slot
+                last_map_index = vector_length
+                # map vectors are one hot,
+                # find if subrow has more than 1 non zero slot
+                # search for index of second non zero slot
                 non_zero_indices = [i for i, x in enumerate(subrow) if x != 0]
                 if len(non_zero_indices) > 1:
                     second_index = non_zero_indices[1]
-                    #split the row at the second index, 
+                    # split the row at the second index,
                     previous_subrow = subrow
                     remaining_vector = subrow[second_index:] + remaining_vector
-                    subrow=subrow[:second_index]
+                    subrow = subrow[:second_index]
                     slots_to_add = c["slot_size"] - len(subrow)
-                    subrow+=[0.0]*slots_to_add
+                    subrow += [0.0] * slots_to_add
                     row = previous_vector + subrow + remaining_vector
-                    difference-=slots_to_add
+                    difference -= slots_to_add
                     if difference == 0:
                         return row
                     if difference < 0:
@@ -219,20 +219,18 @@ class VectorList:
                             f"Expected total: {expected_total}, actual total: {len(row)}",
                             f"second non zero index: {second_index}, non zero indices: {non_zero_indices}",
                             f"previous subrow: {previous_subrow}",
-                            f"slots added to subrow: {slots_to_add}, difference after fixing: {difference}"
-
+                            f"slots added to subrow: {slots_to_add}, difference after fixing: {difference}",
                         )
         difference = expected_total - len(row)
-        if difference==0:
+        if difference == 0:
             return row
-        #add remaining difference as zeros to the end of the row, or if there is a map vector, add to the end of the last map vector
-        if last_map_index>0:
-            row = row[:last_map_index] + [0.0]*difference + row[last_map_index:]
+        # add remaining difference as zeros to the end of the row, or if there is a map vector, add to the end of the last map vector
+        if last_map_index > 0:
+            row = row[:last_map_index] + [0.0] * difference + row[last_map_index:]
             return row
 
         row.extend([0.0] * difference)
         return row
-
 
     def split_vectors(self):
         if not self.vectors_list:

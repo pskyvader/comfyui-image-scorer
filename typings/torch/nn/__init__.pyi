@@ -1,5 +1,4 @@
 from typing import Any
-from .. import Tensor
 
 class Module:
     def _call__(self, x: Any) -> Any: ...
