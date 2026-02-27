@@ -363,3 +363,249 @@ footer {
     position: fixed;
     bottom: 12px;
 }
+
+/* ───────────────────────────
+   Mode Selector
+   ─────────────────────────── */
+
+.mode-selector {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: center;
+}
+
+.btn-mode {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--muted);
+    padding: 10px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+}
+
+.btn-mode.active {
+    background: var(--accent);
+    color: #04212b;
+    border-color: var(--accent);
+}
+
+.btn-mode:hover {
+    border-color: var(--accent);
+}
+
+/* ───────────────────────────
+   Batch Mode Grid (30 images)
+   ─────────────────────────── */
+
+#batch-area {
+    display: none;
+    margin-top: 12px;
+}
+
+#batch-area.visible {
+    display: block;
+}
+
+#batch-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    margin-top: 12px;
+}
+
+.batch-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 8px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 200px;
+}
+
+.batch-card:hover {
+    border-color: var(--accent);
+    background: rgba(96, 165, 250, 0.1);
+}
+
+.batch-card img {
+    width: 100%;
+    height: auto;
+    max-height: 250px;
+    object-fit: contain;
+    background: #071022;
+    border-radius: 4px;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.batch-card-info {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.batch-card-scores {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.batch-score-btn {
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 11px;
+    transition: all 0.2s ease;
+}
+
+.batch-score-btn:hover {
+    border-color: var(--accent);
+}
+
+.batch-score-btn.selected {
+    background: var(--accent);
+    color: #04212b;
+    border-color: var(--accent);
+}
+
+#batch-remaining {
+    margin-top: 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.batch-controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    justify-content: center;
+}
+
+/* ───────────────────────────
+   Compare Mode
+   ─────────────────────────── */
+
+#compare-area {
+    display: none;
+}
+
+#compare-area.visible {
+    display: block;
+}
+
+.compare-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: 16px;
+}
+
+.compare-pair {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+@media (max-width: 768px) {
+    .compare-pair {
+        flex-direction: column;
+    }
+}
+
+.compare-image-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.compare-image {
+    width: 100%;
+    height: auto;
+    max-height: 600px;
+    object-fit: contain;
+    background: #071022;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.compare-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.compare-label {
+    font-weight: 600;
+    color: #e6eef6;
+}
+
+.compare-score {
+    color: var(--accent);
+}
+
+.compare-count {
+    color: #7dd3fc;
+}
+
+.btn-compare {
+    background: var(--accent);
+    color: #04212b;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-compare:hover {
+    background: var(--accent-2);
+    transform: scale(1.05);
+}
+
+.compare-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--muted);
+    min-width: 40px;
+    font-size: 14px;
+}
+
+@media (max-width: 768px) {
+    .compare-divider {
+        transform: rotate(90deg);
+        margin: 8px 0;
+    }
+}
+
+.compare-controls {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 12px;
+}

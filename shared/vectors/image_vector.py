@@ -133,7 +133,7 @@ class ImageVector:
         normalized = l2_normalize_batch(processed)
         return normalized.tolist()
 
-    def get_batch_size(self, width: int, height: int, max_memory: float = 0.8) -> int:
+    def get_batch_size(self, width: int, height: int) -> int:
         """
         Estimate realistic peak GPU memory in bytes for a single image.
         Measures the memory used by activations + intermediate buffers,
@@ -212,9 +212,9 @@ class ImageVector:
                 min_size = current_size
                 print("setting new min size: ", min_size)
 
-        batch_size = max(int(max_size * max_memory), 1)
+        batch_size = max(int(max_size), 1)
         print(
-            f"setting final size: {batch_size} (max memory allowed: {max_memory*100}% )"
+            f"setting final size: {batch_size}"
         )
         vector_width[height_str] = batch_size
         vector_width = dict(
@@ -274,7 +274,8 @@ class ImageVector:
                 num_items = len(items)
                 # if num_items > max_batch_size:
                 width, height = size
-                max_batch_size = self.get_batch_size(width, height, 0.85)
+                max_batch_size = self.get_batch_size(width, height)
+                max_batch_size=int(max_batch_size*0.85) # max memory percentage allowed to use
 
                 if num_items > max_batch_size * 2:
                     torch.backends.cudnn.benchmark = True

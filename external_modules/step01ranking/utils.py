@@ -3,20 +3,15 @@ from pathlib import Path
 from typing import Any, List, Dict
 from flask import send_from_directory, abort
 from urllib.parse import unquote
-from shared.io import load_single_entry_mapping
-from .cache import (
-    add,
-    get,
-    in_cache,
-    disable,
-    set_absolute_total,
-)
+from shared.io import load_single_entry_mapping, discover_files, collect_valid_files
+from .cache import add, get, set_absolute_total, get_cached_metadata
 from shared.config import PROJECT_ROOT, config
 import random
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-_image_root=None
-_image_list_cache=[]
+_image_root = None
+_image_list_cache: List[str] = []
+
 
 def serve_file(subpath: str) -> Any:
     """Serve file relative to image_root, properly decoded."""
@@ -47,57 +42,75 @@ def image_root() -> str:
     root_path = Path(img_root)
     if not root_path.is_absolute():
         root_path = PROJECT_ROOT.joinpath(root_path).resolve()
-    _image_root=str(root_path)
+    _image_root = str(root_path)
     return _image_root
 
 
-def find_images(root_dir: str) -> List[str]:
-    files: List[str] = []
-    for path, _, filenames in os.walk(root_dir):
-        for name in filenames:
-            if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
-                #files.append(os.path.join(path, name).replace("\\", "/"))
-                full_path = os.path.join(path, name)
-                files.append(full_path.replace("\\", "/"))
+# def find_images(root_dir: str) -> List[str]:
+#     files: List[str] = []
+#     for path, _, filenames in os.walk(root_dir):
+#         for name in filenames:
+#             if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
+#                 # files.append(os.path.join(path, name).replace("\\", "/"))
+#                 full_path = os.path.join(path, name)
+#                 files.append(full_path.replace("\\", "/"))
 
-    
-    
-    random.shuffle(files)
-    set_absolute_total(len(files))
-    return files
+#     random.shuffle(files)
+#     set_absolute_total(len(files))
+#     return files
 
 
 def scan_batch(root: str, limit: int = 100) -> bool:
-    # if fast_serve():
-    #     return False
+    """
+    Scan images and add to database with their metadata.
+    Collects both scored AND unscored files, organizing by score.
+
+    Returns:
+        True if any new unscored files were found
+    """
     global _image_list_cache
 
-    all_images = find_images(root)
+    # Get all image-json file pairs from root
+    all_file_pairs = list(discover_files(root))
+    if not all_file_pairs:
+        return False
+    collected_valid_files = collect_valid_files(
+        all_file_pairs, set(_image_list_cache), root, limit=limit
+    )
+    set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
+
+    random.shuffle(collected_valid_files)  # Shuffle to ensure random processing order
+
     added_any_unscored = False
-    batch_count = 0
+    processed_count = 0
 
-    for img in all_images:
-        if img in _image_list_cache or in_cache(img):
-            continue
-        if img not in _image_list_cache:
-            _image_list_cache.append(img)
-        
-        add(img)
+    for img_path, entry, _, file_id in collected_valid_files:
+        _image_list_cache.append(file_id)
+        # Get score if available
+        score = entry.get("score")
+        comparison_count = entry.get("comparison_count", 0)
+        score_modifier = entry.get("score_modifier", 0)
 
-        meta = load_metadata(img)
-        entry = next(iter(meta.values()), {}) if meta else {}
-        if not entry or not isinstance(entry, dict):
-            disable(img)
-            continue
-        
-        if "score" in entry:
-            disable(img)
-            continue
+        from_bd = get_cached_metadata(img_path)
+        if from_bd and from_bd["score"] is not None:
+            if score == from_bd["score"]:
+                continue
 
-        added_any_unscored = True
-        batch_count += 1
+        # Add to database with metadata
+        add(
+            img_path,
+            score=score,
+            comparison_count=comparison_count,
+            score_modifier=score_modifier,
+        )
 
-        if batch_count >= limit:
+        # Track unscored files
+        if score is None:
+            added_any_unscored = True
+
+        processed_count += 1
+
+        if limit > 0 and processed_count >= limit:
             break
 
     return added_any_unscored
@@ -106,21 +119,20 @@ def scan_batch(root: str, limit: int = 100) -> bool:
 def get_unscored_images(root: str) -> List[str]:
     """
     Return **truly unscored images** for the client.
+    Only images with score=NULL in database.
     Paths are relative to image_root and use forward slashes.
     """
-    cached = get(valid_only=True)  # cache already only valid images
+    # global _image_list_cache
+
+    unscored_paths = get(unscored_only=True)
     root_path = Path(root)
     unscored: List[str] = []
 
-    for img in cached:
-        #meta = load_metadata(img)
-        #entry = next(iter(meta.values()), {}) if meta else {}
-        #if entry and isinstance(entry, dict) and "score" not in entry:
-            # relative path for Flask + forward slashes
+    for img in unscored_paths:
         try:
-            rel_path = str(Path(img).relative_to(root_path))#.replace("\\", "/")
+            rel_path = str(Path(img).relative_to(root_path))
         except ValueError:
             rel_path = os.path.basename(img)
         unscored.append(rel_path)
-    #print(cached[0],unscored[0])
+
     return unscored

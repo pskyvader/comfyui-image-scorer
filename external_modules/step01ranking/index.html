@@ -24,22 +24,14 @@
             <img id="preview" alt="preview" class="hidden">
         </div>
 
-
-        <!-- Batch mode toggle -->
-        <div class="batch-wrapper">
-            <label class="batch-label">
-                <input id="batch-toggle" type="checkbox" onchange="toggleBatchMode(this.checked)"> <strong
-                    class="batch-strong">Batch mode</strong>
-            </label>
-            <div id="batch-controls" class="batch-controls hidden">
-                <label class="batch-count-label">Count: <input id="batch-size" class="batch-size-input" type="number"
-                        value="6" min="1" max="50"></label>
-                <button class="btn" onclick="fetchBatch()">Fetch Batch</button>
-                <button class="btn btn-green" onclick="submitBatchScores()">Submit All</button>
-            </div>
+        <!-- Mode selector -->
+        <div class="mode-selector">
+            <button class="btn btn-mode active" id="mode-single" onclick="switchMode('single')">Single Mode</button>
+            <button class="btn btn-mode" id="mode-batch" onclick="switchMode('batch')">Batch Mode (30)</button>
+            <button class="btn btn-mode" id="mode-compare" onclick="switchMode('compare')">Compare Mode</button>
         </div>
 
-
+        <!-- Single mode controls -->
         <div class="controls" id="single-controls">
             <div class="score-btns">
                 <button class="btn" onclick="submitScore(1)">1</button>
@@ -47,20 +39,61 @@
                 <button class="btn" onclick="submitScore(3)">3</button>
                 <button class="btn" onclick="submitScore(4)">4</button>
                 <button class="btn" onclick="submitScore(5)">5</button>
-                </div>
-                <br/>
-                <button class="btn btn-gray" onclick="skipImage()">Skip</button>
-                <button class="btn btn-teal hidden" onclick="refreshCount()">Refresh</button>
-            
-        </div>
-        <div id="meta" class="meta"></div>
+            </div>
+            <br />
+            <button class="btn btn-gray" onclick="skipImage()">Skip</button>
+            <button class="btn btn-teal hidden" onclick="refreshCount()">Refresh</button>
 
-        <!-- Batch grid -->
+        </div>
+
+        <!-- Batch mode grid -->
         <div id="batch-area" class="hidden">
-            <div id="batch-grid"></div>
-            <div id="batch-remaining" class="meta "></div>
+            <div class="batch-controls">
+                <button class="btn btn-green" onclick="submitBatchScores()">Submit All Scores</button>
+                <button class="btn btn-gray" onclick="switchMode('single')">Back to Single Mode</button>
+            </div>
+            <div id="batch-grid" class="batch-grid"></div>
+            <div id="batch-remaining" class="meta"></div>
         </div>
 
+        <!-- Compare mode view -->
+        <div id="compare-area" class="hidden">
+            <div class="compare-container">
+                <div class="manual_score">
+                    <span>Manual Score:</span>
+                    <input type="number" name="score" id="manual_score" value="0" min="0" max="5" step="1">
+                </div>
+
+
+                <div class="compare-pair">
+                    <div class="compare-image-wrapper">
+                        <img id="compare-left" class="compare-image" alt="left image">
+                        <div class="compare-info">
+                            <span class="compare-label" id="left_file_id">Image 1</span>
+                            <span class="compare-score">Score: <span id="compare-left-score">-</span></span>
+                            <span class="compare-count">Count: <span id="compare-left-count">-</span>/10</span>
+                        </div>
+                        <button class="btn btn-compare" onclick="submitComparison('left')">← Left Better</button>
+                    </div>
+                    <div class="compare-divider">VS</div>
+                    <div class="compare-image-wrapper">
+                        <img id="compare-right" class="compare-image" alt="right image">
+                        <div class="compare-info">
+                            <span class="compare-label" id="right_file_id">Image 2</span>
+                            <span class="compare-score">Score: <span id="compare-right-score">-</span></span>
+                            <span class="compare-count">Count: <span id="compare-right-count">-</span>/10</span>
+                        </div>
+                        <button class="btn btn-compare" onclick="submitComparison('right')">Right Better →</button>
+                    </div>
+                </div>
+                <div class="compare-controls">
+                    <button class="btn btn-gray" onclick="skipComparison()">Skip Pair</button>
+                    <button class="btn btn-gray" onclick="switchMode('single')">Back to Single Mode</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="meta" class="meta"></div>
 
         <!-- Footer status -->
         <div id="status">Waiting for images…</div>

@@ -1,5 +1,5 @@
 import sqlite3
-from typing import List
+from typing import List, Dict, Any, Optional
 from time import time
 from shared.paths import cache_file
 
@@ -20,7 +20,9 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS cache (
                 path TEXT PRIMARY KEY,
-                valid INTEGER
+                score INTEGER DEFAULT NULL,
+                comparison_count INTEGER DEFAULT 0,
+                score_modifier INTEGER DEFAULT 0
             )
             """
         )
@@ -33,6 +35,7 @@ def init_db():
             )
             """
         )
+
         conn.commit()
 
 
@@ -79,17 +82,18 @@ def is_finished() -> bool:
 # ───────────────────────────
 # cache operations
 # ───────────────────────────
-def add(path: str) -> None:
-    """Add image path to cache (enabled)."""
+def add(
+    path: str,
+    score: int | None = None,
+    comparison_count: int = 0,
+    score_modifier: int = 0,
+) -> None:
+    """Add image path to cache with optional scoring metadata."""
     with _get_conn() as conn:
-        conn.execute("INSERT OR REPLACE INTO cache(path,valid) VALUES (?,1)", (path,))
-        conn.commit()
-
-
-def disable(path: str) -> None:
-    """Mark an image as disabled (scored)."""
-    with _get_conn() as conn:
-        conn.execute("UPDATE cache SET valid=0 WHERE path=?", (path,))
+        conn.execute(
+            "INSERT OR REPLACE INTO cache(path, score, comparison_count, score_modifier) VALUES (?, ?, ?, ?)",
+            (path, score, comparison_count, score_modifier),
+        )
         conn.commit()
 
 
@@ -99,16 +103,129 @@ def in_cache(path: str) -> bool:
         return bool(row)
 
 
-def get(valid_only: bool = True) -> List[str]:
+def get(unscored_only: bool = True) -> List[str]:
     """Return cached image paths."""
     global _last_served
     _last_served = time()
     with _get_conn() as conn:
-        if valid_only:
-            rows = conn.execute("SELECT path FROM cache WHERE valid=1").fetchall()
+        if unscored_only:
+            rows = conn.execute("SELECT path FROM cache WHERE score IS NULL").fetchall()
         else:
             rows = conn.execute("SELECT path FROM cache").fetchall()
         return [r["path"] for r in rows]
+
+
+# def get_unscored_from_db() -> List[str]:
+#     """Return only images with score=NULL (truly unscored)."""
+#     with _get_conn() as conn:
+#         rows = conn.execute("SELECT path FROM cache WHERE score IS NULL").fetchall()
+#         return [r["path"] for r in rows]
+
+
+def total_cached_unscored() -> int:
+    """Count how many unscored images are in cache."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM cache WHERE score IS NULL"
+        ).fetchone()
+        return row["cnt"]
+
+
+def get_comparison_stats() -> Dict[str, int]:
+    """Get stats for comparison mode."""
+    with _get_conn() as conn:
+        scored = conn.execute(
+            "SELECT COUNT(*) as cnt FROM cache WHERE score IS NOT NULL"
+        ).fetchone()["cnt"]
+        not_compared = conn.execute(
+            "SELECT COUNT(*) as cnt FROM cache WHERE score IS NOT NULL AND comparison_count<10"
+        ).fetchone()["cnt"]
+        fully_compared = conn.execute(
+            "SELECT COUNT(*) as cnt FROM cache WHERE comparison_count>=10"
+        ).fetchone()["cnt"]
+        total = conn.execute("SELECT COUNT(*) as cnt FROM cache").fetchone()["cnt"]
+        return {
+            "scored": scored,
+            "not_compared": not_compared,
+            "fully_compared": fully_compared,
+            "total": total,
+        }
+
+
+def get_scored_not_compared() -> List[str]:
+    """Return images that are scored but not yet fully compared."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT path FROM cache WHERE score IS NOT NULL AND comparison_count<10"
+        ).fetchall()
+        result = [r["path"] for r in rows]
+        print(
+            f"[cache.get_scored_not_compared] Found {len(result)} scored not-compared images"
+        )
+        if result:
+            for path in result[:3]:  # Show first 3
+                print(f"  - {path}")
+        return result
+
+
+def get_all_scored() -> List[str]:
+    """Return ALL images that have been scored (for diagnostics)."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT path, score, comparison_count FROM cache WHERE score IS NOT NULL"
+        ).fetchall()
+        print(f"[cache.get_all_scored] Found {len(rows)} scored images total")
+        for row in rows[:5]:
+            print(
+                f"  - {row['path']} (scored={row['score']}, compared={row['comparison_count']})"
+            )
+        return [r["path"] for r in rows]
+
+
+def get_cached_metadata(path: str) -> Optional[Dict[str, int | None]]:
+    """Get cached score/comparison_count/score_modifier from database."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT score, comparison_count, score_modifier FROM cache WHERE path=?",
+            (path,),
+        ).fetchone()
+        if row:
+            return {
+                "score": row["score"],
+                "comparison_count": row["comparison_count"],
+                "score_modifier": row["score_modifier"],
+            }
+        return None
+
+
+def update_cached_metadata(
+    path: str,
+    score: int | None = None,
+    comparison_count: int | None = None,
+    score_modifier: int | None = None,
+) -> None:
+    """Update cached score/comparison_count/score_modifier in database."""
+    with _get_conn() as conn:
+        updates: List[str] = []
+        values: List[int | str] = []
+
+        if score is not None:
+            updates.append("score=?")
+            values.append(score)
+        if comparison_count is not None:
+            updates.append("comparison_count=?")
+            values.append(comparison_count)
+        if score_modifier is not None:
+            updates.append("score_modifier=?")
+            values.append(score_modifier)
+
+        if not updates:
+            return
+
+        values.append(path)
+        query = f"UPDATE cache SET {', '.join(updates)} WHERE path=?"
+        conn.execute(query, values)
+        conn.commit()
 
 
 _last_served: float = 0.0

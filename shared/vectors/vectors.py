@@ -49,7 +49,10 @@ class VectorList:
             if not self.read_only:
                 unique_id = f"{file_id}#{timestamp}"
                 self.unique_ids.append(unique_id)
-                self.scores.append(entry["score"])
+                current_score=entry["score"]
+                score_modifier=entry.get("score_modifier",0)
+                
+                self.scores.append(current_score+(score_modifier*0.1))
                 self.image_paths.append(image_path)
                 # self.timestamps.append(timestamp)
                 # self.file_ids.append(file_id)

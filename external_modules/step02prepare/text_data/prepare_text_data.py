@@ -2,11 +2,17 @@ import argparse
 import sys
 import os
 from typing import Dict, List
+from pathlib import Path
 
 # Ensure project root is on sys.path so package imports work when running as a script
+if __name__ == "__main__":
+    root_path = str(Path(__file__).parents[3])
+    sys.path.insert(0, root_path)
+    if __package__ is None:
+        __package__="external_modules.step02prepare.full_data"
 
-from ...shared.config import ensure_dir
-from ...shared.paths import (
+from shared.config import ensure_dir
+from shared.paths import (
     text_data_file,
     text_index_file,
     image_root,

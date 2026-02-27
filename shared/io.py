@@ -74,9 +74,6 @@ def collect_single_file(
 
     entry = entry[timestamp] if timestamp in entry else entry
 
-    if "score" not in entry:
-        return None
-
     return (img_path, entry, timestamp, file_id)
 
 
@@ -86,6 +83,7 @@ def collect_valid_files(
     root: str,
     limit: int = 0,
     max_workers: Optional[int] = None,
+    scored_only: bool = False,
 ) -> List[Tuple[str, Dict[str, Any], str, str]]:
 
     collected_data: List[Tuple[str, Dict[str, Any], str, str]] = []
@@ -114,17 +112,20 @@ def collect_valid_files(
                 for future in as_completed(futures):
                     result = future.result()  # raises immediately on error
 
-                    if result is not None:
-                        collected_data.append(result)
-
-                        if limit > 0 and len(collected_data) >= limit:
-                            for f in futures:
-                                f.cancel()
-                            executor.shutdown(wait=False, cancel_futures=True)
-
-                            break
-
                     pbar.update(1)
+                    if result is None:
+                        continue
+                    if scored_only and "score" not in result:
+                        continue
+
+                    collected_data.append(result)
+
+                    if limit > 0 and len(collected_data) >= limit:
+                        for f in futures:
+                            f.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+
+                        break
 
         except Exception:
             for f in futures:
