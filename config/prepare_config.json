@@ -6,7 +6,7 @@
         "device": "cuda"
     },
     "vision_model": {
-        "name": "convnext_large_in22k",
+        "name": "convnext_large.fb_in22k",
         "weights": "IMAGENET22K_V1",
         "device": "cuda",
         "output_dim": 1536,

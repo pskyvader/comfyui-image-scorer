@@ -75,7 +75,7 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     if not all_file_pairs:
         return False
     collected_valid_files = collect_valid_files(
-        all_file_pairs, set(_image_list_cache), root, limit=limit
+        all_file_pairs, set(_image_list_cache), root, limit=limit, scored_only=False
     )
     set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
 

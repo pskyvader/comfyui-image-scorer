@@ -413,9 +413,16 @@ function renderComparePair() {
 
     document.getElementById("compare-right-score").innerText = compareRightData.score || "-";
     document.getElementById("compare-right-count").innerText = compareRightData.comparison_count || 0;
+
+
+    document.getElementsByClassName("btn-compare")[0].classList.remove("hidden");
+    document.getElementsByClassName("btn-compare")[1].classList.remove("hidden");
+
 }
 
 async function submitComparison(winner) {
+    document.getElementsByClassName("btn-compare")[0].classList.add("hidden");
+    document.getElementsByClassName("btn-compare")[1].classList.add("hidden");
     loader.classList.remove("hidden");
     loader.querySelector(".loader-text").innerText = "Submitting comparison…";
 
@@ -429,7 +436,9 @@ async function submitComparison(winner) {
                 right_image: compareRightImage,
                 left_data: compareLeftData,
                 right_data: compareRightData,
-            }),
+            })
+        }).then(() => {
+            fetchNextComparePair();
         });
 
         const result = await res.json();
@@ -439,9 +448,6 @@ async function submitComparison(winner) {
         }
 
         loader.querySelector(".loader-text").innerText = "Updating…";
-        setTimeout(() => {
-            fetchNextComparePair();
-        }, 500);
     } catch (e) {
         console.error("Error submitting comparison:", e);
         loader.querySelector(".loader-text").innerText = "Error submitting comparison…";

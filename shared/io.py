@@ -83,7 +83,7 @@ def collect_valid_files(
     root: str,
     limit: int = 0,
     max_workers: Optional[int] = None,
-    scored_only: bool = False,
+    scored_only: bool = True,
 ) -> List[Tuple[str, Dict[str, Any], str, str]]:
 
     collected_data: List[Tuple[str, Dict[str, Any], str, str]] = []
@@ -115,7 +115,7 @@ def collect_valid_files(
                     pbar.update(1)
                     if result is None:
                         continue
-                    if scored_only and "score" not in result:
+                    if scored_only and ("score" not in result[1]):
                         continue
 
                     collected_data.append(result)

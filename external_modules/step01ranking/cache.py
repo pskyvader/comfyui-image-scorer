@@ -152,12 +152,21 @@ def get_comparison_stats() -> Dict[str, int]:
         }
 
 
-def get_scored_not_compared() -> List[str]:
+def get_scored_not_compared(score:int=0,limit:int=10) -> List[str]:
     """Return images that are scored but not yet fully compared."""
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT path FROM cache WHERE score IS NOT NULL AND comparison_count<10"
-        ).fetchall()
+        query="SELECT path FROM cache WHERE 1"
+        
+        if (0<limit<10):
+            query+=" AND comparison_count<"+str(limit)
+        else:
+            query+= " AND comparison_count<10"
+        
+        if (1<=score<=5):
+            query+=" AND score="+str(score)
+        else:
+            query+=" AND score IS NOT NULL"
+        rows = conn.execute(query).fetchall()
         result = [r["path"] for r in rows]
         print(
             f"[cache.get_scored_not_compared] Found {len(result)} scored not-compared images"

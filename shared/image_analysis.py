@@ -204,21 +204,31 @@ class ImageAnalysis(ImageVector):
         return entry
 
     def _texture_lbp(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
+        # Convert to grayscale uint8 (stable for LBP comparisons)
+        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.uint8)
 
         # LBP parameters
         P = 8  # number of neighbors
         R = 1  # radius
+
         lbp = local_binary_pattern(gray, P, R, method="uniform")
 
-        # Histogram of LBP codes
-        n_bins = int(lbp.max() + 1)
+        # For uniform LBP, number of possible patterns is P + 2
+        n_bins = P + 2
+
         hist, _ = np.histogram(
-            lbp.ravel(), bins=n_bins, range=(0, n_bins), density=True
+            lbp.ravel(),
+            bins=n_bins,
+            range=(0, n_bins),
+            density=True,
         )
 
-        # Use uniformity as texture score: higher = more variation
-        entry["texture_lbp"] = float(np.std(hist))
+        # Shannon entropy of LBP histogram
+        eps = 1e-9  # numerical stability
+        entropy = -np.sum(hist * np.log(hist + eps))
+
+        entry["texture_lbp"] = float(entropy)
+
         return entry
 
     def analyze_image_batch(

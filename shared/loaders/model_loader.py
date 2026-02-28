@@ -8,7 +8,7 @@ from sentence_transformers import SentenceTransformer
 
 class ModelLoader:
     def __init__(self):
-        self.embedding_model: Optional[Tuple[Any, int]] = None
+        self.embedding_model: Optional[Tuple[SentenceTransformer, int]] = None
         self.vision_model: Optional[Tuple[nn.Module, int, int]] = None
         self.cnn_model: Optional[Any] = None
         self.prepare_config = config["prepare"]
@@ -53,7 +53,7 @@ class ModelLoader:
         self.vision_model = (model, output_dim, total_memory)
         return self.vision_model
 
-    def load_embedding_model(self) -> Tuple[Any, int]:
+    def load_embedding_model(self) -> Tuple[SentenceTransformer, int]:
         if self.embedding_model is not None:
             return self.embedding_model
 

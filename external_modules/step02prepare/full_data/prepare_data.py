@@ -10,8 +10,7 @@ if __name__ == "__main__":
     root_path = str(Path(__file__).parents[3])
     sys.path.insert(0, root_path)
     if __package__ is None:
-        __package__="external_modules.step02prepare.full_data"
-
+        __package__ = "external_modules.step02prepare.full_data"
 
 
 from shared.io import (
@@ -57,7 +56,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     print(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
     collected_data = collect_valid_files(
-        files, processed_files, image_root, limit, max_workers=40
+        files, processed_files, image_root, limit, max_workers=40, scored_only=True
     )
 
     if len(collected_data) == 0:

@@ -409,7 +409,7 @@ footer {
 #batch-grid {
     display: grid;
     gap: 12px;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     margin-top: 12px;
 }
 
@@ -434,7 +434,7 @@ footer {
 .batch-card img {
     width: 100%;
     height: auto;
-    max-height: 250px;
+    max-height: 100%;
     object-fit: contain;
     background: #071022;
     border-radius: 4px;
@@ -535,7 +535,7 @@ footer {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
-    padding: 12px;
+    padding: 0px;
 }
 
 .compare-image {
@@ -571,19 +571,21 @@ footer {
 }
 
 .btn-compare {
-    background: var(--accent);
-    color: #04212b;
-    padding: 12px 16px;
+    background: transparent;
+    /* background: var(--accent); */
+    /* color: #04212b; */
+    padding: 0px;
     border: none;
     border-radius: 6px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
+    transform: scale(0.95);
 }
 
 .btn-compare:hover {
-    background: var(--accent-2);
-    transform: scale(1.05);
+    /* background: var(--accent-2); */
+    transform: scale(1.0);
 }
 
 .compare-divider {

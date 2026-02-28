@@ -52,10 +52,10 @@ def log_on_teardown(exception=None):
         print(f"CRITICAL: The route '{request.path}' crashed with: {exception}")
 
 
-@app.errorhandler(Exception)
-def handle_exception(e):
-    print(f"CRITICAL: An unhandled exception occurred: {e}")
-    return jsonify({"error": "Internal server error"}), 500
+# @app.errorhandler(Exception)
+# def handle_exception(e):
+#     print(f"CRITICAL: An unhandled exception occurred: {e}")
+#     return jsonify({"error": "Internal server error"}), 500
 
 
 def background_scan(batch_size: int = 1000):
