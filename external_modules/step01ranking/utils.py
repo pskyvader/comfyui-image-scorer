@@ -46,18 +46,6 @@ def image_root() -> str:
     return _image_root
 
 
-# def find_images(root_dir: str) -> List[str]:
-#     files: List[str] = []
-#     for path, _, filenames in os.walk(root_dir):
-#         for name in filenames:
-#             if Path(name).suffix.lower() in IMAGE_EXTENSIONS:
-#                 # files.append(os.path.join(path, name).replace("\\", "/"))
-#                 full_path = os.path.join(path, name)
-#                 files.append(full_path.replace("\\", "/"))
-
-#     random.shuffle(files)
-#     set_absolute_total(len(files))
-#     return files
 
 
 def scan_batch(root: str, limit: int = 100) -> bool:
@@ -75,10 +63,12 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     if not all_file_pairs:
         return False
     collected_valid_files = collect_valid_files(
-        all_file_pairs, set(_image_list_cache), root, limit=limit, scored_only=False
+        all_file_pairs, set(_image_list_cache), root, scored_only=False
     )
     set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
-
+    if len(collected_valid_files)==0:
+        return False
+    
     random.shuffle(collected_valid_files)  # Shuffle to ensure random processing order
 
     added_any_unscored = False

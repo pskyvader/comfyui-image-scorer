@@ -29,10 +29,10 @@ def get_paired_images(
     from .cache import get_scored_not_compared, get_cached_metadata
 
     # Get all scored images that are not yet fully compared
-    all_candidates:List[str]=[]
-    for i in range(1,11):
-        all_candidates = get_scored_not_compared(manual_score,i)
-        if len(all_candidates) >=100:
+    all_candidates: List[str] = []
+    for i in range(1, 11):
+        all_candidates = get_scored_not_compared(manual_score, i)
+        if len(all_candidates) >= 100:
             break
     print(
         f"[get_paired_images] Total scored not-compared images: {len(all_candidates)}"
@@ -84,25 +84,33 @@ def apply_comparison(
         Tuple of (updated_winner_data, updated_loser_data)
     """
     print(f"compare BEFORE - Winner:{winner_data} - Loser:{loser_data}")
+    score_scale = 1.5
     if winner_data["score"] >= 5:
-        loser_data["score_modifier"] -= 2
+        if winner_data["score_modifier"] < -score_scale:
+            winner_data["score_modifier"] += 2 * score_scale
+        loser_data["score_modifier"] -= 2 * score_scale
     elif loser_data["score"] <= 1:
-        winner_data["score_modifier"] += 2
+        winner_data["score_modifier"] += 2 * score_scale
+        if loser_data["score_modifier"] > score_scale:
+            loser_data["score_modifier"] -= 2 * score_scale
     else:
-        winner_data["score_modifier"] += 1
-        loser_data["score_modifier"] -= 1
+        winner_data["score_modifier"] += score_scale
+        loser_data["score_modifier"] -= score_scale
 
-    if winner_data["score_modifier"] > 5:
+
+    # Score level change
+    threshold=5
+    if winner_data["score_modifier"] > threshold:
         winner_data["score"] += 1
         winner_data["score_modifier"] = 0
-    elif winner_data["score_modifier"] < -5:
+    elif winner_data["score_modifier"] < -threshold:
         winner_data["score"] -= 1
         winner_data["score_modifier"] = 0
 
-    if loser_data["score_modifier"] > 5:
+    if loser_data["score_modifier"] > threshold:
         loser_data["score"] += 1
         loser_data["score_modifier"] = 0
-    elif loser_data["score_modifier"] < -5:
+    elif loser_data["score_modifier"] < -threshold:
         loser_data["score"] -= 1
         loser_data["score_modifier"] = 0
 
@@ -113,7 +121,6 @@ def apply_comparison(
     print(f"compared FINAL - Winner:{winner_data} - Loser:{loser_data}")
 
     return (winner_data, loser_data)
-
 
 
 def write_comparison_data(

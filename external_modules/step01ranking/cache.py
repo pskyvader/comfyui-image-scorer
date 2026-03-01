@@ -61,12 +61,14 @@ def _get_meta(key: str) -> str | None:
 
 def start_scan() -> None:
     """Mark scanning as started."""
+    print("start scan")
     _set_meta("scanning", "1")
     _set_meta("finished", "0")
 
 
 def finish_scan() -> None:
     """Mark scanning as finished."""
+    print("finish scan")
     _set_meta("scanning", "0")
     _set_meta("finished", "1")
 
@@ -143,29 +145,33 @@ def get_comparison_stats() -> Dict[str, int]:
         fully_compared = conn.execute(
             "SELECT COUNT(*) as cnt FROM cache WHERE comparison_count>=10"
         ).fetchone()["cnt"]
+        partially_compared = conn.execute(
+            "SELECT COUNT(*) as cnt FROM cache WHERE comparison_count>0 AND comparison_count<10"
+        ).fetchone()["cnt"]
         total = conn.execute("SELECT COUNT(*) as cnt FROM cache").fetchone()["cnt"]
         return {
             "scored": scored,
             "not_compared": not_compared,
             "fully_compared": fully_compared,
+            "partially_compared": partially_compared,
             "total": total,
         }
 
 
-def get_scored_not_compared(score:int=0,limit:int=10) -> List[str]:
+def get_scored_not_compared(score: int = 0, limit: int = 10) -> List[str]:
     """Return images that are scored but not yet fully compared."""
     with _get_conn() as conn:
-        query="SELECT path FROM cache WHERE 1"
-        
-        if (0<limit<10):
-            query+=" AND comparison_count<"+str(limit)
+        query = "SELECT path FROM cache WHERE 1"
+
+        if 0 < limit < 10:
+            query += " AND comparison_count<" + str(limit)
         else:
-            query+= " AND comparison_count<10"
-        
-        if (1<=score<=5):
-            query+=" AND score="+str(score)
+            query += " AND comparison_count<10"
+
+        if 1 <= score <= 5:
+            query += " AND score=" + str(score)
         else:
-            query+=" AND score IS NOT NULL"
+            query += " AND score IS NOT NULL"
         rows = conn.execute(query).fetchall()
         result = [r["path"] for r in rows]
         print(

@@ -30,8 +30,8 @@ from .comparison import (
 from .cache import (
     get_absolute_total,
     total_cached,
-    is_scanning,
-    is_finished,
+    # is_scanning,
+    # is_finished,
     start_scan,
     finish_scan,
 )
@@ -43,7 +43,6 @@ BASE_DIR = Path(__file__).resolve().parent
 # Background scanning worker
 # ───────────────────────────────
 _scan_thread = None
-_stop_scan = False
 
 
 @app.teardown_request
@@ -63,31 +62,40 @@ def background_scan(batch_size: int = 1000):
     Continuously scan images in batches until all are processed.
     Updates the cache and ensures valid/unscored counts are accurate.
     """
-    global _stop_scan
-    start_scan()
+    # if is_finished():
+    #     print("scanning stopped recently, delaying...")
+    #     sleep(5)
+    # start_scan()
     retries = 0
 
     root = image_root()
-    while not _stop_scan:
+    cached_total = 0
+    total = 0
+    while total == 0 or cached_total < total:
+        # print(f"retries: {retries}, stop scan:{_stop_scan}")
         added = scan_batch(root, limit=batch_size)
         if not added:
             if retries > 3:
-                _stop_scan = True
+                print("stop scan")
+                break
             sleep(0.1)  # wait a bit if no new images
             valid_images = get_unscored_images(root)
             if len(valid_images) > 0:
                 retries += 1
+
+            cached_total = total_cached()  # All images in cache
+            total = get_absolute_total()
+
         else:
             retries = 0
             sleep(0.5)  # small delay for incremental updates
-    finish_scan()
+    # finish_scan()
 
 
 def trigger_scan():
     """Start the background scan if not running."""
-    global _scan_thread, _stop_scan
+    global _scan_thread
     if _scan_thread is None or not _scan_thread.is_alive():
-        _stop_scan = False
         _scan_thread = Thread(target=background_scan, daemon=True)
         _scan_thread.start()
 
@@ -97,17 +105,47 @@ def trigger_scan():
 # ───────────────────────────────
 @app.route("/")
 def serve_index():
-    return send_from_directory(str(BASE_DIR), "index.html")
+    return send_from_directory(str(BASE_DIR) + "/frontend", "index.html")
 
 
 @app.route("/style.css")
 def serve_css():
-    return send_from_directory(str(BASE_DIR), "style.css")
+    return send_from_directory(str(BASE_DIR) + "/frontend", "style.css")
 
 
 @app.route("/client.js")
 def serve_js():
-    return send_from_directory(str(BASE_DIR), "client.js")
+    return send_from_directory(str(BASE_DIR) + "/frontend", "client.js")
+
+
+@app.route("/single.html")
+def serve_single():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "single.html")
+
+
+@app.route("/single.js")
+def serve_single_js():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "single.js")
+
+
+@app.route("/batch.html")
+def serve_batch():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "batch.html")
+
+
+@app.route("/batch.js")
+def serve_batch_js():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "batch.js")
+
+
+@app.route("/compare.html")
+def serve_compare():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "compare.html")
+
+
+@app.route("/compare.js")
+def serve_compare_js():
+    return send_from_directory(str(BASE_DIR) + "/frontend", "compare.js")
 
 
 @app.route("/image/<path:subpath>")
@@ -129,32 +167,29 @@ def status():
 
     trigger_scan()
 
-    valid_images = get_unscored_images(image_root())
-    valid = len(valid_images)
-    cached_unscored = total_cached_unscored()  # Unscored images in cache
-    cached_total = total_cached()  # All images in cache
-    total = get_absolute_total()
-
-    if is_scanning() and valid == 0:
-        state = "scanning"
-    elif valid > 0:
-        state = "ready"
-    elif is_finished():
-        state = "done"
-    else:
-        state = "empty"
-
-    # Get comparison mode stats
+    unscored = total_cached_unscored()  # Images with no score
     comp_stats = get_comparison_stats()
+
+    # scored_uncompared = images with score but comparison_count < 10
+    uncompared = comp_stats.get("not_compared", 0)
+
+    # compared = images with comparison_count >= 10
+    compared = comp_stats.get("fully_compared", 0)
+    partially_compared = comp_stats.get("partially_compared", 0)
+
+    cached = total_cached()  # All images in cache
+    total = get_absolute_total()  # Total images on disk
+    # scanning = is_scanning()
 
     return jsonify(
         {
-            "state": state,
-            "valid": valid,
-            "cached_unscored": cached_unscored,
-            "cached_total": cached_total,
+            "unscored": unscored,
+            "uncompared": uncompared,
+            "partially_compared": partially_compared,
+            "compared": compared,
+            "cached": cached,
             "total": total,
-            "comparison": comp_stats,
+            # "scanning": scanning,
         }
     )
 
@@ -267,49 +302,36 @@ def compare_submit():
 
     Expected JSON:
     {
-        winner: "left" | "right",
-        left_image: str (relative path),
-        right_image: str (relative path),
-        left_data: {...},
-        right_data: {...},
+        winner_image: str (relative path),
+        loser_image: str (relative path),
+        winner_data: {...},
+        loser_data: {...},
     }
     """
     data = request.json
     if not data:
         return jsonify({"ok": False, "error": "Missing data"}), 400
 
-    winner = data.get("winner")
-    left_rel = data.get("left_image")
-    right_rel = data.get("right_image")
-    left_data = data.get("left_data", {})
-    right_data = data.get("right_data", {})
+    winner_rel = data.get("winner_image")
+    loser_rel = data.get("loser_image")
+    winner_data = data.get("winner_data", {})
+    loser_data = data.get("loser_data", {})
 
-    if not winner or not left_rel or not right_rel:
-        return jsonify({"ok": False, "error": "Missing winner or image paths"}), 400
+    if not winner_rel or not loser_rel:
+        return (
+            jsonify({"ok": False, "error": "Missing winner or loser image paths"}),
+            400,
+        )
 
     # Convert relative paths to absolute
     root = image_root()
     root_path = Path(root)
 
     try:
-        left_abs = str(root_path / left_rel)
-        right_abs = str(root_path / right_rel)
+        winner_abs = str(root_path / winner_rel)
+        loser_abs = str(root_path / loser_rel)
     except Exception as e:
         return jsonify({"ok": False, "error": f"Path error: {str(e)}"}), 400
-
-    # Determine winner and loser
-    if winner == "left":
-        winner_path = left_abs
-        loser_path = right_abs
-        winner_data = left_data.copy()
-        loser_data = right_data.copy()
-    elif winner == "right":
-        winner_path = right_abs
-        loser_path = left_abs
-        winner_data = right_data.copy()
-        loser_data = left_data.copy()
-    else:
-        return jsonify({"ok": False, "error": "Invalid winner value"}), 400
 
     # Apply comparison logic
     try:
@@ -317,7 +339,7 @@ def compare_submit():
 
         # Write updated data
         success, err = write_comparison_data(
-            winner_path, loser_path, winner_data, loser_data
+            winner_abs, loser_abs, winner_data, loser_data
         )
 
         if not success:
