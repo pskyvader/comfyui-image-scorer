@@ -43,26 +43,43 @@ def get_paired_images(
     random.shuffle(all_candidates)  # Shuffle to ensure random selection each time
 
     # Filter images with the given score and comparison_count < 10
-    candidates: Dict[int, List[Tuple[str, Dict[str, Any]]]] = {}
-    found_score = 0
+    candidates: Dict[int, Dict[int, List[Tuple[str, Dict[str, Any]]]]] = {}
+    found_score = -1
+    found_modifier = 1
+
+    backup_pair: List[Tuple[str, Dict[str, Any]]] = []
 
     for img_path in all_candidates:
         cached_meta = get_cached_metadata(img_path)
         if not cached_meta:
             continue
         score = int(cached_meta["score"])
+        score_modifier = int(cached_meta["score_modifier"])
         if not score in candidates:
-            candidates[score] = []
+            candidates[score] = {}
+        if not score_modifier in candidates[score]:
+            candidates[score][score_modifier] = []
         meta = (img_path, cached_meta)
-        candidates[score].append(meta)
-        if len(candidates[score]) >= 2:
+
+        if len(backup_pair) < 2:
+            backup_pair.append(meta)
+
+        candidates[score][score_modifier].append(meta)
+        if len(candidates[score][score_modifier]) >= 2:
             if manual_score == 0 or manual_score == score:
                 found_score = score
+                found_modifier = score_modifier
                 break  # We only need at least 2 candidates for one score
+    if found_score == 0:
+        candidates[found_score] = {}
+        candidates[found_score][found_modifier] = backup_pair
 
-    if candidates[found_score] and len(candidates[found_score]) >= 2:
-        img1_path, img1_data = candidates[found_score][0]
-        img2_path, img2_data = candidates[found_score][1]
+    if (
+        candidates[found_score][found_modifier]
+        and len(candidates[found_score][found_modifier]) >= 2
+    ):
+        img1_path, img1_data = candidates[found_score][found_modifier][0]
+        img2_path, img2_data = candidates[found_score][found_modifier][1]
 
         print(
             f"[get_paired_images]   Image 1: {img1_path} (count={img1_data.get('comparison_count', 0)})"
@@ -97,9 +114,8 @@ def apply_comparison(
         winner_data["score_modifier"] += score_scale
         loser_data["score_modifier"] -= score_scale
 
-
     # Score level change
-    threshold=5
+    threshold = 5
     if winner_data["score_modifier"] > threshold:
         winner_data["score"] += 1
         winner_data["score_modifier"] = 0

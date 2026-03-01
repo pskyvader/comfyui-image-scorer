@@ -73,7 +73,7 @@ class PlotManager:
         y_plot: np.ndarray,
         p_plot: np.ndarray,
         plot: bool = True,
-        min_size_px: float = 1.0,
+        min_size_px: float = 100.0,
         max_size_px: float = 800.0,
         power: float = 0.5,
         label_threshold: int = 10,

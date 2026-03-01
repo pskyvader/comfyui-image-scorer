@@ -1,6 +1,4 @@
-
-
-from typing import Any, Dict, List, Union, Sequence,Tuple, cast, Set
+from typing import Any, Dict, List, Union, Sequence, Tuple, cast, Set
 import random
 
 import os
@@ -28,9 +26,6 @@ from ..training.plot import LivePlotCallback
 from ..paths import models_dir
 
 
-
-
-
 # step is relative percentage for float/int types
 grid_base: Dict[str, Any] = {
     "learning_rate": {
@@ -54,20 +49,20 @@ grid_base: Dict[str, Any] = {
     "num_leaves": {
         # Purpose: Maximum number of leaves in one tree. Main parameter to control model complexity.
         # Speed: Higher values decrease training speed and increase memory usage.
-        "type": "int", 
-        "min": 2, 
-        "max": 1024, 
-        "step": 0.1, 
-        "random": 0.01
+        "type": "int",
+        "min": 2,
+        "max": 1024,
+        "step": 0.1,
+        "random": 0.01,
     },
     "max_depth": {
         # Purpose: Maximum depth of a tree. Limits the complexity of the model.
         # Speed: Deeper trees take longer to build.
-        "type": "int", 
-        "min": 1, 
-        "max": 120, 
-        "step": 0.1, 
-        "random": 0.01
+        "type": "int",
+        "min": 1,
+        "max": 120,
+        "step": 0.1,
+        "random": 0.01,
     },
     "min_child_samples": {
         # Purpose: Minimum number of data points needed in a leaf. Helps prevent overfitting.
@@ -178,31 +173,31 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
     if cell["type"] == "int":
         higher: int = int(higher)
         lower: int = int(lower)
-        v=int(v)
-        if v==lower and v>vmin:
-            lower-=1
-        
-        if v==higher and v<vmax:
-            higher+=1
-            
+        v = int(v)
+        if v == lower and v > vmin:
+            lower -= 1
+
+        if v == higher and v < vmax:
+            higher += 1
+
         # Uniqueness: Use set to dedup, then sort
-        #candidates = {(higher), (v), (lower)}
+        # candidates = {(higher), (v), (lower)}
         candidates = {(higher), (lower)}
     if cell["type"] == "float":
-        #candidates = {float(higher), float(v), float(lower)}
+        # candidates = {float(higher), float(v), float(lower)}
         candidates = {float(higher), float(lower)}
-        v=int(v)
-        if v==lower and v>vmin:
-            lower-=1
-        
-        if v==higher and v<vmax:
-            higher+=1
-            
+        v = int(v)
+        if v == lower and v > vmin:
+            lower -= 1
+
+        if v == higher and v < vmax:
+            higher += 1
+
         # Uniqueness: Use set to dedup, then sort
-        #candidates = {(higher), (v), (lower)}
+        # candidates = {(higher), (v), (lower)}
         candidates = {(higher), (lower)}
     if cell["type"] == "float":
-        #candidates = {float(higher), float(v), float(lower)}
+        # candidates = {float(higher), float(v), float(lower)}
         candidates = {float(higher), float(lower)}
 
     result = sorted(list(candidates), reverse=True)
@@ -213,25 +208,6 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
         result = [v]
 
     return result
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class ModelTrainer:
@@ -249,10 +225,10 @@ class ModelTrainer:
             "auc": True,
         },
         "regression": {
+            "r2": True,
             "l2": False,
             "rmse": False,
             "l1": False,
-            "r2": True,
         },
     }
 
@@ -312,7 +288,9 @@ class ModelTrainer:
             self.training_model = lgb.LGBMRegressor(**params)
             self.eval_metrics = ["l2", "rmse", "l1", self.r2_metric]
 
-    def create_callbacks(self, progress_bar: Any, status_bar: Any, enable_plotting: bool = False) -> None:
+    def create_callbacks(
+        self, progress_bar: Any, status_bar: Any, enable_plotting: bool = False
+    ) -> None:
         # Setup callbacks for logging
         callbacks: List[Any] = []
         # Always suppress default logger to ensure clean output
@@ -335,7 +313,9 @@ class ModelTrainer:
             # Add plotting callback only if enabled (not during HPO temporary evaluations)
             if enable_plotting:
                 graph_path = os.path.join(models_dir, "graph.png")
-                self.plot_callback = LivePlotCallback(save_path=graph_path, frequency=30, status_bar=status_bar)
+                self.plot_callback = LivePlotCallback(
+                    save_path=graph_path, frequency=30, status_bar=status_bar
+                )
                 callbacks.append(self.plot_callback)
 
         self.callbacks = callbacks
@@ -485,9 +465,13 @@ class ModelTrainer:
         )
         x_train, x_test, y_train, y_test = split_res
 
-        progress_bar = tqdm(total=self.n_estimators, desc="Training LightGBM",position=0)
+        progress_bar = tqdm(
+            total=self.n_estimators, desc="Training LightGBM", position=0
+        )
         status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}")
-        self.create_callbacks(progress_bar, enable_plotting=enable_plotting, status_bar=status_bar)
+        self.create_callbacks(
+            progress_bar, enable_plotting=enable_plotting, status_bar=status_bar
+        )
         start = time.time()
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -517,7 +501,7 @@ class ModelTrainer:
             if self.user_verbosity >= 0:
                 progress_bar.close()
                 # Plot final training results only once
-                #if self.plot_callback is not None:
+                # if self.plot_callback is not None:
                 #    self.plot_callback.plot_final_results()
 
         training_time = time.time() - start

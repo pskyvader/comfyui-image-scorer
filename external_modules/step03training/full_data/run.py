@@ -6,9 +6,9 @@ import numpy as np
 
 from .config_utils import grid_base, around
 
-from ...shared.paths import models_dir
-from ...shared.training.model_trainer import model_trainer
-from ...shared.config import config
+from shared.paths import models_dir
+from shared.training.model_trainer import model_trainer
+from shared.config import config
 
 _last_used_keys: Dict[str, List[str]] = {}
 
