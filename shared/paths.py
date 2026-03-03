@@ -10,7 +10,8 @@ cache_file: str = os.path.join(output_dir, "cache.db")
 
 image_root: str = config["image_root"]
 
-vectors_size_file: str = os.path.join(config_dir, "image_vector_size.json")
+vectors_size_file: str = os.path.join(output_dir, "image_vector_size.json")
+hyperparameters_statistics: str = os.path.join(output_dir, "hyperparameters_statistics.json")
 
 vectors_dir: str = os.path.join(output_dir, "vectors")
 vectors_file: str = os.path.join(vectors_dir, config["vectors_file"])
