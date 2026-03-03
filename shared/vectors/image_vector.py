@@ -213,9 +213,7 @@ class ImageVector:
                 print("setting new min size: ", min_size)
 
         batch_size = max(int(max_size), 1)
-        print(
-            f"setting final size: {batch_size}"
-        )
+        print(f"setting final size: {batch_size}")
         vector_width[height_str] = batch_size
         vector_width = dict(
             sorted(vector_width.items(), reverse=True, key=lambda x: int(x[0]))
@@ -262,58 +260,71 @@ class ImageVector:
         bucket_list = list(sorted_buckets.items())
         total_buckets = len(bucket_list)
 
-        print(f"\nTotal buckets: {total_buckets}\n")
-        print(f"\nTotal memory: {total_memory}\n")
+        print(f"\nTotal buckets: {total_buckets}")
+        print(f"\nTotal memory: {total_memory}")
 
         # --------------------------------------------------
         # PASS 2: Process each bucket
         # --------------------------------------------------
-        with tqdm(total=total, desc="Encoded", unit=self.name) as pbar:
-            max_batch_size = 0
-            for bucket_idx, (size, items) in enumerate(bucket_list, start=1):
-                num_items = len(items)
-                # if num_items > max_batch_size:
-                width, height = size
-                max_batch_size = self.get_batch_size(width, height)
-                max_batch_size=int(max_batch_size*0.85) # max memory percentage allowed to use
+        with tqdm(
+            total=total_buckets,
+            desc="Buckets",
+            unit="bucket",
+            position=0,
+            leave=True,
+        ) as bucket_pbar:
+            with tqdm(
+                total=total,
+                desc="Encoded",
+                unit=self.name,
+                position=1,
+            ) as pbar:
+                max_batch_size = 0
+                for bucket_idx, (size, items) in enumerate(bucket_list, start=1):
+                    num_items = len(items)
+                    # if num_items > max_batch_size:
+                    width, height = size
+                    max_batch_size = self.get_batch_size(width, height)
+                    max_batch_size = int(
+                        max_batch_size * 0.85
+                    )  # max memory percentage allowed to use
 
-                if num_items > max_batch_size * 2:
-                    torch.backends.cudnn.benchmark = True
-                else:
-                    torch.backends.cudnn.benchmark = False
+                    if num_items > max_batch_size * 2:
+                        torch.backends.cudnn.benchmark = True
+                    else:
+                        torch.backends.cudnn.benchmark = False
 
-                print(
-                    f"Processing bucket {bucket_idx}/{total_buckets} | "
-                    f"Image size: {size} | "
-                    f"Elements in bucket: {num_items} | "
-                    f"Batch size: {max_batch_size}"
-                )
+                    bucket_pbar.set_description(
+                        f"Bucket {bucket_idx} | Size: {size} | Items: {num_items} | Batch: {max_batch_size}"
+                    )
 
-                # Process bucket in sub-batches
-                for i in range(0, num_items, max_batch_size):
+                    # Process bucket in sub-batches
+                    for i in range(0, num_items, max_batch_size):
 
-                    batch_slice = items[i : i + max_batch_size]
+                        batch_slice = items[i : i + max_batch_size]
 
-                    # Separate indices and paths
-                    batch_indices = [idx for idx, _ in batch_slice]
-                    batch_paths = [path for _, path in batch_slice]
+                        # Separate indices and paths
+                        batch_indices = [idx for idx, _ in batch_slice]
+                        batch_paths = [path for _, path in batch_slice]
 
-                    # Load & preprocess batch in one call
-                    current_batch = self.prepare_image_batch(batch_paths)
+                        # Load & preprocess batch in one call
+                        current_batch = self.prepare_image_batch(batch_paths)
 
-                    # Encode batch
-                    batch_vecs = self.create_image_vector_batch(current_batch)
+                        # Encode batch
+                        batch_vecs = self.create_image_vector_batch(current_batch)
 
-                    # Store vectors in original order
-                    for idx, vec in zip(batch_indices, batch_vecs):
-                        vectors[idx] = vec
+                        # Store vectors in original order
+                        for idx, vec in zip(batch_indices, batch_vecs):
+                            vectors[idx] = vec
 
-                    pbar.update(len(batch_slice))
+                        pbar.update(len(batch_slice))
 
-                    # Explicit cleanup (important for VRAM stability)
-                    del current_batch
-                    del batch_vecs
-                torch.cuda.empty_cache()
+                        # Explicit cleanup (important for VRAM stability)
+                        del current_batch
+                        del batch_vecs
+                    torch.cuda.empty_cache()
+
+                    bucket_pbar.update(1)
 
         self.vector_list.extend(vectors)
         return self.vector_list

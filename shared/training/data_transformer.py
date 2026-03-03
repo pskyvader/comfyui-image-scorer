@@ -11,13 +11,15 @@ from .model_trainer import model_trainer
 
 
 class DataTransformer:
+
+    poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+
     def __init__(self) -> None:
-        self.poly = PolynomialFeatures(
-            degree=2, include_bias=False, interaction_only=True
-        )
         pass
 
-    def filter_unused_features(self, x: np.ndarray, y: np.ndarray, steps: int, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    def filter_unused_features(
+        self, x: np.ndarray, y: np.ndarray, steps: int, verbose: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Trains a fast LightGBM model to identify and remove features with zero importance
         and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
@@ -38,7 +40,9 @@ class DataTransformer:
         model = model_trainer.training_model
 
         # Setup callbacks for logging
-        callbacks: List[Any] = [lgb.log_evaluation(period=-1)]  # suppress default logger
+        callbacks: List[Any] = [
+            lgb.log_evaluation(period=-1)
+        ]  # suppress default logger
 
         if user_verbosity >= 0:
             # Use tqdm progress bar
@@ -58,7 +62,9 @@ class DataTransformer:
 
         if verbose:
             n_zeros = np.sum(importances == 0)
-            print(f"Found {n_zeros} features with zero gain out of {n_features} total features.")
+            print(
+                f"Found {n_zeros} features with zero gain out of {n_features} total features."
+            )
 
         # --- Step 1: remove all zero-gain features
         nonzero_mask = importances > 0

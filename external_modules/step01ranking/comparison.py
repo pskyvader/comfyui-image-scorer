@@ -15,6 +15,7 @@ from .cache import add
 
 def get_paired_images(
     manual_score: int = 0,
+    safety_limit:int=20
 ) -> Optional[Tuple[str, str, Dict[str, Any], Dict[str, Any]]]:
     """
     Get 2 random images with the same score for comparison.
@@ -32,18 +33,18 @@ def get_paired_images(
     all_candidates: List[str] = []
     for i in range(1, 11):
         all_candidates = get_scored_not_compared(manual_score, i)
-        if len(all_candidates) >= 100:
+        if len(all_candidates) >= safety_limit:
             break
     print(
         f"[get_paired_images] Total scored not-compared images: {len(all_candidates)}"
     )
-    if len(all_candidates) < 100:
+    if len(all_candidates) < safety_limit:
         print("[get_paired_images] Safety function: Not enough candidates for pairing")
         return None
     random.shuffle(all_candidates)  # Shuffle to ensure random selection each time
 
     # Filter images with the given score and comparison_count < 10
-    candidates: Dict[int, Dict[int, List[Tuple[str, Dict[str, Any]]]]] = {}
+    candidates: Dict[int, Dict[float, List[Tuple[str, Dict[str, Any]]]]] = {}
     found_score = -1
     found_modifier = 1
 
@@ -54,7 +55,7 @@ def get_paired_images(
         if not cached_meta:
             continue
         score = int(cached_meta["score"])
-        score_modifier = int(cached_meta["score_modifier"])
+        score_modifier = round(float(cached_meta["score_modifier"]),1)
         if not score in candidates:
             candidates[score] = {}
         if not score_modifier in candidates[score]:
@@ -101,15 +102,19 @@ def apply_comparison(
         Tuple of (updated_winner_data, updated_loser_data)
     """
     print(f"compare BEFORE - Winner:{winner_data} - Loser:{loser_data}")
-    score_scale = 1.5
+    score_scale = 1.491
     if winner_data["score"] >= 5:
         if winner_data["score_modifier"] < -score_scale:
             winner_data["score_modifier"] += 2 * score_scale
+        if winner_data["score_modifier"]>=5:
+            winner_data["score_modifier"] = 5
         loser_data["score_modifier"] -= 2 * score_scale
     elif loser_data["score"] <= 1:
         winner_data["score_modifier"] += 2 * score_scale
         if loser_data["score_modifier"] > score_scale:
             loser_data["score_modifier"] -= 2 * score_scale
+        if loser_data["score_modifier"] <= 1:
+            loser_data["score_modifier"]=1
     else:
         winner_data["score_modifier"] += score_scale
         loser_data["score_modifier"] -= score_scale

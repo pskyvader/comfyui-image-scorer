@@ -21,9 +21,10 @@ from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
 from ..config import config
-from ..training.plot import LivePlotCallback
 
-from ..paths import models_dir
+# from ..training.plot import LivePlotCallback
+
+# from ..paths import models_dir
 
 
 # step is relative percentage for float/int types
@@ -248,7 +249,7 @@ class ModelTrainer:
         self, y_true: np.ndarray, y_pred: np.ndarray
     ) -> Tuple[str, float, bool]:
         """Custom R2 metric for LightGBM evaluation."""
-        return "r2", float(r2_score(y_true, y_pred)), True
+        return ("r2", float(r2_score(y_true, y_pred)), True)
 
     def create_training_model(self, config_dict: Dict[str, Any]):
 
@@ -286,7 +287,7 @@ class ModelTrainer:
         # Regression
         else:
             self.training_model = lgb.LGBMRegressor(**params)
-            self.eval_metrics = ["l2", "rmse", "l1", self.r2_metric]
+            self.eval_metrics = ["r2", self.r2_metric, "l2", "rmse", "l1"]
 
     def create_callbacks(
         self, progress_bar: Any, status_bar: Any, enable_plotting: bool = False
@@ -303,20 +304,15 @@ class ModelTrainer:
                 )
             )
 
-        self.plot_callback = None
         if self.user_verbosity >= 0:
-            # Use tqdm progress bar
-            def progress_bar_callback(_):
+            def pbar_callback(_):
                 progress_bar.update(1)
 
-            callbacks.append(progress_bar_callback)
-            # Add plotting callback only if enabled (not during HPO temporary evaluations)
-            if enable_plotting:
-                graph_path = os.path.join(models_dir, "graph.png")
-                self.plot_callback = LivePlotCallback(
-                    save_path=graph_path, frequency=30, status_bar=status_bar
-                )
-                callbacks.append(self.plot_callback)
+            callbacks.append(pbar_callback)
+
+        # Note: Custom callbacks with closures (like progress_bar_callback) can't be pickled,
+        # causing issues in LightGBM. Only use built-in LightGBM callbacks.
+        self.plot_callback = None
 
         self.callbacks = callbacks
 
@@ -358,9 +354,9 @@ class ModelTrainer:
 
             self.result_metrics.update(
                 {
+                    "r2": r2,
                     "mae": mae,
                     "rmse": rmse,
-                    "r2": r2,
                 }
             )
 
@@ -427,16 +423,27 @@ class ModelTrainer:
 
         primary_metric = self.eval_metrics[0]
         if metric_dict and evaluation_results:
+            # print("metric and evaluation present", flush=True)
+            # print(
+            #     f"primary_metric: {primary_metric}, type: {type(primary_metric)}",
+            #     flush=True,
+            # )
+            # # print(f"execution: {primary_metric()}", flush=True)
+            # print("metric_dict.keys()", metric_dict.keys(), flush=True)
+            # print(f"evaluation_results.keys: {evaluation_results.keys()}", flush=True)
             self.result_metrics["curves"] = {}
 
             for dataset_name, metrics_dict in evaluation_results.items():
+                # print("dataset_name:", dataset_name, flush=True)
                 self.result_metrics["curves"][dataset_name] = {}
 
                 for metric_name, values in metrics_dict.items():
+                    # print("metric_name:", metric_name, flush=True)
                     self.result_metrics["curves"][dataset_name][metric_name] = values
 
             # Define main score = first metric in eval_metric list
             if primary_metric in metric_dict:
+                # print("primary metric present", primary_metric, flush=True)
                 self.result_metrics["score"] = metric_dict[primary_metric][-1]
                 self.result_metrics["primary_metric"] = primary_metric
 
@@ -513,6 +520,9 @@ class ModelTrainer:
                 message=".*X does not have valid feature names.*",
             )
             y_pred = self.training_model.predict(x_test)
+
+        # print(f"y_test: {y_test[100:]}")
+        # print(f"y_pred: {y_pred[100:]}")
 
         self.create_metrics(y_test, y_pred, training_time)
 

@@ -73,8 +73,8 @@ class PlotManager:
         y_plot: np.ndarray,
         p_plot: np.ndarray,
         plot: bool = True,
-        min_size_px: float = 100.0,
-        max_size_px: float = 800.0,
+        min_size_px: float = 10.0,
+        max_size_px: float = 100.0,
         power: float = 0.5,
         label_threshold: int = 10,
     ) -> None:
@@ -125,6 +125,61 @@ class PlotManager:
             plt.show()
 
     @staticmethod
+    def plot_scatter_comparison_continuous(
+        y_plot: np.ndarray,
+        p_plot: np.ndarray,
+        plot: bool = True,
+        min_size_px: float = 10.0,
+        max_size_px: float = 100.0,
+        power: float = 0.5,
+        label_threshold: int = 10,
+    ) -> None:
+        """Plot actual vs predicted values with continuous data."""
+        
+
+        sizes = PlotManager._calculate_scatter_sizes(
+            np.ones(len(y_plot)), min_size_px, max_size_px, power
+        )
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.scatter(
+            y_plot,
+            p_plot,
+            s=sizes,
+            alpha=0.85,
+            edgecolors="none",
+            zorder=5,
+        )
+
+        # Add labels for high-count points
+        for x, y in zip(y_plot, p_plot):
+            if round(x, 2) >= label_threshold:
+                ax.annotate(
+                    str(round(x, 2)),
+                    (x, y),
+                    textcoords="offset points",
+                    xytext=(3, 3),
+                    fontsize=8,
+                    ha="left",
+                    va="bottom",
+                    zorder=20,
+                )
+
+        ymin = float(min(np.min(y_plot), np.min(p_plot)))
+        ymax = float(max(np.max(y_plot), np.max(p_plot)))
+
+        PlotManager._setup_scatter_axes(ax, ymin, ymax)
+
+        ax.legend()
+        ax.set_xlabel("Actual")
+        ax.set_ylabel("Predicted")
+        ax.set_title("Actual vs Predicted (continuous)")
+        ax.grid(True)
+
+        if plot:
+            plt.show()
+
+    @staticmethod
     def prepare_plot_data(y: Any, preds: Any) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare data for plotting by filtering out non-finite values."""
         y_sample, preds_sample = PlotManager._prepare_finite_data(y, preds)
@@ -144,7 +199,7 @@ class PlotManager:
 
     @staticmethod
     def compare_model_vs_data(
-        x: np.ndarray, y: np.ndarray, plot: bool = True, limit: int = 500
+        x: np.ndarray, y: np.ndarray, plot: bool = True, limit: int = 100
     ) -> None:
         """Compare a trained model vs data."""
         rng = np.random.default_rng()
@@ -171,9 +226,11 @@ class PlotManager:
             metrics = data["metrics"]
 
         PlotManager.print_comparison_metrics(y_sample, preds, metrics)
+
         y_plot, p_plot = PlotManager.prepare_plot_data(y_sample, preds)
+
         if y_plot.size > 0 and p_plot.size > 0:
-            PlotManager.plot_scatter_comparison(y_plot, p_plot, plot)
+            PlotManager.plot_scatter_comparison_continuous(y_plot, p_plot, plot)
 
     @staticmethod
     def _plot_metric_on_axes(

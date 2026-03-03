@@ -31,8 +31,6 @@ class VectorList:
         self.scores_list = scores_list
         self.image_paths: List[str] = []
         self.entries: List[Any] = []
-        # self.timestamps: List[Any] = []
-        # self.file_ids: List[str] = []
         self.unique_ids: List[str] = []
         self.scores: List[int] = []
         self.vector_config = config["vector"]["vectors"]
@@ -54,14 +52,7 @@ class VectorList:
                 
                 self.scores.append(current_score+(score_modifier*0.1))
                 self.image_paths.append(image_path)
-                # self.timestamps.append(timestamp)
-                # self.file_ids.append(file_id)
-
-        # self.image_vectors: Dict[str, ImageVector] = {}
-        # self.map_vectors: Dict[str, MapVector] = {}
-        # self.int_vectors: Dict[str, IntVector] = {}
-        # self.float_vectors: Dict[str, FloatVector] = {}
-        # self.embedding_vectors: Dict[str, EmbeddingVector] = {}
+                
         self.final_vector: List[List[float]] = []
 
     def configure_sorted_vectors(self) -> None:

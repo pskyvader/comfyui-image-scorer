@@ -4,10 +4,8 @@ import random
 from itertools import product, islice
 import numpy as np
 
-from .config_utils import grid_base, around
-
 from shared.paths import models_dir
-from shared.training.model_trainer import model_trainer
+from shared.training.model_trainer import model_trainer,grid_base,around
 from shared.config import config
 
 _last_used_keys: Dict[str, List[str]] = {}
@@ -209,7 +207,7 @@ def optimize_hyperparameters(
     combos = generate_combos(param_grid, max_combos)
     current_cfg = base_cfg.copy()
     results: List[Tuple[Dict[str, Any], Dict[str, float]]] = []
-
+    new_top_score=False
     #for i, combo in enumerate(tqdm(combos,position=1, desc=f"HPO Search ({strategy})", unit="combo")):
     for i, combo in enumerate(combos):
         merged = {**current_cfg, **combo}
@@ -226,8 +224,9 @@ def optimize_hyperparameters(
         higher_is_better = model_trainer.METRIC_DIRECTIONS[
             config["training"]["objective"]
         ][primary_metric]
-        update_top_config(merged, score, t_time, primary_metric, higher_is_better)
-
+        found_top_score=update_top_config(merged, score, t_time, primary_metric, higher_is_better)
+        if found_top_score:
+            new_top_score=True
         # Update Fastest (Track Restricted)
         if strategy == "FASTEST":
             update_fastest_config(
@@ -243,5 +242,12 @@ def optimize_hyperparameters(
                     "Slowest improved but still too slow; skipping remaining combos in this batch."
                 )
                 break
+    if new_top_score:
+        global _last_used_keys
+        current_last_used = _last_used_keys[strategy] if strategy in _last_used_keys else []
+        #remove last element
+        if len(current_last_used)>0:
+            current_last_used.pop()
+
 
     return results
