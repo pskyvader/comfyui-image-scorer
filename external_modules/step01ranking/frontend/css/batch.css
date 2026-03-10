@@ -1,0 +1,93 @@
+#batch-container .batch-controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    justify-content: center;
+}
+
+#batch-container .batch-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    margin-top: 12px;
+}
+
+#batch-container .batch-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 8px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 200px;
+}
+
+#batch-container .batch-card:hover {
+    border-color: var(--accent);
+    background: rgba(96, 165, 250, 0.1);
+}
+
+#batch-container .batch-card img {
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    object-fit: contain;
+    background: #071022;
+    border-radius: 4px;
+    flex-grow: 1;
+}
+
+#batch-container .batch-card-info {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+#batch-container .batch-card-scores {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+#batch-container .batch-score-btn {
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+#batch-container .batch-score-btn.selected {
+    background: var(--accent);
+    color: #04212b;
+    border-color: var(--accent);
+}
+
+#batch-container .btn-green {
+    background: #10b981;
+    color: #04212b;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#batch-container .meta {
+    margin-top: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}

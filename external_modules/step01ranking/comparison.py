@@ -10,12 +10,108 @@ from typing import Tuple, Dict, Any, Optional, List
 import random
 from .utils import load_metadata, get_json_path
 from shared.io import atomic_write_json
-from .cache import add
+from .cache import add, get_total_per_level, get_images_by_level, get_cached_metadata
 
 
-def get_paired_images(
-    manual_score: int = 0,
-    safety_limit:int=20
+# 3️⃣ Choose level (Priority: Highest Level, Tie-breaker: Random Score)
+def choose_level(score: int = 0, safety_limit: int = 20) -> Tuple[int, int, int]:
+    score_groups = get_total_per_level(score)
+    print(f"Score groups: {score_groups}")
+
+    # Store the highest valid level for each score: {score: highest_lvl}
+    best_per_score: Dict[int, int] = {}
+
+    for s, level_counts in score_groups.items():
+        highest_healthy_lvl = 0 if level_counts.get(0, 0) >= safety_limit else -1
+
+        for lvl in range(1, 10):
+            current_count = level_counts.get(lvl, 0)
+            below_count = level_counts.get(lvl - 1, 0)
+
+            if current_count < safety_limit:
+                continue
+
+            # Double Count Rule
+            if below_count < (2 * current_count):
+                highest_healthy_lvl = lvl
+
+        if highest_healthy_lvl != -1:
+            best_per_score[s] = highest_healthy_lvl
+
+    if not best_per_score:
+        raise ValueError(f"No levels meet safety_limit ({safety_limit})")
+    print(f"best per score: {best_per_score}")
+
+    # Determine the absolute highest level reached by any score
+    min_level_found = min(best_per_score.values())
+
+    # Find all scores that reached this specific max level
+    top_candidates: List[Tuple[int, int, int]] = []
+    for s, lvl in best_per_score.items():
+        if lvl == min_level_found:
+            count = score_groups[s][lvl]
+            top_candidates.append((s, lvl, count))
+
+    # top_candidates = [
+    #     (s, lvl) for s, lvl in best_per_score.items() if lvl == max_level_found
+    # ]
+    print(f"top_candidates: {top_candidates}")
+
+    # Return the only candidate, or pick randomly if there's a tie at the top level
+    return random.choice(top_candidates)
+
+
+# 4️⃣ Get paired images
+def get_paired_images(score: int = 0, safety_limit: int = 20, tolerance: float = 0.001):
+
+    try:
+        # Now prioritizes the deepest part of the pyramid
+        chosen_score, chosen_level, _ = choose_level(score, safety_limit)
+    except ValueError:
+        return None
+
+    paths = get_images_by_level(chosen_score, chosen_level)
+    if len(paths) < 2:
+        return None
+
+    random.shuffle(paths)
+
+    anchor_path = paths.pop()
+    anchor_meta = get_cached_metadata(anchor_path)
+    if not anchor_meta:
+        return None
+
+    anchor_mod = float(anchor_meta["score_modifier"])
+    best_match = None
+    smallest_diff = float("inf")
+
+    # Greedy search capped at 50 to maintain performance
+    search_limit = min(len(paths), 50)
+    for path in paths[:search_limit]:
+        meta = get_cached_metadata(path)
+        if not meta:
+            continue
+
+        diff = abs(float(meta["score_modifier"]) - anchor_mod)
+
+        if diff < smallest_diff:
+            smallest_diff = diff
+            best_match = (path, meta)
+
+        if diff <= tolerance:
+            print("found pair with tolerance <=", tolerance, diff)
+            break
+
+    print(f"smallest diff: {smallest_diff}")
+
+    if best_match:
+        return anchor_path, best_match[0], anchor_meta, best_match[1]
+
+    return None
+
+
+def get_paired_images2(
+    manual_score: int = 0, safety_limit: int = 20
 ) -> Optional[Tuple[str, str, Dict[str, Any], Dict[str, Any]]]:
     """
     Get 2 random images with the same score for comparison.
@@ -35,9 +131,7 @@ def get_paired_images(
         all_candidates = get_scored_not_compared(manual_score, i)
         if len(all_candidates) >= safety_limit:
             break
-    print(
-        f"[get_paired_images] Total scored not-compared images: {len(all_candidates)}"
-    )
+    print(f"Total not-compared images: {len(all_candidates)} for count < {i}")
     if len(all_candidates) < safety_limit:
         print("[get_paired_images] Safety function: Not enough candidates for pairing")
         return None
@@ -46,7 +140,7 @@ def get_paired_images(
     # Filter images with the given score and comparison_count < 10
     candidates: Dict[int, Dict[float, List[Tuple[str, Dict[str, Any]]]]] = {}
     found_score = -1
-    found_modifier = 1
+    found_modifier = -1
 
     backup_pair: List[Tuple[str, Dict[str, Any]]] = []
 
@@ -55,7 +149,7 @@ def get_paired_images(
         if not cached_meta:
             continue
         score = int(cached_meta["score"])
-        score_modifier = round(float(cached_meta["score_modifier"]),1)
+        score_modifier = round(float(cached_meta["score_modifier"]), 1)
         if not score in candidates:
             candidates[score] = {}
         if not score_modifier in candidates[score]:
@@ -71,7 +165,7 @@ def get_paired_images(
                 found_score = score
                 found_modifier = score_modifier
                 break  # We only need at least 2 candidates for one score
-    if found_score == 0:
+    if found_score == -1:
         candidates[found_score] = {}
         candidates[found_score][found_modifier] = backup_pair
 
@@ -82,12 +176,6 @@ def get_paired_images(
         img1_path, img1_data = candidates[found_score][found_modifier][0]
         img2_path, img2_data = candidates[found_score][found_modifier][1]
 
-        print(
-            f"[get_paired_images]   Image 1: {img1_path} (count={img1_data.get('comparison_count', 0)})"
-        )
-        print(
-            f"[get_paired_images]   Image 2: {img2_path} (count={img2_data.get('comparison_count', 0)})"
-        )
         return (img1_path, img2_path, img1_data, img2_data)
     return None
 
@@ -101,45 +189,44 @@ def apply_comparison(
     Returns:
         Tuple of (updated_winner_data, updated_loser_data)
     """
-    print(f"compare BEFORE - Winner:{winner_data} - Loser:{loser_data}")
-    score_scale = 1.491
-    if winner_data["score"] >= 5:
-        if winner_data["score_modifier"] < -score_scale:
-            winner_data["score_modifier"] += 2 * score_scale
-        if winner_data["score_modifier"]>=5:
-            winner_data["score_modifier"] = 5
-        loser_data["score_modifier"] -= 2 * score_scale
-    elif loser_data["score"] <= 1:
-        winner_data["score_modifier"] += 2 * score_scale
-        if loser_data["score_modifier"] > score_scale:
-            loser_data["score_modifier"] -= 2 * score_scale
-        if loser_data["score_modifier"] <= 1:
-            loser_data["score_modifier"]=1
-    else:
-        winner_data["score_modifier"] += score_scale
-        loser_data["score_modifier"] -= score_scale
-
-    # Score level change
-    threshold = 5
-    if winner_data["score_modifier"] > threshold:
-        winner_data["score"] += 1
-        winner_data["score_modifier"] = 0
-    elif winner_data["score_modifier"] < -threshold:
-        winner_data["score"] -= 1
-        winner_data["score_modifier"] = 0
-
-    if loser_data["score_modifier"] > threshold:
-        loser_data["score"] += 1
-        loser_data["score_modifier"] = 0
-    elif loser_data["score_modifier"] < -threshold:
-        loser_data["score"] -= 1
-        loser_data["score_modifier"] = 0
+    score_scale = 1 + 0.3 + random.random() * 0.2
+    winner_data["score_modifier"] += score_scale
+    loser_data["score_modifier"] -= score_scale
 
     # Increment comparison count
     winner_data["comparison_count"] += 1
     loser_data["comparison_count"] += 1
 
-    print(f"compared FINAL - Winner:{winner_data} - Loser:{loser_data}")
+    if winner_data["score"] >= 5 and winner_data["score_modifier"] > 0:
+        loser_data["score_modifier"] -= winner_data["score_modifier"]
+        winner_data["score_modifier"] = 0
+    elif loser_data["score"] <= 1 and loser_data["score_modifier"] < 0:
+        winner_data["score_modifier"] -= loser_data["score_modifier"]
+        loser_data["score_modifier"] = 0
+
+    # Score level change
+    threshold = 5.5
+    if (
+        winner_data["score_modifier"] > threshold
+        or winner_data["score_modifier"] < -threshold
+    ):
+        if winner_data["score_modifier"] > threshold:
+            winner_data["score"] += 1
+        else:
+            winner_data["score"] -= 1
+        winner_data["score_modifier"] = 0
+        winner_data["comparison_count"] = 0
+
+    if (
+        loser_data["score_modifier"] > threshold
+        or loser_data["score_modifier"] < -threshold
+    ):
+        if loser_data["score_modifier"] > threshold:
+            loser_data["score"] += 1
+        else:
+            loser_data["score"] -= 1
+        loser_data["score_modifier"] = 0
+        loser_data["comparison_count"] = 0
 
     return (winner_data, loser_data)
 

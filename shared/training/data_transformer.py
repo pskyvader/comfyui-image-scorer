@@ -33,7 +33,6 @@ class DataTransformer:
 
         # Create training model using shared trainer with minimal config
         config_dict: Dict[str, Any] = {
-            "objective": "regression",
             "n_estimators": steps,
         }
         model_trainer.create_training_model(config_dict)

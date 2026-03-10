@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 import random
 from threading import Thread
@@ -30,10 +31,6 @@ from .comparison import (
 from .cache import (
     get_absolute_total,
     total_cached,
-    # is_scanning,
-    # is_finished,
-    start_scan,
-    finish_scan,
 )
 
 app = Flask(__name__)
@@ -43,18 +40,6 @@ BASE_DIR = Path(__file__).resolve().parent
 # Background scanning worker
 # ───────────────────────────────
 _scan_thread = None
-
-
-@app.teardown_request
-def log_on_teardown(exception=None):
-    if exception:
-        print(f"CRITICAL: The route '{request.path}' crashed with: {exception}")
-
-
-# @app.errorhandler(Exception)
-# def handle_exception(e):
-#     print(f"CRITICAL: An unhandled exception occurred: {e}")
-#     return jsonify({"error": "Internal server error"}), 500
 
 
 def background_scan(batch_size: int = 1000):
@@ -105,47 +90,24 @@ def trigger_scan():
 # ───────────────────────────────
 @app.route("/")
 def serve_index():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "index.html")
+    return send_from_directory(str(BASE_DIR) + "/frontend/html", "index.html")
 
 
-@app.route("/style.css")
-def serve_css():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "style.css")
+# Updated routes for your folder structure
+@app.route("/css/<path:filename>")
+def serve_css(filename: str):
+    return send_from_directory(os.path.join(BASE_DIR, "frontend", "css"), filename)
 
 
-@app.route("/client.js")
-def serve_js():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "client.js")
+@app.route("/js/<path:filename>")
+def serve_js(filename: str):
+    return send_from_directory(os.path.join(BASE_DIR, "frontend", "js"), filename)
 
 
-@app.route("/single.html")
-def serve_single():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "single.html")
-
-
-@app.route("/single.js")
-def serve_single_js():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "single.js")
-
-
-@app.route("/batch.html")
-def serve_batch():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "batch.html")
-
-
-@app.route("/batch.js")
-def serve_batch_js():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "batch.js")
-
-
-@app.route("/compare.html")
-def serve_compare():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "compare.html")
-
-
-@app.route("/compare.js")
-def serve_compare_js():
-    return send_from_directory(str(BASE_DIR) + "/frontend", "compare.js")
+# This route handles ALL your html files automatically
+@app.route("/<path:filename>")
+def serve_pages(filename: str):
+    return send_from_directory(os.path.join(BASE_DIR, "frontend", "html"), filename)
 
 
 @app.route("/image/<path:subpath>")
@@ -258,7 +220,7 @@ def compare_next():
     if score is None:
         score = 0  # 0 means any score
 
-    pair_data = get_paired_images(score)
+    pair_data = get_paired_images(score, safety_limit=20)
 
     if not pair_data:
         return (

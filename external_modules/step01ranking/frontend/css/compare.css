@@ -1,0 +1,158 @@
+#compare-container .compare-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: 16px;
+}
+
+#compare-container .compare-pair {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+#compare-container .compare-image-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 0px;
+}
+
+#compare-container .compare-image {
+    width: 100%;
+    height: auto;
+    max-height: 600px;
+    object-fit: contain;
+    background: #071022;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+#compare-container .compare-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* Restored Hover Animations for Comparison Buttons */
+#compare-container .btn-compare {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0px;
+    transition: all 0.2s ease;
+    transform: scale(0.95);
+}
+
+#compare-container .btn-compare:hover {
+    transform: scale(1.0);
+}
+
+#compare-container .compare-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--muted);
+    min-width: 40px;
+    font-size: 14px;
+}
+
+/* Restored Manual Score Input Focus Animation */
+
+#compare-container .manual_score {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+
+
+#compare-container .manual_score input {
+    width: 56px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: #e6eef6;
+    font-weight: 600;
+    text-align: center;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+
+
+#compare-container .manual_score input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(96, 165, 250, 0.1);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#compare-container .compare-controls {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 12px;
+}
+
+#compare-container .btn-gray {
+    background: #374151;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    #compare-container .compare-pair {
+        flex-direction: column;
+    }
+
+    #compare-container .compare-divider {
+        transform: rotate(90deg);
+        margin: 8px 0;
+    }
+}

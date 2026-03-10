@@ -63,7 +63,7 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     if not all_file_pairs:
         return False
     collected_valid_files = collect_valid_files(
-        all_file_pairs, set(_image_list_cache), root, scored_only=False
+        all_file_pairs, set(_image_list_cache), root, max_workers=40, scored_only=False
     )
     set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
     if len(collected_valid_files)==0:
@@ -78,6 +78,13 @@ def scan_batch(root: str, limit: int = 100) -> bool:
         _image_list_cache.append(file_id)
         # Get score if available
         score = entry.get("score")
+        if score is not None:
+            if score < 1:
+                print(f"file {file_id} has a negative score")
+                score=2
+            elif score >5:
+                score=4
+            
         comparison_count = entry.get("comparison_count", 0)
         score_modifier = entry.get("score_modifier", 0)
 

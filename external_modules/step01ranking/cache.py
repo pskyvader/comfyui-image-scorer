@@ -1,5 +1,5 @@
 import sqlite3
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple 
 from time import time
 from shared.paths import cache_file
 
@@ -58,6 +58,39 @@ def _get_meta(key: str) -> str | None:
 # lifecycle / scan flags
 # ───────────────────────────
 
+# 1️⃣ Get total elements per level, grouped by score
+def get_total_per_level(score:int=0)-> Dict[int, Dict[int,int]]:
+    query = "SELECT score, comparison_count, COUNT(*) FROM cache "
+    params = []
+
+    if 1 <= score <= 5:
+        query += "WHERE score = ? "
+        params.append(score)
+    else:
+        query += "WHERE score IS NOT NULL "
+
+    query += "GROUP BY score, comparison_count"
+
+    with _get_conn() as connection:
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+    result = {}
+    for s, lvl, count in rows:
+        if s not in result:
+            result[s] = {}
+        result[s][lvl] = count
+            
+    return result
+
+# 2️⃣ Fetch paths for a specific tier
+def get_images_by_level(score:int, level:int):
+    query = "SELECT path FROM cache WHERE score = ? AND comparison_count = ?"
+    with _get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, [score, level])
+        return [row[0] for row in cursor.fetchall()]
 
 def start_scan() -> None:
     """Mark scanning as started."""

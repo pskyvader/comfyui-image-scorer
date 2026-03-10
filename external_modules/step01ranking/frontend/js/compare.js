@@ -99,12 +99,19 @@ const compareMode = {
         this.container.querySelector("#left_file_id").innerText = this.compareLeftImage;
         this.container.querySelector("#right_file_id").innerText = this.compareRightImage;
 
-        this.container.querySelector("#compare-left-score").innerText = this.compareLeftData.score || "-";
-        this.container.querySelector("#compare-left-count").innerText = this.compareLeftData.comparison_count || 0;
+        this.container.querySelector("#compare-left-score").innerText = this.compareLeftData.score;
+        this.container.querySelector("#compare-left-modifier").innerText = this.compareLeftData.score_modifier;
 
-        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score || "-";
-        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count || 0;
+        this.container.querySelector("#compare-left-count").innerText = this.compareLeftData.comparison_count;
 
+        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score;
+        this.container.querySelector("#compare-right-modifier").innerText = this.compareRightData.score_modifier;
+
+        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count;
+
+
+        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score;
+        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count;
         // Show comparison buttons
         const buttons = this.container.querySelectorAll(".btn-compare");
         buttons.forEach(btn => btn.classList.remove("hidden"));
@@ -135,7 +142,7 @@ const compareMode = {
                     loser_data: loserData,
                 }),
             });
-            
+
             this.loader.querySelector(".loader-text").innerText = "Updating…";
             this.fetchNextComparePair();
 
