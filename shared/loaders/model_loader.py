@@ -66,7 +66,10 @@ class ModelLoader:
         if device != "cuda":
             raise RuntimeError("`clip_device` not set to 'cuda'")
 
-        model = SentenceTransformer(name, device=device)
+        try:
+            model = SentenceTransformer(name, device=device, local_files_only=True)
+        except:
+            model = SentenceTransformer(name, device=device)
 
         self.embedding_model = (model, output_dim)
         return self.embedding_model

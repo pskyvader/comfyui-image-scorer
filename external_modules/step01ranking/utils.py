@@ -4,7 +4,7 @@ from typing import Any, List, Dict
 from flask import send_from_directory, abort
 from urllib.parse import unquote
 from shared.io import load_single_entry_mapping, discover_files, collect_valid_files
-from .cache import add, get, set_absolute_total, get_cached_metadata
+from .cache import add, get_all, set_absolute_total, get_cached_metadata
 from shared.config import PROJECT_ROOT, config
 import random
 
@@ -63,7 +63,7 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     if not all_file_pairs:
         return False
     collected_valid_files = collect_valid_files(
-        all_file_pairs, set(_image_list_cache), root, max_workers=40, scored_only=False
+        all_file_pairs, set(_image_list_cache), root, max_workers=40, scored_only=False,limit=1000
     )
     set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
     if len(collected_valid_files)==0:
@@ -121,7 +121,7 @@ def get_unscored_images(root: str) -> List[str]:
     """
     # global _image_list_cache
 
-    unscored_paths = get(unscored_only=True)
+    unscored_paths = get_all(unscored_only=True)
     root_path = Path(root)
     unscored: List[str] = []
 

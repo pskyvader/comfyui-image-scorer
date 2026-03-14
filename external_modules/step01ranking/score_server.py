@@ -25,8 +25,7 @@ from .utils import (
 from .scores import submit_scores_handler
 from .comparison import (
     get_paired_images,
-    apply_comparison,
-    write_comparison_data,
+    apply_comparison_and_write
 )
 from .cache import (
     get_absolute_total,
@@ -47,10 +46,6 @@ def background_scan(batch_size: int = 1000):
     Continuously scan images in batches until all are processed.
     Updates the cache and ensures valid/unscored counts are accurate.
     """
-    # if is_finished():
-    #     print("scanning stopped recently, delaying...")
-    #     sleep(5)
-    # start_scan()
     retries = 0
 
     root = image_root()
@@ -74,7 +69,6 @@ def background_scan(batch_size: int = 1000):
         else:
             retries = 0
             sleep(0.5)  # small delay for incremental updates
-    # finish_scan()
 
 
 def trigger_scan():
@@ -220,7 +214,7 @@ def compare_next():
     if score is None:
         score = 0  # 0 means any score
 
-    pair_data = get_paired_images(score, safety_limit=20)
+    pair_data = get_paired_images(score, safety_limit=20, tolerance=0.1)
 
     if not pair_data:
         return (
@@ -290,22 +284,21 @@ def compare_submit():
     root_path = Path(root)
 
     try:
-        winner_abs = str(root_path / winner_rel)
-        loser_abs = str(root_path / loser_rel)
+        winner_path = str(root_path / winner_rel)
+        loser_path = str(root_path / loser_rel)
     except Exception as e:
         return jsonify({"ok": False, "error": f"Path error: {str(e)}"}), 400
 
     # Apply comparison logic
     try:
-        winner_data, loser_data = apply_comparison(winner_data, loser_data)
-
-        # Write updated data
-        success, err = write_comparison_data(
-            winner_abs, loser_abs, winner_data, loser_data
+        winner_data, loser_data, success, err = apply_comparison_and_write(
+            winner_data, winner_path, loser_data, loser_path
         )
-
         if not success:
-            return jsonify({"ok": False, "error": err}), 500
+            return (
+                jsonify({"ok": False, "error": f"Error updating comparison: {err}"}),
+                500,
+            )
 
         return jsonify(
             {

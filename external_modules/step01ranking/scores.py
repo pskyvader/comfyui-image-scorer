@@ -70,7 +70,6 @@ def submit_scores_handler(data: Any):
 
         # Ensure image is in cache with score, then mark as scored
         add(img_abs, score=score)  # Add to cache with score
-        # update_cached_metadata(img_abs, score=score)  # Cache the score in database
 
         if ok:
             result["ok"].append(img_rel)

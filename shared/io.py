@@ -187,27 +187,16 @@ def load_json(
     return data, None
 
 
-def atomic_write_json(path: str, data: Any, *, indent: int | None) -> None:
-    print(f"Writing data to {path}...")
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = f"{path}.tmp"
-    print(f"Using temporary file {tmp_path} for atomic write...")
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=indent)
-            fh.flush()
-            try:
-                os.fsync(fh.fileno())
-            except Exception:
-                pass
-        print(f"Replacing {tmp_path} with {path}...")
-        os.replace(tmp_path, path)
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+def atomic_write_json(path: str, data: Any, *, indent: Optional[int] = None) -> None:
+    p: Path = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp: Path = p.with_suffix(p.suffix + ".tmp")
+
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=indent)
+
+    os.replace(tmp, p)
 
 
 def load_single_entry_mapping(
