@@ -195,20 +195,20 @@ def _set_last_compared(data: DataDict, last_compared: str) -> None:
     return None
 
 
-def _get_last_compared(path: str, data: DataDict) -> Tuple[DataDict, str] | None:
-    metadata = get_cached_metadata(path)
-    if not metadata or not isinstance(metadata["last_compared"], str):
-        print(f"No last compared data found for {path}")
-        return None
-    last_compared_path = metadata["last_compared"]
-    last_compared = get_cached_metadata(last_compared_path)
-    if not last_compared or not last_compared["score"]:
-        print(f"No last compared data found for {path}")
-        return None
-    if int(last_compared["score"]) != int(data["score"]):
-        print(f"No last compared data found for {path}")
-        return None
-    return last_compared, last_compared_path
+# def _get_last_compared(path: str, data: DataDict) -> Tuple[DataDict, str] | None:
+#     metadata = get_cached_metadata(path)
+#     if not metadata or not isinstance(metadata["last_compared"], str):
+#         print(f"No last compared data found for {path}")
+#         return None
+#     last_compared_path = metadata["last_compared"]
+#     last_compared = get_cached_metadata(last_compared_path)
+#     if not last_compared or not last_compared["score"]:
+#         print(f"No last compared data found for {path}")
+#         return None
+#     if int(last_compared["score"]) != int(data["score"]):
+#         print(f"No last compared data found for {path}")
+#         return None
+#     return last_compared, last_compared_path
 
 
 def apply_comparison_and_write(
@@ -223,16 +223,16 @@ def apply_comparison_and_write(
     """
     # 1️⃣ Compute the random delta
     score_scale: float = 1 + 0.3 + random.random() * 0.2
-    last_compared_winner = _get_last_compared(winner_path, winner_data)
-    last_compared_loser = _get_last_compared(loser_path, loser_data)
+    # last_compared_winner = _get_last_compared(winner_path, winner_data)
+    # last_compared_loser = _get_last_compared(loser_path, loser_data)
 
     # 2️⃣ Apply modifiers
     _apply_modifier(winner_data, score_scale)
     _apply_modifier(loser_data, -score_scale)
-    if last_compared_winner:
-        last_compared_winner[0]["score_modifier"] += score_scale / 2
-    if last_compared_loser:
-        last_compared_loser[0]["score_modifier"] += score_scale / 2
+    # if last_compared_winner:
+    #     last_compared_winner[0]["score_modifier"] += score_scale / 2
+    # if last_compared_loser:
+    #     last_compared_loser[0]["score_modifier"] += score_scale / 2
 
     # 3️⃣ Handle extreme score boundaries
     _apply_extreme_cases(winner_data, loser_data)
@@ -241,13 +241,13 @@ def apply_comparison_and_write(
     _apply_threshold(winner_data)
     _apply_threshold(loser_data)
 
-    if last_compared_winner:
-        _apply_threshold(last_compared_winner[0])
-    if last_compared_loser:
-        _apply_threshold(last_compared_loser[0])
+    # if last_compared_winner:
+    #     _apply_threshold(last_compared_winner[0])
+    # if last_compared_loser:
+    #     _apply_threshold(last_compared_loser[0])
 
-    _set_last_compared(winner_data, loser_path)
-    _set_last_compared(loser_data, winner_path)
+    # _set_last_compared(winner_data, loser_path)
+    # _set_last_compared(loser_data, winner_path)
 
     # 5️⃣ Write updated data
     winner_success: bool
@@ -263,10 +263,10 @@ def apply_comparison_and_write(
     if not loser_success:
         return winner_data, loser_data, False, f"Loser write failed: {loser_err}"
 
-    if last_compared_winner:
-        _apply_threshold(last_compared_winner[0])
-        _, _ = write_comparison_data(last_compared_winner[1], last_compared_winner[0])
-    if last_compared_loser:
-        _, _ = write_comparison_data(last_compared_loser[1], last_compared_loser[0])
+    # if last_compared_winner:
+    #     _apply_threshold(last_compared_winner[0])
+    #     _, _ = write_comparison_data(last_compared_winner[1], last_compared_winner[0])
+    # if last_compared_loser:
+    #     _, _ = write_comparison_data(last_compared_loser[1], last_compared_loser[0])
 
     return winner_data, loser_data, True, None

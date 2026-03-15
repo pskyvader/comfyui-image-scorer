@@ -24,7 +24,7 @@ print("Loading helpers...")
 from shared.helpers import remove_models, remove_vectors
 
 
-def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
+def run_prepare( limit: int = 0) -> Dict[str, int]:
     print("Loading vectors...")
     from shared.vectors.vectors import VectorList
     from shared.image_analysis import ImageAnalysis
@@ -33,9 +33,7 @@ def run_prepare(rebuild: bool = False, limit: int = 0) -> Dict[str, int]:
     )
     print("Starting image processing...")
 
-    if rebuild:
-        print("Rebuild requested: removing existing outputs...")
-        remove_vectors()
+    
 
     image_root = config["image_root"]
     if not os.path.isdir(image_root):
@@ -197,6 +195,10 @@ def main(
         print(f"Scores file: {config['scores_file']}")
         print("Test-run finished (no side-effects).")
         return
+    
+    if rebuild:
+        print("Rebuild requested: removing existing outputs...")
+        remove_vectors()
     if rebuild_scores:
         print("Rebuilding scores file only...")
         run_rebuild_scores_only()
@@ -208,10 +210,11 @@ def main(
         while new > 0:
             print(f"step: {i}")
             print("-" * 100)
-            summary = run_prepare(rebuild=rebuild, limit=limit)
+            summary = run_prepare(limit=limit)
             new = int(summary["new"])
+            i+=1
     else:
-        run_prepare(rebuild=rebuild, limit=limit)
+        run_prepare(limit=limit)
 
 
 if __name__ == "__main__":

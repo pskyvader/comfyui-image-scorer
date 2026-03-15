@@ -1,5 +1,8 @@
 from typing import List, Dict, Any, Tuple
 import numpy as np
+import numpy.typing as npt
+from tqdm import tqdm
+
 from ..config import config
 from .image_vector import ImageVector
 from .map_vector import MapVector
@@ -137,9 +140,9 @@ class VectorList:
 
     def validate_and_convert(
         self, data: List[List[str]], name: str, target_size: int
-    ) -> np.ndarray:
+    ) ->npt.NDArray[np.float32]:
         try:
-            return np.array(data, dtype=float)
+            return np.array(data, dtype=np.float32)
         except ValueError:
             arr_safe = np.array(data, dtype=object)
             lengths = np.vectorize(len)(arr_safe)
@@ -152,15 +155,23 @@ class VectorList:
             )
 
     def join_vectors(self) -> List[List[float]]:
-        clean_arrays: list[np.ndarray] = []
-        for v in self.sorted_vectors:
-            c = self.sorted_vectors[v]
-            current_vector = c["vector"]
-            converted_vector = self.validate_and_convert(
-                current_vector.vector_list, c["name"], c["slot_size"]
-            )
-            clean_arrays.append(converted_vector)
+        clean_arrays: list[npt.NDArray[np.float32]] = []
+        with tqdm(
+                total=len(self.sorted_vectors),
+                desc="joining vectors",
+                unit="vectors",
+                position=1,
+            ) as pbar:
+            for v in self.sorted_vectors:
+                c = self.sorted_vectors[v]
+                current_vector = c["vector"]
+                converted_vector = self.validate_and_convert(
+                    current_vector.vector_list, c["name"], c["slot_size"]
+                )
+                clean_arrays.append(converted_vector)
+                pbar.update(1)
 
+        print("assembling vectors...")
         self.final_vector = np.column_stack(clean_arrays).tolist()
         self._update_lists()
         return self.final_vector
@@ -248,6 +259,6 @@ class VectorList:
         indices = np.cumsum(sizes)[:-1]
         segments = np.split(matrix, indices, axis=1)
 
-        for (v, config), segment in zip(self.sorted_vectors.items(), segments):
+        for (v, _), segment in zip(self.sorted_vectors.items(), segments):
             converted_vector = segment.tolist()
             self.sorted_vectors[v]["vector"].vector_list = converted_vector

@@ -46,8 +46,15 @@ class ImageAnalysis(ImageVector):
         yb = 0.5 * (R + G) - B
         self.max_colorfulness = np.sqrt(rg**2 + yb**2) + 0.3 * np.sqrt(rg**2 + yb**2)
 
-    def _image_size(self, image: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _image_size(
+        self, image: Image.Image, entry: Dict[str, Any], data: Any
+    ) -> Dict[str, Any]:
         w, h = image.size
+        if h < 128 or w < 128:
+            raise ValueError(
+                f"{image} is too small to be an image path: {data[0]}"
+            )
+
         entry["final_width"] = w
         entry["final_height"] = h
         entry["final_aspect_ratio"] = round(w / h, 4) if h > 0 else 0.0
@@ -249,7 +256,7 @@ class ImageAnalysis(ImageVector):
             current_entry = self._artifact_score(current_image, current_entry)
             current_entry = self._colorfulness(current_image, current_entry)
             current_entry = self._contrast(current_image, current_entry)
-            current_entry = self._image_size(current_image, current_entry)
+            current_entry = self._image_size(current_image, current_entry, current_data)
             current_entry = self._noise_score(current_image, current_entry)
             current_entry = self._sharpness(current_image, current_entry)
             current_entry = self._edge_density(current_image, current_entry)
@@ -267,7 +274,7 @@ class ImageAnalysis(ImageVector):
     def analyze_images_from_paths(
         self,
         batch_size: int = 32,
-        max_workers: int=64,
+        max_workers: int = 64,
     ) -> List[Tuple[str, Dict[str, Any], str, str]]:
         total: int = len(self.path_list)
 

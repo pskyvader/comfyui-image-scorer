@@ -19,6 +19,12 @@
             "slot_size": 1
         },
         {
+            "name": "clip_skip",
+            "type": "int",
+            "max_normalization": null,
+            "slot_size": 1
+        },
+        {
             "name": "original_width",
             "type": "int",
             "max_normalization": 4096,

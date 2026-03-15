@@ -214,7 +214,7 @@ def compare_next():
     if score is None:
         score = 0  # 0 means any score
 
-    pair_data = get_paired_images(score, safety_limit=20, tolerance=0.1)
+    pair_data = get_paired_images(score, safety_limit=30, tolerance=0.2)
 
     if not pair_data:
         return (
