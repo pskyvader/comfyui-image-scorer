@@ -57,6 +57,9 @@ def scan_batch(root: str, limit: int = 100) -> bool:
         True if any new unscored files were found
     """
     global _image_list_cache
+    if len(_image_list_cache)==0:
+        _image_list_cache=get_all(False)
+        
 
     # Get all image-json file pairs from root
     all_file_pairs = list(discover_files(root))
@@ -75,7 +78,7 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     processed_count = 0
 
     for img_path, entry, _, file_id in collected_valid_files:
-        _image_list_cache.append(file_id)
+        _image_list_cache.append(img_path)
         # Get score if available
         score = entry.get("score")
         if score is not None:

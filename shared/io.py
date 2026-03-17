@@ -62,8 +62,9 @@ def collect_single_file(
     img_path, meta_path = file
 
     file_id = os.path.relpath(img_path, root).replace("\\", "/")
-    if file_id in processed_files:
+    if file_id in processed_files or img_path in processed_files:
         return None
+
     entry, err = load_json(meta_path, expect=dict, default=None)
     if err:
         raise FileNotFoundError(f"Error while loading {file_id}: {err}")
@@ -73,6 +74,13 @@ def collect_single_file(
     timestamp = next(iter(entry.keys()))
 
     entry = entry[timestamp] if timestamp in entry else entry
+
+    # temppral fox
+    if "comparison_count" in entry and entry["comparison_count"] > 5:
+        if not "volatility" in entry:
+            entry["volatility"] = 0
+            entry["comparison_count"] = 5
+    # temporal fix
 
     return (img_path, entry, timestamp, file_id)
 
@@ -140,11 +148,11 @@ def collect_valid_files(
 T = TypeVar("T")
 
 
-def _recursive_parse_json(obj: Any) -> Any:
+def _recursive_parse_json(obj: Any, path: Optional[str] = None) -> Any:
     if isinstance(obj, dict):
-        return {k: _recursive_parse_json(v) for k, v in obj.items()}
+        return {k: _recursive_parse_json(v, path) for k, v in obj.items()}
     elif isinstance(obj, list):
-        return [_recursive_parse_json(v) for v in obj]
+        return [_recursive_parse_json(v, path) for v in obj]
     elif isinstance(obj, str):
         s = obj.strip()
         if (s.startswith("{") and s.endswith("}")) or (
@@ -159,10 +167,12 @@ def _recursive_parse_json(obj: Any) -> Any:
                 try:
                     parsed = ast.literal_eval(obj)
                 except Exception as e:
-                    raise Warning(f"parse python dictionary failed for {obj} . {e}")
+                    raise Warning(
+                        f"parse python dictionary failed for {path} with data: {obj} . {e}"
+                    )
 
             if isinstance(parsed, (dict, list)):
-                return _recursive_parse_json(parsed)
+                return _recursive_parse_json(parsed, path)
 
     return obj
 
@@ -180,7 +190,7 @@ def load_json(
 
     with path_obj.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
-        data = _recursive_parse_json(data)
+        data = _recursive_parse_json(data, path_obj)
 
     if expect is not None and not isinstance(data, expect):
         return default, "invalid_type"

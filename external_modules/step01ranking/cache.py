@@ -22,8 +22,8 @@ def init_db():
                 path TEXT PRIMARY KEY,
                 score INTEGER DEFAULT NULL,
                 comparison_count INTEGER DEFAULT 0,
-                score_modifier INTEGER DEFAULT 0,
-                last_compared TEXT DEFAULT NULL
+                score_modifier FLOAT DEFAULT 0,
+                volatility FLOAT DEFAULT 0
             )
             """
         )
@@ -78,7 +78,7 @@ def get_total_per_level(score: int = 0) -> Dict[int, Dict[int, int]]:
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-    result = {}
+    result: Dict[int, Dict[int, int]] = {}
     for s, lvl, count in rows:
         if s not in result:
             result[s] = {}
@@ -104,13 +104,13 @@ def add(
     score: int | None = None,
     comparison_count: int = 0,
     score_modifier: int = 0,
-    last_compared: str | None = None,
+    volatility:int=0,
 ) -> None:
     """Add image path to cache with optional scoring metadata."""
     with _get_conn() as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO cache(path, score, comparison_count, score_modifier,last_compared) VALUES (?, ?, ?, ?,?)",
-            (path, score, comparison_count, score_modifier, last_compared),
+            "INSERT OR REPLACE INTO cache(path, score, comparison_count, score_modifier,volatility) VALUES (?, ?, ?, ?,?)",
+            (path, score, comparison_count, score_modifier, volatility),
         )
         conn.commit()
 
@@ -165,7 +165,7 @@ def get_cached_metadata(path: str) -> Optional[Dict[str, int | float | str | Non
     """Get cached score/comparison_count/score_modifier from database."""
     with _get_conn() as conn:
         row = conn.execute(
-            "SELECT score, comparison_count, score_modifier, last_compared FROM cache WHERE path=?",
+            "SELECT score, comparison_count, score_modifier, volatility FROM cache WHERE path=?",
             (path,),
         ).fetchone()
         if row:
@@ -173,7 +173,7 @@ def get_cached_metadata(path: str) -> Optional[Dict[str, int | float | str | Non
                 "score": int(row["score"]) if row["score"] else None,
                 "comparison_count": int(row["comparison_count"]),
                 "score_modifier": float(row["score_modifier"]),
-                "last_compared": str(row["last_compared"]),
+                "volatility": float(row["volatility"]),
             }
         return None
 

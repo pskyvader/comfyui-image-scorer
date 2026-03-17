@@ -23,10 +23,7 @@ from .utils import (
 )
 
 from .scores import submit_scores_handler
-from .comparison import (
-    get_paired_images,
-    apply_comparison_and_write
-)
+from .comparison import get_paired_images, apply_comparison_and_write
 from .cache import (
     get_absolute_total,
     total_cached,
@@ -237,15 +234,17 @@ def compare_next():
         {
             "left": {
                 "image": rel_path1,
-                "score": img1_data.get("score", 3),
-                "comparison_count": img1_data.get("comparison_count", 0),
-                "score_modifier": img1_data.get("score_modifier", 0),
+                "score": img1_data["score"],
+                "comparison_count": img1_data["comparison_count"],
+                "score_modifier": img1_data["score_modifier"],
+                "volatility": img1_data["volatility"],
             },
             "right": {
                 "image": rel_path2,
-                "score": img2_data.get("score", 3),
-                "comparison_count": img2_data.get("comparison_count", 0),
-                "score_modifier": img2_data.get("score_modifier", 0),
+                "score": img2_data["score"],
+                "comparison_count": img2_data["comparison_count"],
+                "score_modifier": img2_data["score_modifier"],
+                "volatility": img2_data["volatility"],
             },
         }
     )

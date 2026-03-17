@@ -141,6 +141,8 @@ class ImageVector:
 
         Uses the device specified in your vision model config.
         """
+        # only use dedicated memory
+        torch.cuda.set_per_process_memory_fraction(0.99, 0)
         width_str = str(width)
         height_str = str(height)
         vector_width: Dict[str, int] = {}

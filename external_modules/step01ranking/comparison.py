@@ -8,6 +8,7 @@ adjusted by ±1 and the modifier resets. This allows fine-tuning of scores.
 
 from typing import Tuple, Dict, Any, Optional, List
 import random
+import math
 from .utils import load_metadata, get_json_path
 from shared.io import atomic_write_json
 from .cache import add, get_total_per_level, get_images_by_level, get_cached_metadata
@@ -65,12 +66,18 @@ Meta = Dict[str, Any]
 SeenItem = Tuple[str, Meta, float]
 Pair = Tuple[str, str, Meta, Meta]
 
+_cached_pairs: List[str] = []
+
 
 def get_paired_images(
     score: int = 0,
     safety_limit: int = 20,
     tolerance: float = 0.001,
 ) -> Optional[Pair]:
+    global _cached_pairs
+    if len(_cached_pairs) > safety_limit:
+        # remove oldest added elements
+        _cached_pairs = _cached_pairs[-int(safety_limit / 2) :]
 
     chosen_score: int
     chosen_level: int
@@ -99,6 +106,8 @@ def get_paired_images(
     diff: float
 
     for path in sampled_paths:
+        if path in _cached_pairs:
+            continue
 
         meta = get_cached_metadata(path)
         if meta is None:
@@ -109,17 +118,19 @@ def get_paired_images(
         except (KeyError, ValueError, TypeError):
             continue
 
-        for p2, m2, mod2 in seen:
+        for path2, meta2, mod2 in seen:
 
             diff = abs(mod - mod2)
 
             if diff <= tolerance:
                 # Immediate success
-                return path, p2, meta, m2
+                _cached_pairs.append(path)
+                _cached_pairs.append(path2)
+                return path, path2, meta, meta2
 
             if diff < smallest_diff:
                 smallest_diff = diff
-                best_pair = (path, p2, meta, m2)
+                best_pair = (path, path2, meta, meta2)
 
         seen.append((path, meta, mod))
 
@@ -152,12 +163,13 @@ def _apply_threshold(data: DataDict, threshold: float = 5.5) -> None:
     mod: float = data["score_modifier"]
     if mod > threshold:
         data["score"] += 1
-        data["score_modifier"] = 0
-        data["comparison_count"] = 0
+
     elif mod < -threshold:
         data["score"] -= 1
+    if mod > threshold or mod < -threshold:
         data["score_modifier"] = 0
         data["comparison_count"] = 0
+        data["volatility"] = 0
 
 
 def write_comparison_data(
@@ -184,15 +196,35 @@ def write_comparison_data(
         score=meta[ts]["score"],
         comparison_count=meta[ts]["comparison_count"],
         score_modifier=meta[ts]["score_modifier"],
-        last_compared=meta[ts]["last_compared"],
+        volatility=meta[ts]["volatility"],
     )
 
     return True, None
 
 
-def _set_last_compared(data: DataDict, last_compared: str) -> None:
-    data["last_compared"] = last_compared
-    return None
+def _set_volatility(data: DataDict, delta: float) -> None:
+    ALPHA_MOMENTUM: float = 0.30
+    ALPHA_RESISTANCE: float = 0.13
+    STABILITY_THRESHOLD: float = 0.5
+
+    is_at_max = data["score"] == 5 and data["score_modifier"] >= 0
+    is_at_min = data["score"] == 1 and data["score_modifier"] <= 0
+    if data["comparison_count"] > 5 and (
+        (is_at_max and delta == 1 and data["volatility"] > 0)
+        or (is_at_min and delta == -1 and data["volatility"] < 0)
+    ):
+        delta = -delta
+    alpha = ALPHA_MOMENTUM if (delta * data["volatility"] >= 0) else ALPHA_RESISTANCE
+    data["volatility"] = (data["volatility"] * (1 - alpha)) + (delta * alpha)
+    if data["comparison_count"] > 7 and abs(data["volatility"]) > STABILITY_THRESHOLD:
+        data["comparison_count"] =0
+
+    data["volatility"] = max(-1.0, min(1.0, data["volatility"]))
+
+
+# def _set_last_compared(data: DataDict, last_compared: str) -> None:
+#     data["last_compared"] = last_compared
+#     return None
 
 
 # def _get_last_compared(path: str, data: DataDict) -> Tuple[DataDict, str] | None:
@@ -221,8 +253,11 @@ def apply_comparison_and_write(
     Apply comparison, update score_modifiers, handle thresholds,
     and write both winner and loser to storage.
     """
+
     # 1️⃣ Compute the random delta
-    score_scale: float = 1 + 0.3 + random.random() * 0.2
+    score_scale = 0.5 + (2 * math.exp(-0.3 * winner_data["comparison_count"]))
+
+    # score_scale: float = 1 + 0.3 + random.random() * 0.2
     # last_compared_winner = _get_last_compared(winner_path, winner_data)
     # last_compared_loser = _get_last_compared(loser_path, loser_data)
 
@@ -240,6 +275,10 @@ def apply_comparison_and_write(
     # 4️⃣ Apply thresholds
     _apply_threshold(winner_data)
     _apply_threshold(loser_data)
+    _set_volatility(winner_data, 1)
+    _set_volatility(loser_data, -1)
+
+    # print(f"volatility, winner: {winner_data['volatility']}, loser:{loser_data['volatility']}")
 
     # if last_compared_winner:
     #     _apply_threshold(last_compared_winner[0])
