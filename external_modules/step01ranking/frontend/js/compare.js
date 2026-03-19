@@ -130,6 +130,7 @@ const compareMode = {
         const loserData = winner === "left" ? this.compareRightData : this.compareLeftData;
 
         try {
+            this.fetchNextComparePair();
             const res = await fetch("/compare/submit", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -142,7 +143,6 @@ const compareMode = {
             });
 
             this.loader.querySelector(".loader-text").innerText = "Updating…";
-            this.fetchNextComparePair();
 
             const result = await res.json();
             if (!result.ok) {
