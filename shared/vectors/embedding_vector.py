@@ -1,23 +1,25 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import numpy as np
 from tqdm import tqdm
 from .helpers import get_value_from_entry, l2_normalize_batch
 from ..loaders.model_loader import model_loader
-
+from ..vectors.terms import extract_terms
 
 class EmbeddingVector:
     def __init__(self, name: str) -> None:
         self.name = name
         self.value_list: List[str] = []
         self.vector_list: List[List[float]] = []
+        self.text_list=[]
 
-    def parse_value_list(self, entries: List[Dict[str, Any]]) -> List[str]:
+    def parse_value_list(self, entries: List[Dict[str, Any]],alias:List[str]|None=None) -> List[str]:
         for entry in entries:
             # for entry_date in entry.values():
-            current_value = get_value_from_entry(entry, self.name)
+            current_value = get_value_from_entry(entry, self.name,alias)
             if not current_value:
                 current_value = ""
             self.value_list.append(current_value)
+        
         return self.value_list
 
     def create_vector_batch(self, current_batch: List[str]) -> List[List[float]]:
@@ -52,3 +54,19 @@ class EmbeddingVector:
                 pbar.update(len(current_batch))
 
         return self.vector_list
+    
+    def create_text_batch(self, batch:List[str])->List[List[Tuple[str, float]]]:
+        text_list:List[List[Tuple[str, float]]]=[]
+        for text in batch:
+            text_list.append(extract_terms(text))
+        return text_list
+    
+    def create_text_list(self, batch_size: int = 4) -> List[List[Tuple[str, float]]]:
+        total = len(self.value_list)
+        with tqdm(total=total, desc="Mapped", unit=" " + self.name) as pbar:
+            for i in range(0, total, batch_size):
+                current_batch = self.value_list[i : i + batch_size]
+                batch_text = self.create_text_batch(current_batch)
+                self.text_list.extend(batch_text)
+                pbar.update(len(current_batch))
+        return self.text_list

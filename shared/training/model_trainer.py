@@ -201,7 +201,7 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
         # candidates = {float(higher), float(v), float(lower)}
         candidates = {float(higher), float(lower)}
 
-    result = sorted(list(candidates), reverse=True)
+    result = sorted(list(candidates), reverse=False)
     # Final check
     result = [x for x in result if vmin <= x <= vmax]
 

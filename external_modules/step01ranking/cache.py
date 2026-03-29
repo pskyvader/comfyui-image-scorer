@@ -1,5 +1,4 @@
 import sqlite3
-from typing import List, Dict, Any, Optional, Tuple
 from time import time
 from shared.paths import cache_file
 
@@ -7,7 +6,7 @@ from shared.paths import cache_file
 # ───────────────────────────
 # SQLite helpers
 # ───────────────────────────
-def _get_conn():
+def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(cache_file)
     conn.row_factory = sqlite3.Row
     return conn
@@ -61,9 +60,9 @@ def _get_meta(key: str) -> str | None:
 
 
 # 1️⃣ Get total elements per level, grouped by score
-def get_total_per_level(score: int = 0) -> Dict[int, Dict[int, int]]:
+def get_total_per_level(score: int = 0) -> dict[int, dict[int, int]]:
     query = "SELECT score, comparison_count, COUNT(*) FROM cache "
-    params = []
+    params: list[int] = []
 
     if 1 <= score <= 5:
         query += "WHERE score = ? "
@@ -78,7 +77,7 @@ def get_total_per_level(score: int = 0) -> Dict[int, Dict[int, int]]:
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-    result: Dict[int, Dict[int, int]] = {}
+    result: dict[int, dict[int, int]] = {}
     for s, lvl, count in rows:
         if s not in result:
             result[s] = {}
@@ -96,6 +95,104 @@ def get_images_by_level(score: int, level: int):
         return [row[0] for row in cursor.fetchall()]
 
 
+Meta = dict[str, int | float | str]
+Pair = tuple[str, str, Meta, Meta]
+
+
+def get_image_pair(
+    max_comparison_count: int = 10,
+    tolerance: float = 1.0,
+    min_tolerance:float=0,
+    score: int = 0,
+    safety_limit: int = 20,
+    _cached_pairs: list[str] = [],
+) -> Pair | None:
+    base_filter = "FROM cache WHERE comparison_count < ?"
+    excluded_paths: tuple[str, ...] = tuple(_cached_pairs)
+    exclusion_clause: str = (
+        f" AND path NOT IN ({','.join(['?'] * len(excluded_paths))})"
+        if excluded_paths
+        else ""
+    )
+
+    with _get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Safety check
+        totals: dict[int, dict[int, int]] = get_total_per_level(score)
+        print(f"Score groups: {totals}")
+        
+        if score > 0:
+            score_levels: dict[int, int] = totals.get(score, {})
+            available_count = sum(
+                count
+                for lvl, count in score_levels.items()
+                if lvl < max_comparison_count
+            )
+        else:
+            available_count = sum(
+                count
+                for score_levels in totals.values()
+                for lvl, count in score_levels.items()
+                if lvl < max_comparison_count
+            )
+
+        if available_count < safety_limit:
+            return None
+
+        if score > 0:
+            query_first = f"{base_filter} AND score = ?{exclusion_clause}"
+            params_first = [max_comparison_count, score, *excluded_paths]
+        else:
+            query_first = f"{base_filter} AND score IS NOT NULL{exclusion_clause}"
+            params_first = [max_comparison_count, *excluded_paths]
+
+        first_row = conn.execute(
+            f"SELECT * {query_first} ORDER BY RANDOM() LIMIT 1", params_first
+        ).fetchone()
+
+        if not first_row:
+            return None
+
+        first_image: Meta = dict(first_row)
+        first_effective_score: float = (
+            float(first_image["score"]) + float(first_image["score_modifier"]) / 10.0
+        )
+        
+        #print(f"excluded paths:{excluded_paths}")
+
+        # Pick second image directly in SQL
+        second_row: Meta = conn.execute(
+            f"""
+            SELECT * {base_filter}
+            AND score IS NOT NULL
+            AND path != ?
+            AND ABS((score + score_modifier / 10.0) - ?) BETWEEN ? AND ?
+            {exclusion_clause}
+            ORDER BY RANDOM()
+            LIMIT 1
+            """,
+            (
+                max_comparison_count,
+                first_image["path"],
+                first_effective_score,
+                min_tolerance,
+                tolerance,
+                *excluded_paths,
+            ),
+        ).fetchone()
+
+        if not second_row:
+            return None
+
+        return (
+            str(first_image["path"]),
+            str(second_row["path"]),
+            first_image,
+            dict(second_row),
+        )
+
+
 # ───────────────────────────
 # cache operations
 # ───────────────────────────
@@ -104,7 +201,7 @@ def add(
     score: int | None = None,
     comparison_count: int = 0,
     score_modifier: int = 0,
-    volatility:int=0,
+    volatility: int = 0,
 ) -> None:
     """Add image path to cache with optional scoring metadata."""
     with _get_conn() as conn:
@@ -115,7 +212,7 @@ def add(
         conn.commit()
 
 
-def get_all(unscored_only: bool = True) -> List[str]:
+def get_all(unscored_only: bool = True) -> list[str]:
     """Return cached image paths."""
     global _last_served
     _last_served = time()
@@ -136,7 +233,7 @@ def total_cached_unscored() -> int:
         return row["cnt"]
 
 
-def get_comparison_stats() -> Dict[str, int]:
+def get_comparison_stats() -> dict[str, int]:
     """Get stats for comparison mode."""
     with _get_conn() as conn:
         scored = conn.execute(
@@ -161,7 +258,7 @@ def get_comparison_stats() -> Dict[str, int]:
         }
 
 
-def get_cached_metadata(path: str) -> Optional[Dict[str, int | float | str | None]]:
+def get_cached_metadata(path: str) -> dict[str, int | float | str | None] | None:
     """Get cached score/comparison_count/score_modifier from database."""
     with _get_conn() as conn:
         row = conn.execute(

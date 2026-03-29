@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import typing as npt
 import lightgbm as lgb
 from tqdm import tqdm
 import gc
@@ -18,8 +19,8 @@ class DataTransformer:
         pass
 
     def filter_unused_features(
-        self, x: np.ndarray, y: np.ndarray, steps: int, verbose: bool = True
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, x: npt.NDArray[np.float32], y: npt.NDArray[np.float32], steps: int, verbose: bool = True
+    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         """
         Trains a fast LightGBM model to identify and remove features with zero importance
         and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
@@ -104,14 +105,14 @@ class DataTransformer:
 
     def calculate_interaction_batch(
         self,
-        X_batch: np.ndarray,
-        y_batch: np.ndarray,
+        X_batch: npt.NDArray[np.float32],
+        y_batch: npt.NDArray[np.float32],
         n_features_in: int,
         accumulators: Dict[str, Any],
     ) -> Dict[str, Any]:
 
         # Generate Poly
-        X_poly_full: np.ndarray = self.poly.fit_transform(X_batch)
+        X_poly_full: npt.NDArray[np.float32] = self.poly.fit_transform(X_batch)
         # Extract only interactions
         X_inter_batch = X_poly_full[:, n_features_in:]
 
@@ -130,7 +131,7 @@ class DataTransformer:
 
     def compute_correlations(
         self, k: int, accumulators: Dict[str, Any], n_samples: int, dtype
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         n = accumulators["n"]
         # Compute Correlations (Pearson)
         numerator = (n * accumulators["sum_xy"]) - (
@@ -154,8 +155,8 @@ class DataTransformer:
         return X_interactions, top_k_indices_local
 
     def build_interaction_batch(
-        self, X_batch: np.ndarray, top_k_indices_local: np.ndarray, n_features_in: int
-    ) -> np.ndarray:
+        self, X_batch: npt.NDArray[np.float32], top_k_indices_local: npt.NDArray[np.float32], n_features_in: int
+    ) -> npt.NDArray[np.float32]:
         X_poly_full = self.poly.fit_transform(X_batch)
         current_interactions = X_poly_full[:, n_features_in:][:, top_k_indices_local]
         del X_poly_full
@@ -164,10 +165,10 @@ class DataTransformer:
 
     def add_interaction_features(
         self,
-        x: np.ndarray,
-        y: np.ndarray,
+        x: npt.NDArray[np.float32],
+        y: npt.NDArray[np.float32],
         target_k: int = 500,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         """
         Generates and selects top K interaction features (x*y) using batched processing
         to avoid OOM. Concatenates them to X.
@@ -193,7 +194,7 @@ class DataTransformer:
             return x, np.array([])
 
         # Batch Size Calculation (Target 1GB)
-        BATCH_MEMORY_TARGET = 1 * 1024**3
+        BATCH_MEMORY_TARGET = 8 * 1024**3
         # Approx full poly width for memory calc
         n_features_total = n_features_in + n_interactions
         bytes_per_row = n_features_total * 8
@@ -262,7 +263,7 @@ class DataTransformer:
 
         return interaction_data
 
-    def apply_feature_filter(self, vecs: List[np.ndarray]) -> List[np.ndarray]:
+    def apply_feature_filter(self, vecs: List[npt.NDArray[np.float32]]) -> List[npt.NDArray[np.float32]]:
         """
         Applies the feature filter (kept_indices) from filtered_data_cache.npz to the input vector.
         model_bin_dir: directory containing filtered_data_cache.npz
@@ -273,13 +274,13 @@ class DataTransformer:
             raise FileNotFoundError("Training data not found, must generate first")
 
         _, kept_indices = filtered_data_cached
-        results: List[np.ndarray] = []
+        results: List[npt.NDArray[np.float32]] = []
         for vec in vecs:
             filtered_vector = vec[kept_indices]
             results.append(filtered_vector)
         return results
 
-    def apply_interaction_features(self, vecs: List[np.ndarray]) -> np.ndarray:
+    def apply_interaction_features(self, vecs: List[npt.NDArray[np.float32]]) -> npt.NDArray[np.float32]:
         """
         Applies the interaction features (from interaction_data_cache.npz) to the input vector.
         model_bin_dir: directory containing interaction_data_cache.npz

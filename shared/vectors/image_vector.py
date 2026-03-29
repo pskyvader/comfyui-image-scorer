@@ -1,5 +1,5 @@
 from PIL import Image
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Tuple
 from tqdm import tqdm
 import torch
 from torchvision import transforms
@@ -18,7 +18,7 @@ from ..paths import vectors_size_file
 class ImageVector:
     def __init__(self, name: str) -> None:
         self.name = name
-        # self.image_list: List[Image.Image]
+        self.image_list: List[Image.Image]=[]
         self.path_list: List[str] = []
         self.vector_list: List[List[float]] = []
         self.model: Any = None
@@ -32,6 +32,7 @@ class ImageVector:
                 ),
             ]
         )
+
         try:
             self.vector_sizes, _ = load_json(vectors_size_file, expect=dict, default={})
         except:
@@ -114,10 +115,13 @@ class ImageVector:
         # batch_shape = (batch_size, img_size[0], img_size[1])
 
         model = self.model
-        transform = self._transform
+        transformed_images: List[torch.Tensor] = [
+            self._transform(img) for img in current_batch
+        ]
+        # sprint(f"transformed images[0] type: {type(transformed_images[0])}")
         device = next(model.parameters()).device
 
-        batch_tensor = torch.stack([transform(img) for img in current_batch], dim=0).to(
+        batch_tensor = torch.stack(transformed_images, dim=0).to(
             device, non_blocking=True
         )
 
@@ -133,7 +137,7 @@ class ImageVector:
         normalized = l2_normalize_batch(processed)
         return normalized.tolist()
 
-    def get_batch_size(self, width: int, height: int) -> int:
+    def get_batch_size(self, width: int, height: int, rebuild: bool = False) -> int:
         """
         Estimate realistic peak GPU memory in bytes for a single image.
         Measures the memory used by activations + intermediate buffers,
@@ -143,13 +147,16 @@ class ImageVector:
         """
         # only use dedicated memory
         torch.cuda.set_per_process_memory_fraction(0.99, 0)
+        if self.model is None:
+            self.model, self.vector_length, total_memory = model_loader.load_vision_model()
+
         width_str = str(width)
         height_str = str(height)
         vector_width: Dict[str, int] = {}
         if self.vector_sizes:
             if width_str in self.vector_sizes:
                 vector_width = self.vector_sizes[width_str]
-                if height_str in vector_width:
+                if height_str in vector_width and not rebuild:
                     return vector_width[height_str]
 
         # Get device from config
@@ -160,14 +167,13 @@ class ImageVector:
         # --------------------------
         # Step 1: Measure model-only memory
         # --------------------------
-        props = torch.cuda.get_device_properties(device)
-        total_memory = int(props.total_memory)
+        total_memory = int(torch.cuda.get_device_properties(device).total_memory)
         torch.backends.cudnn.benchmark = True
 
         channels = 3
 
         max_size = 100
-        min_size = 1
+        min_size = 2
         last_size = 0
 
         if vector_width:
@@ -175,9 +181,9 @@ class ImageVector:
             existing_heights = sorted([int(h) for h in vector_width.keys()])
 
             # upper values (larger heights) => smaller batch size (min_size)
-            upper_heights = [h for h in existing_heights if h > height]
-            if upper_heights:
-                min_size = vector_width[str(min(upper_heights))]
+            # upper_heights = [h for h in existing_heights if h > height]
+            # if upper_heights:
+            #     min_size = vector_width[str(min(upper_heights))]
 
             # lower values (smaller heights) => larger batch size (max_size)
             lower_heights = [h for h in existing_heights if h < height]
@@ -196,7 +202,8 @@ class ImageVector:
             last_size = current_size
             print("----")
             print(
-                f"for size ({width},{height}) trying batch size {current_size} (min: {min_size}, max: {max_size})...."
+                f"for size ({width},{height}) trying batch size {current_size} (min: {min_size}, max: {max_size})....",
+                flush=True,
             )
             batch_tensor = torch.zeros(
                 (current_size, channels, height, width), dtype=torch.float32
@@ -206,6 +213,7 @@ class ImageVector:
             # Step 2: Measure memory with dummy image
             # --------------------------
             try:
+
                 with torch.no_grad():
                     _ = self.model(batch_tensor)
             except Exception as e:
@@ -256,7 +264,37 @@ class ImageVector:
         atomic_write_json(vectors_size_file, self.vector_sizes, indent=4)
         return batch_size
 
-    def create_vector_list_from_paths(self) -> List[List[float]]:
+    def create_vector_list(self,
+        memory_usage: float = 0.85,rebuild:bool=False) -> List[List[float]]| None:
+        
+        self.model, self.vector_length, _ = model_loader.load_vision_model()
+        batch_size = self.get_batch_size(
+            self.image_list[0].size[0], self.image_list[0].size[1], rebuild
+        )
+        batch_size = int(batch_size * memory_usage)
+        print(f"batch size: {batch_size} for image size: {self.image_list[0].size}")
+        for i in range(0, len(self.image_list), batch_size):
+            current_batch = self.image_list[i : i + batch_size]
+            try:
+                current_processed_images = self .create_image_vector_batch(
+                    current_batch
+                )
+            except Exception:
+                print("error while encoding images, retrying...")
+                return None
+
+            self.vector_list.extend(current_processed_images)
+        return self.vector_list
+        
+
+
+
+    def create_vector_list_from_paths(
+        self,
+        memory_usage: float = 0.85,
+        rebuild_width: int = -1,
+        rebuild_height: int = -1,
+    ) -> List[List[float]]| Tuple[int,int]:
         """
         Exact-size bucketing with controlled RAM and VRAM usage.
 
@@ -266,18 +304,21 @@ class ImageVector:
         - Order of vectors is preserved.
         """
 
-        model, vector_length, total_memory = model_loader.load_vision_model()
+        self.model, self.vector_length, total_memory = model_loader.load_vision_model()
 
-        self.model = model
-        self.vector_length = vector_length
+        # self.model = model
+        # self.vector_length = vector_length
 
         total = len(self.path_list)
         vectors: List[List[float]] = [[]] * total  # preserve original order
+        if len(self.path_list) == 0:
+            print("empty image list")
+            return self.vector_list
 
         # --------------------------------------------------
         # PASS 1: Build buckets using only metadata
         # --------------------------------------------------
-        buckets = defaultdict(list)
+        buckets: Dict[Tuple[int, int], List[Tuple[int, str]]] = defaultdict(list)
 
         for idx, img_path in enumerate(self.path_list):
             with Image.open(img_path) as img:
@@ -293,6 +334,7 @@ class ImageVector:
 
         print(f"\nTotal buckets: {total_buckets}")
         print(f"\nTotal memory: {total_memory}")
+        print(f"\nTotal: {total}")
 
         # --------------------------------------------------
         # PASS 2: Process each bucket
@@ -315,9 +357,13 @@ class ImageVector:
                     num_items = len(items)
                     # if num_items > max_batch_size:
                     width, height = size
-                    max_batch_size = self.get_batch_size(width, height)
+                    rebuild = False
+                    if rebuild_width == width and rebuild_height == height:
+                        print(f"rebuild triggered by size: {size}")
+                        rebuild = True
+                    max_batch_size = self.get_batch_size(width, height, rebuild)
                     max_batch_size = int(
-                        max_batch_size * 0.85
+                        max_batch_size * memory_usage
                     )  # max memory percentage allowed to use
 
                     if num_items > max_batch_size * 2:
@@ -341,8 +387,23 @@ class ImageVector:
                         # Load & preprocess batch in one call
                         current_batch = self.prepare_image_batch(batch_paths)
 
-                        # Encode batch
-                        batch_vecs = self.create_image_vector_batch(current_batch)
+                        batch_vecs = None
+                        try:
+                            # Encode batch
+                            batch_vecs = self.create_image_vector_batch(current_batch)
+                        except Exception:
+                            print("error while encoding images, retrying...")
+                            del current_batch
+                            del batch_vecs
+                            del vectors
+                            pbar.close()
+                            bucket_pbar.close()
+                            torch.cuda.empty_cache()
+                            return (width,height)
+
+                            # return self.create_vector_list_from_paths(
+                            #     memory_usage, width, height
+                            # )
 
                         # Store vectors in original order
                         for idx, vec in zip(batch_indices, batch_vecs):

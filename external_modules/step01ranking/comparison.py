@@ -6,140 +6,185 @@ a score_modifier is adjusted. When the modifier reaches ±5, the score is
 adjusted by ±1 and the modifier resets. This allows fine-tuning of scores.
 """
 
-from typing import Tuple, Dict, Any, Optional, List
-import random
+from typing import Any
 import math
+
+
 from .utils import load_metadata, get_json_path
 from shared.io import atomic_write_json
-from .cache import add, get_total_per_level, get_images_by_level, get_cached_metadata
+from .cache import add, get_image_pair
 
 
-# 3️⃣ Choose level (Priority: Highest Level, Tie-breaker: Random Score)
-def choose_level(score: int = 0, safety_limit: int = 20) -> Tuple[int, int, int]:
-    score_groups = get_total_per_level(score)
-    print(f"Score groups: {score_groups}")
+Meta = dict[str, int | float | str]
+SeenItem = tuple[str, Meta, float]
+Pair = tuple[str, str, Meta, Meta]
 
-    # Store the highest valid level for each score: {score: highest_lvl}
-    best_per_score: Dict[int, int] = {}
-
-    for s, level_counts in score_groups.items():
-        highest_healthy_lvl = 0 if level_counts.get(0, 0) >= safety_limit else -1
-
-        for lvl in range(1, 10):
-            current_count = level_counts.get(lvl, 0)
-            below_count = level_counts.get(lvl - 1, 0)
-
-            if current_count < safety_limit:
-                continue
-
-            # Double Count Rule
-            if below_count < (2 * current_count):
-                highest_healthy_lvl = lvl
-
-        if highest_healthy_lvl != -1:
-            best_per_score[s] = highest_healthy_lvl
-
-    if not best_per_score:
-        raise ValueError(f"No levels meet safety_limit ({safety_limit})")
-    print(f"best per score: {best_per_score}")
-
-    # Determine the absolute highest level reached by any score
-    min_level_found = min(best_per_score.values())
-
-    # Find all scores that reached this specific max level
-    top_candidates: List[Tuple[int, int, int]] = []
-    for s, lvl in best_per_score.items():
-        if lvl == min_level_found:
-            count = score_groups[s][lvl]
-            top_candidates.append((s, lvl, count))
-
-    # top_candidates = [
-    #     (s, lvl) for s, lvl in best_per_score.items() if lvl == max_level_found
-    # ]
-    print(f"top_candidates: {top_candidates}")
-
-    # Return the only candidate, or pick randomly if there's a tie at the top level
-    return random.choice(top_candidates)
-
-
-Meta = Dict[str, Any]
-SeenItem = Tuple[str, Meta, float]
-Pair = Tuple[str, str, Meta, Meta]
-
-_cached_pairs: List[str] = []
+_cached_pairs: list[str] = []
 
 
 def get_paired_images(
     score: int = 0,
     safety_limit: int = 20,
-    tolerance: float = 0.001,
-) -> Optional[Pair]:
+    max_comparison_count: int = 10,
+    max_tolerance: float = 1.0,
+) -> Pair | None:
     global _cached_pairs
     if len(_cached_pairs) > safety_limit:
         # remove oldest added elements
         _cached_pairs = _cached_pairs[-int(safety_limit / 2) :]
+    image_pair = None
+    i = None
+    min_tolerance = tolerance = 0
+    alpha = 2.0
 
-    chosen_score: int
-    chosen_level: int
-    _: int
+    for i in range(1, max_comparison_count + 1):
+        safety_limit_level = safety_limit * i
+        tolerance = 0.01 + max_tolerance * (1 - (i / max_comparison_count) ** alpha)
+        min_tolerance = tolerance
+        while min_tolerance >= 0 and image_pair is None:
+            min_tolerance -= 0.1
+            image_pair: Pair | None = get_image_pair(
+                i, tolerance, min_tolerance, score, safety_limit_level, _cached_pairs
+            )
 
-    try:
-        chosen_score, chosen_level, _ = choose_level(score, safety_limit)
-    except ValueError:
-        return None
+        if image_pair is not None:
+            break
+    if i:
+        print(f"last level: {i}, tolerance: {min_tolerance} - {tolerance}")
 
-    paths: List[str] = get_images_by_level(chosen_score, chosen_level)
+    if image_pair is not None:
+        _cached_pairs.append(image_pair[0])
+        _cached_pairs.append(image_pair[1])
+    return image_pair
 
-    if len(paths) < safety_limit:
-        return None
 
-    sampled_paths: List[str] = random.sample(paths, safety_limit)
+# # 3️⃣ Choose level (Priority: Highest Level, Tie-breaker: Random Score)
+# def choose_level(score: int = 0, safety_limit: int = 20, max_level:int=10) -> tuple[int, int, int]:
+#     score_groups = get_total_per_level(score)
+#     print(f"Score groups: {score_groups}")
 
-    seen: List[SeenItem] = []
+#     # Store the highest valid level for each score: {score: highest_lvl}
+#     best_per_score: Dict[int, int] = {}
 
-    best_pair: Optional[Pair] = None
-    smallest_diff: float = float("inf")
+#     for s, level_counts in score_groups.items():
+#         highest_healthy_lvl = 0 if level_counts.get(0, 0) >= safety_limit else -1
 
-    path: str
-    meta: Optional[Meta]
-    mod: float
-    diff: float
+#         for lvl in range(1, max_level):
+#             current_count = level_counts.get(lvl, 0)
+#             below_count = level_counts.get(lvl - 1, 0)
 
-    for path in sampled_paths:
-        if path in _cached_pairs:
-            continue
+#             if current_count < safety_limit:
+#                 continue
 
-        meta = get_cached_metadata(path)
-        if meta is None:
-            continue
+#             # Double Count Rule
+#             if below_count < (2 * current_count):
+#                 highest_healthy_lvl: int = lvl
 
-        try:
-            mod = float(meta["score_modifier"])
-        except (KeyError, ValueError, TypeError):
-            continue
+#         if highest_healthy_lvl != -1:
+#             best_per_score[s] = highest_healthy_lvl
 
-        for path2, meta2, mod2 in seen:
+#     if not best_per_score:
+#         raise ValueError(f"No levels meet safety_limit ({safety_limit})")
+#     print(f"best per score: {best_per_score}")
 
-            diff = abs(mod - mod2)
+#     # Determine the absolute highest level reached by any score
+#     min_level_found = min(best_per_score.values())
 
-            if diff <= tolerance:
-                # Immediate success
-                _cached_pairs.append(path)
-                _cached_pairs.append(path2)
-                return path, path2, meta, meta2
+#     # Find all scores that reached this specific max level
+#     top_candidates: List[tuple[int, int, int]] = []
+#     for s, lvl in best_per_score.items():
+#         if lvl == min_level_found:
+#             count = score_groups[s][lvl]
+#             top_candidates.append((s, lvl, count))
 
-            if diff < smallest_diff:
-                smallest_diff = diff
-                best_pair = (path, path2, meta, meta2)
+#     # top_candidates = [
+#     #     (s, lvl) for s, lvl in best_per_score.items() if lvl == max_level_found
+#     # ]
+#     print(f"top_candidates: {top_candidates}")
 
-        seen.append((path, meta, mod))
+#     # Return the only candidate, or pick randomly if there's a tie at the top level
+#     return random.choice(top_candidates)
 
-    # Fallback: closest pair if no tolerance match
-    return best_pair
+
+# def get_paired_images2(
+#     score: int = 0,
+#     safety_limit: int = 20,
+#     tolerance: float = 0.001,
+#     max_level: int=10
+# ) -> Optional[Pair]:
+#     global _cached_pairs
+#     if len(_cached_pairs) > safety_limit:
+#         # remove oldest added elements
+#         _cached_pairs = _cached_pairs[-int(safety_limit / 2) :]
+
+#     chosen_score: int
+#     chosen_level: int
+#     _: int
+
+#     try:
+#         chosen_score, chosen_level, _ = choose_level(score, safety_limit,max_level)
+#     except ValueError:
+#         return None
+
+#     paths: List[str] = get_images_by_level(chosen_score, chosen_level)
+
+#     if len(paths) < safety_limit:
+#         return None
+
+#     sampled_paths: List[str] = random.sample(paths, safety_limit)
+
+#     seen: List[SeenItem] = []
+
+#     best_pair: Optional[Pair] = None
+#     smallest_diff: float = float("inf")
+
+#     path: str
+#     meta: Optional[Meta]
+#     mod: float
+#     diff: float
+#     #print(f"sampled paths: {sampled_paths}")
+#     for path in sampled_paths:
+#         if path in _cached_pairs:
+#             continue
+
+#         meta = get_cached_metadata(path)
+#         if meta is None:
+#             continue
+
+#         try:
+#             mod = float(meta["score_modifier"])
+#         except (KeyError, ValueError, TypeError):
+#             continue
+
+#         for path2, meta2, mod2 in seen:
+
+#             diff = abs(mod - mod2)
+
+#             if diff <= tolerance:
+#                 # Immediate success
+#                 _cached_pairs.append(path)
+#                 _cached_pairs.append(path2)
+#                 best_pair= path, path2, meta, meta2
+#                 #print(f"best pair: {best_pair}")
+#                 return best_pair
+
+#             if diff < smallest_diff:
+#                 smallest_diff = diff
+#                 best_pair = (path, path2, meta, meta2)
+
+#         seen.append((path, meta, mod))
+#     if best_pair is not None and len(best_pair) >= 2:
+#         _cached_pairs.append(best_pair[0])
+#         _cached_pairs.append(best_pair[1])
+
+#     #print(f"best pair: {best_pair}")
+
+#     # Fallback: closest pair if no tolerance match
+#     return best_pair
 
 
 # Type for individual image data
-DataDict = Dict[str, Any]
+DataDict = dict[str, Any]
 
 
 def _apply_modifier(data: DataDict, delta: float) -> None:
@@ -174,12 +219,12 @@ def _apply_threshold(data: DataDict, threshold: float = 5.5) -> None:
 
 def write_comparison_data(
     file_path: str, data_update: DataDict
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, str | None]:
     """
     Update metadata and write to JSON for a single file.
     Returns (success, error_message)
     """
-    meta: Optional[DataDict] = load_metadata(file_path)
+    meta: None | DataDict = load_metadata(file_path)
     if not meta:
         return False, "Could not load metadata"
 
@@ -216,8 +261,8 @@ def _set_volatility(data: DataDict, delta: float) -> None:
         delta = -delta
     alpha = ALPHA_MOMENTUM if (delta * data["volatility"] >= 0) else ALPHA_RESISTANCE
     data["volatility"] = (data["volatility"] * (1 - alpha)) + (delta * alpha)
-    if data["comparison_count"] > 7 and abs(data["volatility"]) > STABILITY_THRESHOLD:
-        data["comparison_count"] =0
+    if data["comparison_count"] > 5 and abs(data["volatility"]) > STABILITY_THRESHOLD:
+        data["comparison_count"] = 0
 
     data["volatility"] = max(-1.0, min(1.0, data["volatility"]))
 
@@ -227,7 +272,7 @@ def _set_volatility(data: DataDict, delta: float) -> None:
 #     return None
 
 
-# def _get_last_compared(path: str, data: DataDict) -> Tuple[DataDict, str] | None:
+# def _get_last_compared(path: str, data: DataDict) -> tuple[DataDict, str] | None:
 #     metadata = get_cached_metadata(path)
 #     if not metadata or not isinstance(metadata["last_compared"], str):
 #         print(f"No last compared data found for {path}")
@@ -248,7 +293,7 @@ def apply_comparison_and_write(
     winner_path: str,
     loser_data: DataDict,
     loser_path: str,
-) -> Tuple[DataDict, DataDict, bool, Optional[str]]:
+) -> tuple[DataDict, DataDict, bool, str | None]:
     """
     Apply comparison, update score_modifiers, handle thresholds,
     and write both winner and loser to storage.
@@ -256,6 +301,13 @@ def apply_comparison_and_write(
 
     # 1️⃣ Compute the random delta
     score_scale = 0.5 + (2 * math.exp(-0.3 * winner_data["comparison_count"]))
+    effective_score_winner = winner_data["score"] + winner_data["score_modifier"] / 10
+    effective_score_loser = loser_data["score"] + loser_data["score_modifier"] / 10
+
+    score_difference = effective_score_winner - effective_score_loser
+    #if winner is below loser, then effectively switch places
+    if score_difference < 0:
+        score_scale = max(score_scale, -score_difference)
 
     # score_scale: float = 1 + 0.3 + random.random() * 0.2
     # last_compared_winner = _get_last_compared(winner_path, winner_data)
@@ -291,8 +343,8 @@ def apply_comparison_and_write(
     # 5️⃣ Write updated data
     winner_success: bool
     loser_success: bool
-    winner_err: Optional[str]
-    loser_err: Optional[str]
+    winner_err: str | None
+    loser_err: str | None
 
     winner_success, winner_err = write_comparison_data(winner_path, winner_data)
     if not winner_success:

@@ -1,6 +1,7 @@
 from typing import List, Tuple, Set, Dict
 import re
-from ..config.maps import get_or_add
+
+
 
 WeightedTerm = Tuple[str, float]
 
@@ -141,7 +142,7 @@ def extract_terms(
     if connectors is None:
         connectors = {"and", "or"}
     if splitters is None:
-        splitters = {"but", "not", ",", "girl", "years"}
+        splitters = {"but", "not", ",", "and", "or"}
     tokens = tokenize_text(text, splitters)
     all_terms: List[WeightedTerm] = []
     for token in tokens:

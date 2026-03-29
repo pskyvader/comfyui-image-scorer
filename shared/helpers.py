@@ -4,8 +4,7 @@ from typing import List
 from PIL import Image
 import shutil
 from .paths import models_dir, vectors_dir
-
-import torch
+from torch import Tensor
 
 
 def remove_directory(directory_path: Path) -> None:
@@ -27,11 +26,12 @@ def remove_models() -> None:
     remove_directory(directory_path)
 
 
-def export_image_batch(pil_images: List[Image.Image]) -> torch.Tensor:
+def export_image_batch(pil_images: List[Image.Image]) -> Tensor:
+    import torch
     if not pil_images:
         return torch.zeros((1, 1, 1, 3), dtype=torch.float32)
 
-    tensors: List[torch.Tensor] = []
+    tensors: List[Tensor] = []
 
     for img in pil_images:
         # 1. Ensure RGB and convert to NumPy array (Shape: H, W, C)

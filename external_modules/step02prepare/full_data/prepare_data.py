@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Any
 
 if __name__ == "__main__":
     root_path = str(Path(__file__).parents[3])
+    print(f"root path: {root_path}")
     sys.path.insert(0, root_path)
     if __package__ is None:
         __package__ = "external_modules.step02prepare.full_data"
@@ -19,39 +20,42 @@ from shared.io import (
     collect_valid_files,
 )
 from shared.config import config
-from shared.paths import vectors_file, scores_file, index_file
+from shared.paths import (
+    vectors_file,
+    scores_file,
+    index_file,
+    image_root,
+    text_data_file,
+)
+
 print("Loading helpers...")
 from shared.helpers import remove_models, remove_vectors
 
 
-def run_prepare( limit: int = 0) -> Dict[str, int]:
-    print("Loading vectors...")
+def run_prepare(limit: int = 0) -> Dict[str, int]:
+    print("Loading vector libraries...")
     from shared.vectors.vectors import VectorList
     from shared.image_analysis import ImageAnalysis
     from .data.processing import (
         check_for_leakage,
     )
+
     print("Starting image processing...")
 
-    
-
-    image_root = config["image_root"]
     if not os.path.isdir(image_root):
         raise FileNotFoundError(
             f"Configured image_root does not exist or is not a directory: {image_root}"
         )
 
-    print("loading existing data...")
+    print("loading index...")
     index_list = load_single_jsonl(index_file)
-    vectors_list = load_single_jsonl(vectors_file)
-    scores_list = load_single_jsonl(scores_file)
 
     processed_files = {s.split("#", 1)[0] for s in index_list}
 
     print(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
     collected_data = collect_valid_files(
-        files, processed_files, image_root, limit, max_workers=40, scored_only=True
+        files, processed_files, image_root, limit, max_workers=100, scored_only=True
     )
 
     if len(collected_data) == 0:
@@ -67,12 +71,16 @@ def run_prepare( limit: int = 0) -> Dict[str, int]:
     print("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
     processed_data = image_analysis.analyze_images_from_paths()
-
+    print("loading existing data...")
+    vectors_list = load_single_jsonl(vectors_file)
+    text_list = load_single_jsonl(text_data_file)
+    scores_list = load_single_jsonl(scores_file)
     vectors_list_parser = VectorList(
         processed_data,
         index_list,
         vectors_list,
         scores_list,
+        text_list,
         add_new=True,
         merge_lists=True,
     )
@@ -81,14 +89,19 @@ def run_prepare( limit: int = 0) -> Dict[str, int]:
     vectors_list_parser.create_vectors()
     print("joining vectors...")
     vectors_list_parser.join_vectors()
+    vectors_list_parser.join_text_data()
+    
+    vectors_list_parser.update_lists()
 
     new_vectors_list = vectors_list_parser.vectors_list
+    new_text_list = vectors_list_parser.text_list
     new_index_list = vectors_list_parser.index_list
     new_scores_list = vectors_list_parser.scores_list
 
     check_for_leakage(new_vectors_list, new_scores_list)
     write_single_jsonl(index_file, new_index_list, mode="w")
     write_single_jsonl(vectors_file, new_vectors_list, mode="w")
+    write_single_jsonl(text_data_file, new_text_list, mode="w")
     write_single_jsonl(scores_file, new_scores_list, mode="w")
 
     summary = {
@@ -114,7 +127,7 @@ def run_rebuild_scores_only() -> Dict[str, int]:
     """
     print("Starting scores rebuild...")
 
-    image_root = config["image_root"]
+    # image_root = config["image_root"]
     if not os.path.isdir(image_root):
         raise FileNotFoundError(
             f"Configured image_root does not exist or is not a directory: {image_root}"
@@ -135,11 +148,13 @@ def run_rebuild_scores_only() -> Dict[str, int]:
     )
 
     # all data: dict{"file_id":entry}
-    final_data: Dict[str, Dict[str, Any]] = {f"{x[3]}#{x[2]}": x[1] for x in collected_data}
+    final_data: Dict[str, Dict[str, Any]] = {
+        f"{x[3]}#{x[2]}": x[1] for x in collected_data
+    }
 
     # print(list(final_data.keys())[0])
     # print(list(final_data.values())[0])
-    
+
     new_scores_list: List[float] = []
     updated_count = 0
     missing_count = 0
@@ -195,7 +210,7 @@ def main(
         print(f"Scores file: {config['scores_file']}")
         print("Test-run finished (no side-effects).")
         return
-    
+
     if rebuild:
         print("Rebuild requested: removing existing outputs...")
         remove_vectors()
@@ -212,7 +227,7 @@ def main(
             print("-" * 100)
             summary = run_prepare(limit=limit)
             new = int(summary["new"])
-            i+=1
+            i += 1
     else:
         run_prepare(limit=limit)
 

@@ -175,7 +175,7 @@ def update_slowest_config(
     )
 
     better = (
-        score > current_slow_time if higher_is_better else score < current_slow_time
+        score > current_slow_score if higher_is_better else score < current_slow_score
     )
 
     better_weighted = (
@@ -184,7 +184,7 @@ def update_slowest_config(
         else score < 1.05 * current_slow_score
     )
 
-    cond_a = better and t_time < max(current_slow_time * 1.1, current_slow_time + 1)
+    cond_a = better and t_time < max(current_slow_time * 1.1, current_slow_time + 10)
     cond_b = (
         t_time > 60
         and better_weighted

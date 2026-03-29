@@ -1,288 +1,178 @@
+import numpy as np
+import numpy.typing as npt
 from tqdm import tqdm
 from PIL import Image
-import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Callable
 from skimage.feature import local_binary_pattern
 
 from .vectors.image_vector import ImageVector
 
+# Type Alias for the shared data structure
+ImageEntry = Tuple[str, Dict[str, Any], str, str]
+
 
 def process_single_batch(
-    prepare_func: Any,  # Technically Callable[..., List[Image.Image]]
-    analyze_func: Any,  # Technically Callable[..., List[AnalysisResult]]
+    prepare_func: Callable[[List[str]], List[Image.Image]],
+    analyze_func: Callable[[List[Image.Image], List[ImageEntry]], List[ImageEntry]],
     paths: List[str],
-    data: List[Tuple[str, Dict[str, Any], str, str]],
-) -> List[Tuple[str, Dict[str, Any], str, str]]:
-    """
-    Standalone wrapper to process one batch.
-    Logic: paths -> prepare -> images -> analyze -> results
-    """
-    # 1. Convert paths to PIL Image objects
+    data: List[ImageEntry],
+) -> List[ImageEntry]:
     image_batch: List[Image.Image] = prepare_func(paths)
-
-    # 2. Analyze the images and return the batch results
-    processed_batch: List[Tuple[str, Dict[str, Any], str, str]] = analyze_func(
-        image_batch, data
-    )
-
-    return processed_batch
+    return analyze_func(image_batch, data)
 
 
 class ImageAnalysis(ImageVector):
-    def __init__(self, raw_data: List[Tuple[str, Dict[str, Any], str, str]]) -> None:
+    def __init__(self, raw_data: List[ImageEntry]) -> None:
         super().__init__("tmp_image")
-        self.raw_data = raw_data
-        self.image_list: List[Image.Image]
-        self.entries: List[Dict[str, Any]]
-        self.processed_data: List[Tuple[str, Dict[str, Any], str, str]] = []
+        self.raw_data: List[ImageEntry] = raw_data
+        self.processed_data: List[ImageEntry] = []
 
         for data in self.raw_data:
-            (img_path, _, _, _) = data
-            self.path_list.append(img_path)
+            self.path_list.append(data[0])
 
-        R, G, B = 255, 0, 0
-        rg = R - G
-        yb = 0.5 * (R + G) - B
-        self.max_colorfulness = np.sqrt(rg**2 + yb**2) + 0.3 * np.sqrt(rg**2 + yb**2)
+        # Theoretical max colorfulness based on RGB boundaries
+        r, g, b = 255.0, 0.0, 0.0
+        rg, yb = r - g, 0.5 * (r + g) - b
+        self.max_colorfulness: float = float(
+            np.sqrt(rg**2 + yb**2) + 0.3 * np.sqrt(rg**2 + yb**2)
+        )
 
     def _image_size(
-        self, image: Image.Image, entry: Dict[str, Any], data: Any
+        self, img: Image.Image, entry: Dict[str, Any], data: ImageEntry
     ) -> Dict[str, Any]:
-        w, h = image.size
+        w, h = img.size
         if h < 128 or w < 128:
-            raise ValueError(
-                f"{image} is too small to be an image path: {data[0]}"
-            )
+            raise ValueError(f"Image too small: {data[0]}")
 
-        entry["final_width"] = w
-        entry["final_height"] = h
-        entry["final_aspect_ratio"] = round(w / h, 4) if h > 0 else 0.0
-
-        entry["original_width"] = (
-            entry["width"] if "width" in entry else entry["final_width"]
+        entry.update(
+            {
+                "final_width": w,
+                "final_height": h,
+                "final_aspect_ratio": round(w / h, 4) if h > 0 else 0.0,
+                "original_width": entry.get("width", w),
+                "original_height": entry.get("height", h),
+            }
         )
-        entry["original_height"] = (
-            entry["height"] if "height" in entry else entry["final_height"]
+        entry["original_aspect_ratio"] = entry.get(
+            "aspect_ratio", entry["final_aspect_ratio"]
         )
-        entry["original_aspect_ratio"] = (
-            entry["aspect_ratio"]
-            if "aspect_ratio" in entry
-            else entry["final_aspect_ratio"]
-        )
-
         return entry
 
     def _contrast(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Contrast = standard deviation of luminance.
-        Higher = more contrast.
-        """
-        rgb: np.ndarray = np.asarray(img, dtype=np.float32) / 255.0
-
-        # Convert to luminance using ITU-R BT.601
-        luminance: np.ndarray = (
-            0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+        rgb: npt.NDArray[np.float32] = np.asarray(img, dtype=np.float32) / 255.0
+        lum: npt.NDArray[np.float32] = (
+            0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
         )
-
-        # Standard deviation of luminance
-        contrast_value = float(np.std(luminance))
-
-        # Normalize by maximum possible std (0.5 for [0,1] images)
-        entry["contrast"] = contrast_value / 0.5
+        entry["contrast"] = float(np.std(lum)) / 0.5
         return entry
 
     def _sharpness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Sharpness = variance of Laplacian.
-        Higher = sharper image.
-        """
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
-
-        laplacian: np.ndarray = (
+        gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
+        lap: npt.NDArray[np.float32] = (
             -4 * gray
-            + np.roll(gray, 1, axis=0)
-            + np.roll(gray, -1, axis=0)
-            + np.roll(gray, 1, axis=1)
-            + np.roll(gray, -1, axis=1)
+            + np.roll(gray, 1, 0)
+            + np.roll(gray, -1, 0)
+            + np.roll(gray, 1, 1)
+            + np.roll(gray, -1, 1)
         )
-
-        entry["sharpness"] = float(np.var(laplacian))
+        # [FIXED] Soft-clipping normalization (maps 500 var to ~0.5)
+        raw_sharp: float = float(np.var(lap))
+        entry["sharpness"] = float(raw_sharp / (raw_sharp + 500.0))
         return entry
 
     def _noise_score(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Noise score = variance of high-frequency residual.
-        Higher = more noise.
-        """
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
-
-        blurred: np.ndarray = (
+        gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
+        blur: npt.NDArray[np.float32] = (
             gray
-            + np.roll(gray, 1, axis=0)
-            + np.roll(gray, -1, axis=0)
-            + np.roll(gray, 1, axis=1)
-            + np.roll(gray, -1, axis=1)
+            + np.roll(gray, 1, 0)
+            + np.roll(gray, -1, 0)
+            + np.roll(gray, 1, 1)
+            + np.roll(gray, -1, 1)
         ) / 5.0
-
-        residual: np.ndarray = gray - blurred
-
-        # entry["noise_score"] = float(np.var(residual))
-        entry["noise_score"] = (
-            float(np.var(residual)) / 65025.0
-        )  # 255^2 max for uint8 images
-
+        # [FIXED] Log-scaled normalization for human sensitivity
+        res: npt.NDArray[np.float32] = gray - blur
+        norm: float = np.log1p(float(np.var(res))) / np.log1p(65025.0)
+        entry["noise_score"] = float(norm * 4.0)
         return entry
 
     def _colorfulness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Colorfulness metric (Hasler & Süsstrunk).
-        Higher = more vivid color.
-        """
-        rgb: np.ndarray = np.asarray(img, dtype=np.float32)
-
-        r: np.ndarray = rgb[:, :, 0]
-        g: np.ndarray = rgb[:, :, 1]
-        b: np.ndarray = rgb[:, :, 2]
-
-        rg: np.ndarray = r - g
-        yb: np.ndarray = 0.5 * (r + g) - b
-
-        std_rg: float = float(np.std(rg))
-        std_yb: float = float(np.std(yb))
-
-        mean_rg: float = float(np.mean(rg))
-        mean_yb: float = float(np.mean(yb))
-
-        colorfulness_raw = float(
-            np.sqrt(std_rg**2 + std_yb**2) + 0.3 * np.sqrt(mean_rg**2 + mean_yb**2)
+        rgb: npt.NDArray[np.float32] = np.asarray(img, dtype=np.float32)
+        rg, yb = (
+            rgb[..., 0] - rgb[..., 1],
+            0.5 * (rgb[..., 0] + rgb[..., 1]) - rgb[..., 2],
         )
-        entry["colorfulness"] = (
-            colorfulness_raw / self.max_colorfulness
-        )  # approx max for 0-255 channels
-
+        raw: float = float(
+            np.sqrt(np.std(rg) ** 2 + np.std(yb) ** 2)
+            + 0.3 * np.sqrt(np.mean(rg) ** 2 + np.mean(yb) ** 2)
+        )
+        entry["colorfulness"] = float(raw / self.max_colorfulness)
         return entry
 
     def _artifact_score(
         self, img: Image.Image, entry: Dict[str, Any]
     ) -> Dict[str, Any]:
-        gray = np.asarray(img.convert("L"), dtype=np.float32)
+        gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
         h, w = gray.shape
+        sx, sy = max(4, min(8, w // 256)), max(4, min(8, h // 256))
+        vx, hy = np.arange(sx, w, sx), np.arange(sy, h, sy)
 
-        # Sample step proportional to image size (max 8 px, min 4 px)
-        step_x = max(4, min(8, w // 256))
-        step_y = max(4, min(8, h // 256))
+        v = np.abs(gray[:, vx] - gray[:, vx - sx]).mean() if vx.size > 0 else 0.0
+        h_val = np.abs(gray[hy, :] - gray[hy - sy, :]).mean() if hy.size > 0 else 0.0
 
-        vertical_positions = np.arange(step_x, w, step_x)
-        horizontal_positions = np.arange(step_y, h, step_y)
-
-        if len(vertical_positions) > 0:
-            vertical = np.abs(
-                gray[:, vertical_positions] - gray[:, vertical_positions - step_x]
-            ).mean()
-        else:
-            vertical = 0.0
-
-        if len(horizontal_positions) > 0:
-            horizontal = np.abs(
-                gray[horizontal_positions, :] - gray[horizontal_positions - step_y, :]
-            ).mean()
-        else:
-            horizontal = 0.0
-
-        # Normalize by image intensity range to reduce scale differences
-        intensity_range = gray.max() - gray.min() or 1.0
-        entry["artifact_score"] = float((vertical + horizontal) / 2.0 / intensity_range)
-
+        # [FIXED] Intensity-normalized and sensitivity boosted
+        rng: float = float(gray.max() - gray.min()) or 1.0
+        entry["artifact_score"] = float(min(1.0, (v + h_val) / (2.0 * rng) * 5.0))
         return entry
 
     def _edge_density(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.float32)
-
-        dx = np.roll(gray, -1, axis=1) - np.roll(gray, 1, axis=1)
-        dy = np.roll(gray, -1, axis=0) - np.roll(gray, 1, axis=0)
-
-        grad_mag = np.sqrt(dx**2 + dy**2)
-
-        # Normalize by number of pixels to make comparable across resolutions
-        entry["edge_density"] = float(
-            np.mean(grad_mag) / (gray.shape[0] * gray.shape[1])
-        )
+        gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
+        dx = np.roll(gray, -1, 1) - np.roll(gray, 1, 1)
+        dy = np.roll(gray, -1, 0) - np.roll(gray, 1, 0)
+        # [FIXED] Resolution-independent density (mean gradient magnitude)
+        mag: npt.NDArray[np.float32] = np.sqrt(dx**2 + dy**2)
+        entry["edge_density"] = float(np.mean(mag) / 255.0)
         return entry
 
     def _texture_lbp(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
-        # Convert to grayscale uint8 (stable for LBP comparisons)
-        gray: np.ndarray = np.asarray(img.convert("L"), dtype=np.uint8)
-
-        # LBP parameters
-        P = 8  # number of neighbors
-        R = 1  # radius
-
-        lbp = local_binary_pattern(gray, P, R, method="uniform")
-
-        # For uniform LBP, number of possible patterns is P + 2
-        n_bins = P + 2
-
-        hist, _ = np.histogram(
-            lbp.ravel(),
-            bins=n_bins,
-            range=(0, n_bins),
-            density=True,
+        gray: npt.NDArray[np.uint8] = np.asarray(img.convert("L"), dtype=np.uint8)
+        lbp: npt.NDArray[np.float64] = local_binary_pattern(
+            gray, 8, 1, method="uniform"
         )
-
-        # Shannon entropy of LBP histogram
-        eps = 1e-9  # numerical stability
-        entropy = -np.sum(hist * np.log(hist + eps))
-
-        entry["texture_lbp"] = float(entropy)
-
+        hist, _ = np.histogram(lbp.ravel(), bins=10, range=(0, 10), density=True)
+        # [FIXED] Entropy normalized by log(n_bins)
+        entropy: float = -np.sum(hist * np.log(hist + 1e-9))
+        entry["texture_lbp"] = float(entropy / np.log(10.0))
         return entry
 
     def analyze_image_batch(
         self,
         image_batch: List[Image.Image],
-        data_batch: List[Tuple[str, Dict[str, Any], str, str]],
-    ) -> List[Tuple[str, Dict[str, Any], str, str]]:
-        total_images = len(image_batch)
-        total_data = len(data_batch)
-        if total_images != total_data:
-            raise IndexError(
-                f"image batch ({total_images}) doesn't match data batch ({total_data})"
-            )
-        for i in range(total_images):
-            current_image = image_batch[i]
-            current_data = data_batch[i]
-            current_entry = current_data[1]
-            current_entry = self._artifact_score(current_image, current_entry)
-            current_entry = self._colorfulness(current_image, current_entry)
-            current_entry = self._contrast(current_image, current_entry)
-            current_entry = self._image_size(current_image, current_entry, current_data)
-            current_entry = self._noise_score(current_image, current_entry)
-            current_entry = self._sharpness(current_image, current_entry)
-            current_entry = self._edge_density(current_image, current_entry)
-            current_entry = self._texture_lbp(current_image, current_entry)
+        data_batch: List[ImageEntry],
+    ) -> List[ImageEntry]:
+        if len(image_batch) != len(data_batch):
+            raise IndexError("Batch mismatch")
 
-            processed_data = (
-                current_data[0],
-                current_entry,
-                current_data[2],
-                current_data[3],
-            )
-            data_batch[i] = processed_data
+        for i, img in enumerate(image_batch):
+            path, entry, cat, extra = data_batch[i]
+            entry = self._artifact_score(img, entry)
+            entry = self._colorfulness(img, entry)
+            entry = self._contrast(img, entry)
+            entry = self._image_size(img, entry, data_batch[i])
+            entry = self._noise_score(img, entry)
+            entry = self._sharpness(img, entry)
+            entry = self._edge_density(img, entry)
+            entry = self._texture_lbp(img, entry)
+            data_batch[i] = (path, entry, cat, extra)
         return data_batch
 
     def analyze_images_from_paths(
-        self,
-        batch_size: int = 32,
-        max_workers: int = 64,
-    ) -> List[Tuple[str, Dict[str, Any], str, str]]:
+        self, batch_size: int = 32, max_workers: int = 16
+    ) -> List[ImageEntry]:
         total: int = len(self.path_list)
-
         if total == 0:
-            self.processed_data = []
-            return self.processed_data
+            return []
 
-        # Build batch argument list explicitly
         batches = [
             (
                 self.prepare_image_batch,
@@ -293,30 +183,14 @@ class ImageAnalysis(ImageVector):
             for i in range(0, total, batch_size)
         ]
 
-        results_nested: List[List[Tuple[str, Dict[str, Any], str, str]]] = []
-
+        results: List[ImageEntry] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(process_single_batch, *batch_args)
-                for batch_args in batches
-            ]
+            futures = [executor.submit(process_single_batch, *b) for b in batches]
+            with tqdm(total=total, desc="Analyzing", unit="img") as pbar:
+                for f in as_completed(futures):
+                    res = f.result()
+                    results.extend(res)
+                    pbar.update(len(res))
 
-            try:
-                with tqdm(total=total, desc="Analyzed", unit=" files") as pbar:
-                    for future in as_completed(futures):
-                        result = future.result()  # raises immediately if a batch fails
-                        results_nested.append(result)
-                        pbar.update(len(result))
-
-            except Exception:
-                for f in futures:
-                    f.cancel()
-                executor.shutdown(wait=False, cancel_futures=True)
-                raise
-
-        # Flatten
-        self.processed_data = [item for batch in results_nested for item in batch]
-
-        print(f"total analyzed images: {len(self.processed_data)}")
-
+        self.processed_data = results
         return self.processed_data

@@ -9,15 +9,9 @@ if __name__ == "__main__":
     root_path = str(Path(__file__).parents[3])
     sys.path.insert(0, root_path)
     if __package__ is None:
-        __package__="external_modules.step02prepare.full_data"
+        __package__="external_modules.step02prepare.text_data"
 
-from shared.config import ensure_dir
-from shared.paths import (
-    text_data_file,
-    text_index_file,
-    image_root,
-    text_error_log_file,
-)
+
 
 
 from ..full_data.data.manager import collect_files
@@ -27,29 +21,20 @@ from .text_processing import (
     save_text_index,
     process_text_files,
 )
+from shared.paths import text_data_file,image_root
 
 
 def run_prepare_text(rebuild: bool = False) -> Dict[str, int]:
     print("Starting text data export...")
 
     output_file = text_data_file
-    index_file = text_index_file
-
-    if rebuild:
-        # Clear existing outputs
-        for fpath in [output_file, index_file, text_error_log_file]:
-            if os.path.exists(fpath):
-                print(f"Removing {fpath}")
-                os.remove(fpath)
-
-    ensure_dir(os.path.dirname(output_file))
-    ensure_dir(os.path.dirname(index_file))
-    error_log_file = text_error_log_file
-    ensure_dir(os.path.dirname(error_log_file))
 
     if not os.path.isdir(image_root):
-        raise FileNotFoundError(f"image_root not found: {image_root}")
-
+        raise FileNotFoundError(
+            f"Configured image_root does not exist or is not a directory: {image_root}"
+        )
+        
+        
     processed_files = load_text_index(index_file)
     print(f"Index has {len(processed_files)} already processed entries")
     error_log: List[Dict[str, str]] = []
@@ -79,27 +64,7 @@ def main() -> None:
         action="store_true",
         help="Remove existing outputs before processing",
     )
-    parser.add_argument(
-        "--test-run",
-        action="store_true",
-        help="Verify configuration and exit",
-    )
     args = parser.parse_args()
-
-    if args.test_run:
-        print("Verifying text prepare configuration...")
-        try:
-            img_root = image_root
-            print(f"Image root configured as: {img_root}")
-            if not os.path.isdir(img_root):
-                print("Configured image_root does not exist or is not a directory.")
-                sys.exit(1)
-            print("Configuration looks good.")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Configuration failed: {e}")
-            sys.exit(1)
-
     run_prepare_text(rebuild=args.rebuild)
 
 

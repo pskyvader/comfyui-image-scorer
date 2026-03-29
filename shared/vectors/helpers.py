@@ -1,28 +1,39 @@
 import numpy as np
-from typing import Any, List, Dict
-from PIL import Image
-import torch
+import numpy.typing as npt
+from typing import Any, Dict, List
 
 
-def l2_normalize_batch(vectors: np.ndarray) -> np.ndarray:
+def l2_normalize_batch(vectors: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
     eps: float = 1e-12
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms = np.maximum(norms, eps)
     return vectors / norms
 
 
-def get_value_from_entry(entry: Dict[str, Any], name: str) -> Any:
+def get_value_from_entry(
+    entry: Dict[str, Any], name: str, alias: List[str] | None = None
+) -> Any:
     custom_text: Dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
     # print(
     #     f"entry: {entry}, name: {name}, custom_text: {custom_text}, type: {type(entry)}",
     #     flush=True,
     # )
-    current_value = (
-        entry[name]
-        if name in entry
-        else (custom_text[name] if name in custom_text else None)
-    )
-
+    custom_text.update(entry)
+    # current_value = custom_text[name] if name in custom_text else None
+    # if alias is not None and len(alias) > 0:
+    #     for a in alias:
+    #         if a in custom_text:
+    #             current_value = custom_text[a]
+    #             break
+    # 1. Check if aliases exist (the 20% case)
+    if alias:
+        # Find the first valid alias, or fall back to the name
+        current_value = next((custom_text[a] for a in alias if a in custom_text), custom_text.get(name))
+    else:
+        # 2. Fast path for the 80% case (no aliases)
+        current_value = custom_text.get(name)
+        
+    
     # if current_value is None:
     #     print(f"Value not found for {name}, returning None")
 

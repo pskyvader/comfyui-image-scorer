@@ -1,9 +1,14 @@
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, Union
 import os
 import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
+from statistics import mean, stdev
+
+import seaborn as sns
+import pandas as pd
+import math
 
 from ..loaders.training_loader import training_loader
 from ..config import config
@@ -321,6 +326,316 @@ class PlotManager:
 
         except Exception as e:
             print("Failed to plot curves:", e)
+    
+    
+    @staticmethod
+    def plot_continuous_analysis(data_dict: Dict[str, List[Tuple[float, float]]], group_name: str, x_label:str,y_label:str):
+        """
+        Iterates through a dictionary and creates individual scatter plots.
+        
+        Args:
+            data_dict: The dictionary containing category names (str) and data points (List[Tuple]).
+            group_name: A string representing the source dictionary (e.g., 'lora_data').
+        """
+        for title, points in data_dict.items():
+            if not points:
+                print(f"No data for {title}")
+                continue
+                
+            # Unpack the list of tuples [(x1, y1), (x2, y2), ...] into two lists
+            # x_coords = [x1, x2, ...], y_coords = [y1, y2, ...]
+            x_coords, y_coords = zip(*points)
+            
+            plt.figure(figsize=(10, 6))
+            plt.scatter(x_coords, y_coords, color='blue', alpha=0.7, edgecolors='black')
+            
+            # Setting the title and labels
+            plt.title(f"{group_name}: {title}", fontsize=14)
+            plt.xlabel(x_label, fontsize=12)
+            plt.ylabel(y_label, fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.6)
+            
+            # Display or save the plot
+            plt.tight_layout()
+            plt.show()
+            
+    @staticmethod
+    def plot_discrete_analysis(data_dict: Dict[str, Dict[str | int, List[float]]], group_name: str, x_label: str, y_label: str):
+        """
+        Iterates through a nested dictionary and creates individual scatter plots for discrete data.
+        
+        Args:
+            data_dict: Dict[title, Dict[x_value, List[y_values]]]
+            group_name: A string representing the source dictionary (e.g., 'discrete_data').
+            x_label: Label for the x-axis.
+            y_label: Label for the y-axis.
+        """
+        for title, inner_dict in data_dict.items():
+            if not inner_dict:
+                print(f"No data for {title}")
+                continue
+                
+            x_coords = []
+            y_coords = []
+            
+            # Flatten the nested structure into x, y coordinates
+            for x_val, y_list in inner_dict.items():
+                for y_val in y_list:
+                    x_coords.append(x_val)
+                    y_coords.append(y_val)
+            
+            plt.figure(figsize=(10, 6))
+            plt.scatter(x_coords, y_coords, color='orange', alpha=0.7, edgecolors='black')
+            
+            # Setting the title and labels using your new parameters
+            plt.title(f"{group_name}: {title}", fontsize=14)
+            plt.xlabel(x_label, fontsize=12)
+            plt.ylabel(y_label, fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.6)
+            
+            # Display or save the plot
+            plt.tight_layout()
+            plt.show()
+
+
+    @staticmethod
+    def plot_aggregate_summary(
+        data_dict: Dict[str, List[Tuple[float, float]]], 
+        group_name: str, 
+        value_label: str,
+        top_percent: float = 0.10,
+        limit: int = 0,
+        ascending: bool = False
+    ) -> None:
+        """
+        Plots a sorted bar chart with usage thresholds and display limits.
+        
+        Args:
+            data_dict: Dict of {name: [(weight, score), ...]}.
+            group_name: Title of the data (e.g., 'Prompts').
+            value_label: Metric name for Y-axis.
+            top_percent: Initial filter: keep only the most-used X% of categories.
+            limit: Final display filter: show only N elements. 0 shows all.
+            ascending: If True, sorts worst-to-best. If False, best-to-worst.
+        """
+        if not data_dict:
+            return
+
+        # 1. Significance Filter: Keep only the top X% by usage count
+        sorted_by_usage = sorted(data_dict.items(), key=lambda x: len(x[1]), reverse=True)
+        usage_threshold = max(1, int(len(sorted_by_usage) * top_percent))
+        frequent_data = sorted_by_usage[:usage_threshold]
+
+        # 2. Calculate Statistics
+        stats_list: List[Dict[str, Any]] = []
+        for name, points in frequent_data:
+            scores = [p[1] for p in points]
+            stats_list.append({
+                "name": name,
+                "mean": mean(scores),
+                "std": stdev(scores) if len(scores) > 1 else 0.0,
+                "count": len(scores)
+            })
+
+        # 3. Performance Sort (Best vs Worst)
+        stats_list.sort(key=lambda x: x["mean"], reverse=not ascending)
+
+        # 4. Display Limit (Slice the results)
+        if limit > 0:
+            stats_list = stats_list[:limit]
+
+        if not stats_list:
+            print("No data meets the current filters.")
+            return
+
+        # 5. Visualization
+        labels = [f"{s['name'][:30]}...\n(n={s['count']})" if len(s['name']) > 35 
+                  else f"{s['name']}\n(n={s['count']})" for s in stats_list]
+        means = [s["mean"] for s in stats_list]
+        errors = [s["std"] for s in stats_list]
+
+        plt.figure(figsize=(14, 8))
+        
+        # Color logic: Green for good, Red for bad based on sorting intent
+        cmap = plt.cm.RdYlGn if not ascending else plt.cm.RdYlGn_r
+        colors = cmap([0.1 + (0.8 * (i / len(means))) for i in range(len(means))])
+
+        bars = plt.bar(labels, means, yerr=errors, capsize=6, 
+                       color=colors, edgecolor='black', alpha=0.8)
+
+        # Title adjustments based on filters
+        sort_type = "Worst" if ascending else "Best"
+        limit_text = f"Top {limit} " if limit > 0 else "All Significant "
+        plt.title(f"{limit_text}{sort_type} {group_name}\n(Filter: Top {int(top_percent*100)}% by Usage)", 
+                  fontsize=14, fontweight='bold')
+        
+        plt.ylabel(f"Avg {value_label}", fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontsize=9)
+        plt.grid(axis='y', linestyle=':', alpha=0.5)
+
+        # Data Labels
+        for bar in bars:
+            h = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2, h, f'{h:.3f}', 
+                     ha='center', va='bottom', fontsize=8, fontweight='bold')
+
+        plt.tight_layout()
+        plt.show()
+        
+    @staticmethod
+    def plot_individual_metrics(data_dict: Dict[str, List[Tuple[float, float]]], cols: int = 4, bins: int = 10):
+        """
+        Plots Average Score (Y) vs Setting Value (X) for every metric.
+        Bar width represents the sample size (count) for that bucket.
+        """
+        active_metrics = {k: v for k, v in data_dict.items() if v}
+        keys = list(active_metrics.keys())
+        num_plots = len(keys)
+        
+        if num_plots == 0:
+            return
+
+        rows = math.ceil(num_plots / cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4))
+        axes = np.array(axes).flatten()
+
+        for i, key in enumerate(keys):
+            ax = axes[i]
+            x_raw = np.array([p[0] for p in active_metrics[key]])
+            y_raw = np.array([p[1] for p in active_metrics[key]])
+
+            # --- BINNING LOGIC ---
+            # If discrete (few unique X), use exact values. If continuous, create 'bins' ranges.
+            unique_x = np.unique(x_raw)
+            if len(unique_x) > bins:
+                # Create ranges for continuous data
+                min_x, max_x = x_raw.min(), x_raw.max()
+                bin_edges = np.linspace(min_x, max_x, bins + 1)
+                bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                bin_indices = np.digitize(x_raw, bin_edges[:-1])
+            else:
+                bin_centers = unique_x
+                bin_indices = np.searchsorted(unique_x, x_raw) + 1
+
+            # --- AGGREGATE STATS ---
+            means, stds, counts = [], [], []
+            actual_centers = []
+
+            for b_idx in range(1, len(bin_centers) + 1):
+                mask = (bin_indices == b_idx)
+                if not np.any(mask): continue
+                
+                group_y = y_raw[mask]
+                means.append(mean(group_y))
+                stds.append(stdev(group_y) if len(group_y) > 1 else 0.0)
+                counts.append(len(group_y))
+                actual_centers.append(bin_centers[b_idx-1])
+
+            # --- VARIABLE WIDTH CALCULATION ---
+            # Normalize counts to a reasonable width so they don't overlap
+            counts = np.array(counts)
+            if len(actual_centers) > 1:
+                # Base width is 80% of the distance between centers
+                max_width = (actual_centers[1] - actual_centers[0]) * 0.8 
+                widths = (counts / counts.max()) * max_width
+            else:
+                widths = [0.5] # Default for single-column data
+
+            # --- PLOTTING ---
+            bars = ax.bar(actual_centers, means, yerr=stds, width=widths, 
+                          capsize=5, color='skyblue', edgecolor='navy', alpha=0.7)
+
+            ax.set_title(f"{key}\n(Width = Sample Size)", fontsize=11, fontweight='bold')
+            ax.set_xlabel("Setting Value")
+            ax.set_ylabel("Avg Score (± Std Dev)")
+            ax.grid(axis='y', linestyle=':', alpha=0.6)
+
+        # Cleanup
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
+        plt.show()
+       
+       
+       
+    @staticmethod
+    def plot_discrete_object_analysis(
+        discrete_data: Dict[str, Dict[Union[str, int], List[float]]], 
+        title_prefix: str = "Discrete Analysis"
+    ) -> None:
+        """
+        Analyzes a nested discrete data structure.
+        Structure: { "Metric": { "Category": [score1, score2...] } }
+        """
+        for metric_name, categories in discrete_data.items():
+            if not categories:
+                continue
+
+            labels: List[str] = []
+            means: List[float] = []
+            errors: List[float] = []
+            counts: List[int] = []
+
+            # Sort categories (ints numerically, strings alphabetically)
+            sorted_keys = sorted(categories.keys(), key=lambda x: (isinstance(x, str), x))
+
+            for cat_key in sorted_keys:
+                scores = categories[cat_key]
+                if not scores:
+                    continue
+                
+                labels.append(str(cat_key))
+                means.append(mean(scores))
+                errors.append(stdev(scores) if len(scores) > 1 else 0.0)
+                counts.append(len(scores))
+
+            # --- WIDTH CALCULATION ---
+            counts_array = np.array(counts)
+            # Width is proportional to the number of samples in that specific category
+            # Max width 0.8 to keep visual separation
+            widths = (counts_array / counts_array.max()) * 0.8
+
+            plt.figure(figsize=(12, 6))
+            
+            # Use a distinctive color for the bars
+            colors = plt.cm.plasma(np.linspace(0.2, 0.6, len(labels)))
+
+            bars = plt.bar(
+                labels, 
+                means, 
+                yerr=errors, 
+                width=widths, 
+                capsize=8, 
+                color=colors, 
+                edgecolor='black', 
+                alpha=0.8
+            )
+
+            plt.title(f"{title_prefix}: {metric_name}\n(Width = Sample Count)", fontsize=14, fontweight='bold')
+            plt.ylabel("Average Score (± Std Dev)", fontsize=12)
+            plt.xlabel("Category / Setting", fontsize=12)
+            plt.grid(axis='y', linestyle=':', alpha=0.7)
+
+            # Add count overlay for precision
+            for bar, count in zip(bars, counts):
+                plt.text(
+                    bar.get_x() + bar.get_width()/2, 
+                    0.02, 
+                    f"n={count}", 
+                    ha='center', 
+                    va='bottom', 
+                    fontsize=9, 
+                    color='white', 
+                    fontweight='bold'
+                )
+
+            plt.tight_layout()
+            plt.show() 
+        
+        
+        
+
 
 
 class LivePlotCallback:

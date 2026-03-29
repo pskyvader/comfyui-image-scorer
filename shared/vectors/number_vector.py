@@ -9,10 +9,10 @@ class IntVector:
         self.value_list: List[int] = []
         self.vector_list: List[List[int]] = []
 
-    def parse_value_list(self, entries: List[Dict[str, Any]]) -> List[int]:
+    def parse_value_list(self, entries: List[Dict[str, Any]],alias:List[str]|None=None) -> List[int]:
         for entry in entries:
             # for entry_date in entry.values():
-            current_value = get_value_from_entry(entry, self.name)
+            current_value = get_value_from_entry(entry, self.name,alias)
             if not current_value:
                 current_value = 0
             self.value_list.append(current_value)
@@ -32,10 +32,10 @@ class FloatVector:
         self.value_list: List[float] = []
         self.vector_list: List[List[float]] = []
 
-    def parse_value_list(self, entries: List[Dict[str, Any]]) -> List[float]:
+    def parse_value_list(self, entries: List[Dict[str, Any]],alias:List[str]|None=None) -> List[float]:
         for entry in entries:
             # for entry_date in entry.values():
-            current_value = get_value_from_entry(entry, self.name)
+            current_value = get_value_from_entry(entry, self.name,alias)
             if not current_value:
                 current_value = 0
             self.value_list.append(current_value)

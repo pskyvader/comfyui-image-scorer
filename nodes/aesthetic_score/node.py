@@ -1,7 +1,7 @@
 import torch
-from typing import Dict, Any, List, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
-
+from PIL import Image
 from ...shared.helpers import export_image_batch
 from ...shared.vectors.vectors import VectorList
 from ...shared.image_analysis import ImageAnalysis
@@ -62,17 +62,11 @@ class AestheticScoreNode:
         lora_strength: float,
         min_images: int = 1,
         max_images: int = 10,
+        memory_usage: float = 0.85,
     ) -> Tuple[torch.Tensor, torch.Tensor, bool, List[float]]:
 
         batch_size = 10
 
-        # # Normalize incoming image(s) to a list of PIL.Images.
-        # try:
-        #     images = prepare_image_batch(image)
-        # except Exception as e:
-        #     raise TypeError(
-        #         f"'image' could not be processed into a batch of images: {e}"
-        #     )
         if len(image) < 1:
             raise ValueError("'image' must contain at least one image.")
         if not positive.strip():
@@ -102,7 +96,6 @@ class AestheticScoreNode:
             "lora_strength": lora_strength,
             "positive_prompt": positive,
             "negative_prompt": negative,
-            # "score":-1
         }
         image_analysis = ImageAnalysis([])
         images_list = image_analysis.prepare_image_batch(image)
@@ -117,28 +110,38 @@ class AestheticScoreNode:
             processed_data.extend(data_batch)
 
         vector_list = VectorList(
-            processed_data, [], [], [], add_new=False, merge_lists=False, read_only=True
+            processed_data,
+            [],
+            [],
+            [],
+            [],
+            add_new=False,
+            merge_lists=False,
+            read_only=True,
+            process_images=False,
         )
         vector_list.create_vectors()
-        image_vector: ImageVector = vector_list.sorted_vectors["image"]["vector"]
-        batch_size = image_vector.get_batch_size(
-            images_list[0].size[0], images_list[0].size[1]
-        )
-        processed_images: List[List[float]] = []
-        for i in range(0, len(images_list), batch_size):
-            current_batch = images_list[i : i + batch_size]
-            current_processed_images = image_vector.create_image_vector_batch(
-                current_batch
-            )
-            processed_images.extend(current_processed_images)
 
-        image_vector.vector_list = processed_images
+        image_vector = ImageVector("image")
+        image_vector.image_list = images_list
+        rebuild = False
+        retry = True
+        while retry:
+            result = image_vector.create_vector_list(memory_usage, rebuild)
+            if result is None:
+                rebuild = True
+                retry = True
+            else:
+                retry = False
+
         vector_list.sorted_vectors["image"]["vector"] = image_vector
 
         final_vectors = vector_list.join_vectors()
         matrix = np.array(final_vectors, dtype=np.float32)
 
         filtered_vectors = data_transformer.apply_feature_filter(matrix)
+        # interaction_vectors=data_transformer.apply_interaction_features(filtered_vectors)
+
         model = training_loader.load_training_model()
         all_scores = model.predict(filtered_vectors)
         print(f"all_scores: {all_scores}")

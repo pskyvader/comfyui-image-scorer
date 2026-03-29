@@ -22,11 +22,14 @@ class MapVector:
         return v
 
     def parse_value_list(
-        self, entries: List[Dict[str, Any]], add_new_values: bool = False
+        self,
+        entries: List[Dict[str, Any]],
+        add_new_values: bool = False,
+        alias: List[str] | None = None,
     ) -> List[str]:
         for entry in entries:
             # for entry_date in entry.values():
-            current_value = get_value_from_entry(entry, self.name)
+            current_value = get_value_from_entry(entry, self.name, alias)
             if not current_value:
                 current_value = "unknown"
             index, size = maps_list.get_value(self.name, current_value)

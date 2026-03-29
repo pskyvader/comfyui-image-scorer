@@ -23,24 +23,29 @@ class VectorList:
         index_list: List[str],
         vectors_list: List[List[float]],
         scores_list: List[int],
+        text_list: List[Dict[str, Any]],
         add_new: bool,
         merge_lists: bool = False,
         read_only: bool = False,
+        process_images: bool = True,
     ) -> None:
 
         self.add_new = add_new
         self.index_list = index_list
         self.vectors_list = vectors_list
         self.scores_list = scores_list
+        self.text_list = text_list
         self.image_paths: List[str] = []
         self.entries: List[Any] = []
         self.unique_ids: List[str] = []
         self.scores: List[int] = []
         self.vector_config = config["vector"]["vectors"]
         self.sorted_vectors: Dict[str, Any] = {}
-        self.configure_sorted_vectors()
         self.merge_lists = merge_lists
         self.read_only = read_only
+        self.process_images = process_images
+        self.configure_sorted_vectors()
+
         if self.merge_lists:
             self.split_vectors()
 
@@ -50,13 +55,14 @@ class VectorList:
             if not self.read_only:
                 unique_id = f"{file_id}#{timestamp}"
                 self.unique_ids.append(unique_id)
-                current_score=entry["score"]
-                score_modifier=entry.get("score_modifier",0)
-                
-                self.scores.append(current_score+(score_modifier*0.1))
+                current_score = entry["score"]
+                score_modifier = entry.get("score_modifier", 0)
+
+                self.scores.append(current_score + (score_modifier * 0.1))
                 self.image_paths.append(image_path)
-                
+
         self.final_vector: List[List[float]] = []
+        self.final_text_data: List[Dict[str, Any]] = []
 
     def configure_sorted_vectors(self) -> None:
         image_type: List[Dict[str, Any]] = []
@@ -111,36 +117,43 @@ class VectorList:
         # split by data type
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
+            alias=c.get("alias", None)
             # print(f"Vector config for {v}: {c}")
             if c["type"] == self._MAP:
-                current_vector = c["vector"]
-                current_vector.parse_value_list(self.entries, self.add_new)
-                current_vector.create_vector_list()
-                self.sorted_vectors[v]["vector"] = current_vector
+                map_vector: MapVector = c["vector"]
+                map_vector.parse_value_list(self.entries, self.add_new,alias)
+                map_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = map_vector
             elif c["type"] == self._INT:
-                current_vector = c["vector"]
-                current_vector.parse_value_list(self.entries)
-                current_vector.create_vector_list()
-                self.sorted_vectors[v]["vector"] = current_vector
+                int_vector:IntVector = c["vector"]
+                int_vector.parse_value_list(self.entries,alias)
+                int_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = int_vector
             elif c["type"] == self._FLOAT:
-                current_vector = c["vector"]
-                current_vector.parse_value_list(self.entries)
-                current_vector.create_vector_list()
-                self.sorted_vectors[v]["vector"] = current_vector
+                float_vector:FloatVector = c["vector"]
+                float_vector.parse_value_list(self.entries,alias)
+                float_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = float_vector
             elif c["type"] == self._EMBEDDING:
-                current_vector = c["vector"]
-                current_vector.parse_value_list(self.entries)
-                current_vector.create_vector_list(batch_size=256)
-                self.sorted_vectors[v]["vector"] = current_vector
-            elif c["type"] == self._IMAGE:
-                current_vector = c["vector"]
-                current_vector.path_list = self.image_paths
-                current_vector.create_vector_list_from_paths()
-                self.sorted_vectors[v]["vector"] = current_vector
+                embedding_vector :EmbeddingVector= c["vector"]
+                embedding_vector.parse_value_list(self.entries,alias)
+                embedding_vector.create_vector_list(batch_size=256)
+                embedding_vector.create_text_list(batch_size=256)
+
+                self.sorted_vectors[v]["vector"] = embedding_vector
+            elif c["type"] == self._IMAGE and self.process_images:
+                image_vector:ImageVector = c["vector"]
+                image_vector.path_list = self.image_paths
+                result = (-1, -1)
+                while isinstance(result, tuple):
+                    result = image_vector.create_vector_list_from_paths(
+                        rebuild_width=result[0], rebuild_height=result[1]
+                    )
+                self.sorted_vectors[v]["vector"] = image_vector
 
     def validate_and_convert(
         self, data: List[List[str]], name: str, target_size: int
-    ) ->npt.NDArray[np.float32]:
+    ) -> npt.NDArray[np.float32]:
         try:
             return np.array(data, dtype=np.float32)
         except ValueError:
@@ -157,11 +170,11 @@ class VectorList:
     def join_vectors(self) -> List[List[float]]:
         clean_arrays: list[npt.NDArray[np.float32]] = []
         with tqdm(
-                total=len(self.sorted_vectors),
-                desc="joining vectors",
-                unit="vectors",
-                position=1,
-            ) as pbar:
+            total=len(self.sorted_vectors),
+            desc="joining vectors",
+            unit="vectors",
+            position=1,
+        ) as pbar:
             for v in self.sorted_vectors:
                 c = self.sorted_vectors[v]
                 current_vector = c["vector"]
@@ -173,14 +186,65 @@ class VectorList:
 
         print("assembling vectors...")
         self.final_vector = np.column_stack(clean_arrays).tolist()
-        self._update_lists()
+        #self._update_lists()
         return self.final_vector
 
-    def _update_lists(self) -> None:
+    def convert_text_list(
+        self,
+        clean_arrays: List[Dict[str, Any]],
+        current_vector: Any,
+        name: str,
+        column_type: str,
+    ) -> List[Dict[str, Any]]:
+
+        if column_type in [self._MAP, self._INT, self._FLOAT]:
+            result = current_vector.value_list
+        elif column_type == self._EMBEDDING:
+            result = current_vector.text_list
+        else:
+            return clean_arrays
+        if len(clean_arrays) == 0:
+            while len(clean_arrays) < len(result):
+                clean_arrays.append({})
+        elif len(result) != len(clean_arrays):
+            print(result)
+            print(clean_arrays)
+            raise ValueError(
+                f"the number of elements doesn't match. real: {len(result)}, expected: {len(clean_arrays)}"
+            )
+
+        for i in range(len(result)):
+            clean_arrays[i][name] = result[i]
+        return clean_arrays
+
+    def join_text_data(self) -> List[Dict[str, Any]]:
+        clean_arrays: List[Dict[str, Any]] = []
+        with tqdm(
+            total=len(self.sorted_vectors),
+            desc="joining text data",
+            unit=" texts",
+            position=1,
+        ) as pbar:
+            for v in self.sorted_vectors:
+                c = self.sorted_vectors[v]
+                current_vector = c["vector"]
+                clean_arrays = self.convert_text_list(
+                    clean_arrays, current_vector, c["name"], c["type"]
+                )
+                pbar.update(1)
+
+        print("assembling text data...")
+        self.final_text_data = clean_arrays
+        #self._update_lists()
+        return self.final_text_data
+
+    def update_lists(self) -> None:
+        print("updating vector lists...")
         if not self.merge_lists:
             self.vectors_list.extend(self.final_vector)
         else:
             self.vectors_list = self.final_vector
+        self.text_list.extend(self.final_text_data)
         self.index_list.extend(self.unique_ids)
         self.scores_list.extend(self.scores)
 

@@ -130,7 +130,6 @@ const compareMode = {
         const loserData = winner === "left" ? this.compareRightData : this.compareLeftData;
 
         try {
-            this.fetchNextComparePair();
             const res = await fetch("/compare/submit", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -140,7 +139,7 @@ const compareMode = {
                     winner_data: winnerData,
                     loser_data: loserData,
                 }),
-            });
+            })
 
             this.loader.querySelector(".loader-text").innerText = "Updating…";
 
@@ -150,6 +149,8 @@ const compareMode = {
                 buttons.forEach(btn => btn.classList.remove("hidden"));
                 return;
             }
+            this.fetchNextComparePair();
+
 
         } catch (e) {
             console.error("Error submitting comparison:", e);

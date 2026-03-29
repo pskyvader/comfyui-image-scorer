@@ -211,7 +211,7 @@ def compare_next():
     if score is None:
         score = 0  # 0 means any score
 
-    pair_data = get_paired_images(score, safety_limit=200, tolerance=0.1)
+    pair_data = get_paired_images(score,safety_limit=30,max_comparison_count=10,max_tolerance=1.0)
 
     if not pair_data:
         return (
@@ -227,8 +227,8 @@ def compare_next():
         rel_path1 = str(Path(img1_path).relative_to(root_path))
         rel_path2 = str(Path(img2_path).relative_to(root_path))
     except ValueError:
-        rel_path1 = img1_path
-        rel_path2 = img2_path
+        rel_path1: str = img1_path
+        rel_path2: str = img2_path
 
     return jsonify(
         {

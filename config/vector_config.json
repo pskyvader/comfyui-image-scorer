@@ -104,12 +104,14 @@
         },
         {
             "name": "lora_weight",
+            "alias":["lora_weight","weight"],
             "type": "float",
             "max_normalization": null,
             "slot_size": 1
         },
         {
             "name": "lora",
+            "alias":["lora_title","lora_name","lora"],
             "type": "map",
             "max_normalization": null,
             "slot_size": 40
@@ -118,7 +120,7 @@
             "name": "sampler",
             "type": "map",
             "max_normalization": null,
-            "slot_size": 50
+            "slot_size": 52
         },
         {
             "name": "scheduler",
@@ -128,18 +130,22 @@
         },
         {
             "name": "model",
+            "alias":["model_title","model_name","model"],
             "type": "map",
             "max_normalization": null,
             "slot_size": 40
         },
         {
             "name": "negative_prompt",
+            "alias":["negative_prompt","negative"],
             "type": "embedding",
             "max_normalization": null,
             "slot_size": 768
         },
         {
             "name": "positive_prompt",
+            "alias":["positive_prompt","positive","prompt"],
+
             "type": "embedding",
             "max_normalization": null,
             "slot_size": 768

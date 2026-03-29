@@ -188,9 +188,13 @@ def load_json(
     if not path_obj.exists():
         return default, "not_found"
 
-    with path_obj.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
-        data = _recursive_parse_json(data, path_obj)
+    try:
+        with path_obj.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            data = _recursive_parse_json(data, path_obj)
+    except Exception:
+        print(f"error parsing json file:{path_obj}, {fh}")
+        raise
 
     if expect is not None and not isinstance(data, expect):
         return default, "invalid_type"
