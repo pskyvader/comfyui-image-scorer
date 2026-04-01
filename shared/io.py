@@ -4,25 +4,18 @@ import os
 from pathlib import Path
 from typing import (
     Any,
-    Tuple,
     TypeVar,
     Iterator,
-    List,
-    Set,
-    Dict,
-    Optional,
 )
 from tqdm import tqdm
 import ast
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any, Optional, Set
-from tqdm import tqdm
 import os
 
 
-def load_single_jsonl(filename: str) -> List[Any]:
-    data: List[Any] = []
+def load_single_jsonl(filename: str) -> list[Any]:
+    data: list[Any] = []
     if os.path.exists(filename):
         with jsonlines.open(filename, mode="r") as reader:
             for obj in reader:
@@ -30,7 +23,7 @@ def load_single_jsonl(filename: str) -> List[Any]:
     return data
 
 
-def write_single_jsonl(filename: str, data: List[Any], mode: str) -> None:
+def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
     file_path = Path(filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +31,7 @@ def write_single_jsonl(filename: str, data: List[Any], mode: str) -> None:
         writer.write_all(data)
 
 
-def discover_files(root: str) -> Iterator[Tuple[str, str]]:
+def discover_files(root: str) -> Iterator[tuple[str, str]]:
     total_files = 0
     for dirpath, _, files in os.walk(root):
         file_set = set(files)
@@ -57,8 +50,8 @@ def discover_files(root: str) -> Iterator[Tuple[str, str]]:
 
 
 def collect_single_file(
-    file: Tuple[str, str], processed_files: Set[str], root: str
-) -> Optional[Tuple[str, Dict[str, Any], str, str]]:
+    file: tuple[str, str], processed_files: set[str], root: str
+) -> tuple[str, dict[str, Any], str, str] | None:
     img_path, meta_path = file
 
     file_id = os.path.relpath(img_path, root).replace("\\", "/")
@@ -86,15 +79,15 @@ def collect_single_file(
 
 
 def collect_valid_files(
-    files: List[Tuple[str, str]],
-    processed_files: Set[str],
+    files: list[tuple[str, str]],
+    processed_files: set[str],
     root: str,
     limit: int = 0,
-    max_workers: Optional[int] = None,
+    max_workers: int | None = None,
     scored_only: bool = True,
-) -> List[Tuple[str, Dict[str, Any], str, str]]:
+) -> list[tuple[str, dict[str, Any], str, str]]:
 
-    collected_data: List[Tuple[str, Dict[str, Any], str, str]] = []
+    collected_data: list[tuple[str, dict[str, Any], str, str]] = []
 
     if not files:
         return collected_data
@@ -148,7 +141,7 @@ def collect_valid_files(
 T = TypeVar("T")
 
 
-def _recursive_parse_json(obj: Any, path: Optional[str] = None) -> Any:
+def _recursive_parse_json(obj: Any, path: str|None= None) -> Any:
     if isinstance(obj, dict):
         return {k: _recursive_parse_json(v, path) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -181,7 +174,7 @@ def load_json(
     path: str,
     expect: type | tuple[type, ...] | None,
     default: T | None,
-) -> Tuple[T | Any, str | None]:
+) -> tuple[T | Any, str | None]:
     if not path:
         return default, "missing_path"
     path_obj = Path(path)
@@ -201,7 +194,7 @@ def load_json(
     return data, None
 
 
-def atomic_write_json(path: str, data: Any, *, indent: Optional[int] = None) -> None:
+def atomic_write_json(path: str, data: Any, *, indent: int|None = None) -> None:
     p: Path = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
@@ -215,7 +208,7 @@ def atomic_write_json(path: str, data: Any, *, indent: Optional[int] = None) -> 
 
 def load_single_entry_mapping(
     path: str,
-) -> Tuple[dict[str, Any] | None, str | None, str | None]:
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
     data, err = load_json(path, expect=dict, default=None)
     if err:
         return None, None, err

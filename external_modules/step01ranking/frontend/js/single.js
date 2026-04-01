@@ -67,6 +67,7 @@ const singleMode = {
         try {
             const res = await fetch("/random_unscored");
             if (res.status === 204) {
+                // No unscored images currently
                 this.loader.querySelector(".loader-text").innerText = "Waiting for new images…";
                 this.loader.classList.remove("hidden");
                 this.previewDiv.classList.add("hidden");
@@ -102,16 +103,17 @@ const singleMode = {
 
             this.imgTag.onerror = () => {
                 console.error("Failed to load image:", this.currentImage);
-                this.loader.querySelector(".loader-text").innerText = "Failed to load image…";
+                this.loader.querySelector(".loader-text").innerText = "Failed to load image. Skipping…";
                 this.loadingImage = false;
                 resumePolling();
+                setTimeout(() => this.loadNext(), 500);
             };
 
-            // Load image
-            this.imgTag.src = "/image/" + encodeURIComponent(this.currentImage.replace(/\\/g, "/"));
+            // Start loading
+            this.imgTag.src =  `/thumbnail/${encodeURIComponent(this.currentImage)}`;
         } catch (e) {
-            console.error("Error loading image:", e);
-            this.loader.querySelector(".loader-text").innerText = "Error loading image…";
+            console.error("Error loading next image:", e);
+            this.loader.querySelector(".loader-text").innerText = "Error loading image";
             this.loadingImage = false;
             resumePolling();
         }
@@ -145,3 +147,41 @@ const singleMode = {
         this.loadNext();
     },
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE CLEANUP FOR MODE SWITCHING
+// ═══════════════════════════════════════════════════════════════════
+
+async function clearSingleModeState() {
+    /**
+     * Clear all single mode state when switching away from this mode
+     */
+    try {
+        // Clear the singleMode state object
+        singleMode.currentImage = null;
+        singleMode.loadingImage = false;
+        
+        // Clear DOM references
+        singleMode.previewDiv = null;
+        singleMode.imgTag = null;
+        singleMode.controls = null;
+        singleMode.loader = null;
+    } catch (e) {
+        console.error("Error clearing single mode state:", e);
+    }
+}
+
+/**
+ * Reload image list for single mode when new images detected
+ * Called by client.js periodically when in single/batch modes
+ */
+async function reloadImageList() {
+    try {
+        // Force reload unscored images
+        if (typeof singleMode.loadNext === 'function') {
+            await singleMode.loadNext();
+        }
+    } catch (e) {
+        console.error("Error reloading image list:", e);
+    }
+}

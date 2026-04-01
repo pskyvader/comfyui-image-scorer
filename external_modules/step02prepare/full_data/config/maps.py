@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 import os
-from typing import List, Tuple
 from .....shared.config import ensure_dir
 from .....shared.io import load_json
 from .....shared.paths import maps_dir
@@ -13,7 +12,7 @@ def map_dir_path(maps_dir: str, name: str, path: str | None = None) -> str:
     return os.path.join(maps_dir, f"{name}_map.json")
 
 
-def load_map(name: str, path: str | None = None) -> List[str]:
+def load_map(name: str, path: str | None = None) -> list[str]:
     ensure_dir(maps_dir)
     map_path = map_dir_path(maps_dir, name, path)
     if not os.path.exists(map_path):
@@ -26,7 +25,7 @@ def load_map(name: str, path: str | None = None) -> List[str]:
     return data or ["unknown"]
 
 
-def save_map(name: str, data: List[str], path: str | None = None) -> None:
+def save_map(name: str, data: list[str], path: str | None = None) -> None:
     ensure_dir(maps_dir)
     map_path = map_dir_path(maps_dir, name, path)
     with open(map_path, "w", encoding="utf-8") as f:
@@ -35,7 +34,7 @@ def save_map(name: str, data: List[str], path: str | None = None) -> None:
 
 def get_or_add(
     name: str, value: str, max_slots: int | str | None, path: str | None = None
-) -> Tuple[int, List[str], str]:
+) -> tuple[int, list[str], str]:
     if isinstance(max_slots, str) and path is None:
         path = max_slots
         max_slots = None

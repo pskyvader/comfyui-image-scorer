@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/css/single.css">
     <link rel="stylesheet" href="/css/batch.css">
     <link rel="stylesheet" href="/css/compare.css">
+    <link rel="stylesheet" href="/css/gallery.css">
 </head>
 
 <body>
@@ -30,6 +31,7 @@
                 <button class="btn btn-mode active" id="mode-single" onclick="switchMode('single')">Single Mode</button>
                 <button class="btn btn-mode" id="mode-batch" onclick="switchMode('batch')">Batch Mode (30)</button>
                 <button class="btn btn-mode" id="mode-compare" onclick="switchMode('compare')">Compare Mode</button>
+                <button class="btn btn-mode" id="mode-gallery" onclick="switchMode('gallery')">Gallery</button>
             </div>
         </div>
 
@@ -37,6 +39,7 @@
         <div id="single-container" class="mode-container visible"></div>
         <div id="batch-container" class="mode-container"></div>
         <div id="compare-container" class="mode-container"></div>
+        <div id="gallery-container" class="mode-container"></div>
     </div>
 
     <!-- Mode-specific scripts -->
@@ -44,6 +47,7 @@
     <script src="/js/single.js"></script>
     <script src="/js/batch.js"></script>
     <script src="/js/compare.js"></script>
+    <script src="/js/gallery.js"></script>
 </body>
 
 </html>

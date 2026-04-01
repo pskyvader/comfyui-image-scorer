@@ -1,10 +1,10 @@
-from typing import Dict, Any, Tuple
+from typing import Any
 from .....shared.utils import parse_custom_text, first_present
 
 
 def parse_entry_meta(
-    entry: Dict[str, Any], normalization: Dict[str, Any]
-) -> Tuple[
+    entry: dict[str, Any], normalization: dict[str, Any]
+) -> tuple[
     float, float, float, Any, Any, Any, Any, float, float, float, float, float, float
 ]:
 

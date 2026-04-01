@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple
+from typing import Any
 import numpy as np
 from tqdm import tqdm
 from .helpers import get_value_from_entry, l2_normalize_batch
@@ -8,11 +8,11 @@ from ..vectors.terms import extract_terms
 class EmbeddingVector:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.value_list: List[str] = []
-        self.vector_list: List[List[float]] = []
+        self.value_list: list[str] = []
+        self.vector_list: list[list[float]] = []
         self.text_list=[]
 
-    def parse_value_list(self, entries: List[Dict[str, Any]],alias:List[str]|None=None) -> List[str]:
+    def parse_value_list(self, entries: list[dict[str, Any]],alias:list[str]|None=None) -> list[str]:
         for entry in entries:
             # for entry_date in entry.values():
             current_value = get_value_from_entry(entry, self.name,alias)
@@ -22,7 +22,7 @@ class EmbeddingVector:
         
         return self.value_list
 
-    def create_vector_batch(self, current_batch: List[str]) -> List[List[float]]:
+    def create_vector_batch(self, current_batch: list[str]) -> list[list[float]]:
 
         model, vector_length = model_loader.load_embedding_model()
 
@@ -43,7 +43,7 @@ class EmbeddingVector:
         # Convert to Python lists only once at the end
         return normalized.tolist()
 
-    def create_vector_list(self, batch_size: int = 4) -> List[List[float]]:
+    def create_vector_list(self, batch_size: int = 4) -> list[list[float]]:
         total = len(self.value_list)
 
         with tqdm(total=total, desc="Encoded", unit=" " + self.name) as pbar:
@@ -55,13 +55,13 @@ class EmbeddingVector:
 
         return self.vector_list
     
-    def create_text_batch(self, batch:List[str])->List[List[Tuple[str, float]]]:
-        text_list:List[List[Tuple[str, float]]]=[]
+    def create_text_batch(self, batch:list[str])->list[list[tuple[str, float]]]:
+        text_list:list[list[tuple[str, float]]]=[]
         for text in batch:
             text_list.append(extract_terms(text))
         return text_list
     
-    def create_text_list(self, batch_size: int = 4) -> List[List[Tuple[str, float]]]:
+    def create_text_list(self, batch_size: int = 4) -> list[list[tuple[str, float]]]:
         total = len(self.value_list)
         with tqdm(total=total, desc="Mapped", unit=" " + self.name) as pbar:
             for i in range(0, total, batch_size):

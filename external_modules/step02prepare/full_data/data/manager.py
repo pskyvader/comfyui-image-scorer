@@ -1,14 +1,14 @@
 import os
 import json
 from shutil import move
-from typing import Iterator, Tuple, Any, cast
+from typing import Iterator, Any, cast
 
 
 from ..config import schema as schema_module
 from .....shared.io import load_json
 
 
-def collect_files(root: str) -> Iterator[Tuple[str, str]]:
+def collect_files(root: str) -> Iterator[tuple[str, str]]:
     for dirpath, _, files in os.walk(root):
         for f in files:
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):

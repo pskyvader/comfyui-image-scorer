@@ -3,30 +3,30 @@ import numpy.typing as npt
 from tqdm import tqdm
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any, Callable
+from typing import Any, Callable
 from skimage.feature import local_binary_pattern
 
 from .vectors.image_vector import ImageVector
 
 # Type Alias for the shared data structure
-ImageEntry = Tuple[str, Dict[str, Any], str, str]
+ImageEntry = tuple[str, dict[str, Any], str, str]
 
 
 def process_single_batch(
-    prepare_func: Callable[[List[str]], List[Image.Image]],
-    analyze_func: Callable[[List[Image.Image], List[ImageEntry]], List[ImageEntry]],
-    paths: List[str],
-    data: List[ImageEntry],
-) -> List[ImageEntry]:
-    image_batch: List[Image.Image] = prepare_func(paths)
+    prepare_func: Callable[[list[str]], list[Image.Image]],
+    analyze_func: Callable[[list[Image.Image], list[ImageEntry]], list[ImageEntry]],
+    paths: list[str],
+    data: list[ImageEntry],
+) -> list[ImageEntry]:
+    image_batch: list[Image.Image] = prepare_func(paths)
     return analyze_func(image_batch, data)
 
 
 class ImageAnalysis(ImageVector):
-    def __init__(self, raw_data: List[ImageEntry]) -> None:
+    def __init__(self, raw_data: list[ImageEntry]) -> None:
         super().__init__("tmp_image")
-        self.raw_data: List[ImageEntry] = raw_data
-        self.processed_data: List[ImageEntry] = []
+        self.raw_data: list[ImageEntry] = raw_data
+        self.processed_data: list[ImageEntry] = []
 
         for data in self.raw_data:
             self.path_list.append(data[0])
@@ -39,8 +39,8 @@ class ImageAnalysis(ImageVector):
         )
 
     def _image_size(
-        self, img: Image.Image, entry: Dict[str, Any], data: ImageEntry
-    ) -> Dict[str, Any]:
+        self, img: Image.Image, entry: dict[str, Any], data: ImageEntry
+    ) -> dict[str, Any]:
         w, h = img.size
         if h < 128 or w < 128:
             raise ValueError(f"Image too small: {data[0]}")
@@ -59,7 +59,7 @@ class ImageAnalysis(ImageVector):
         )
         return entry
 
-    def _contrast(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _contrast(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         rgb: npt.NDArray[np.float32] = np.asarray(img, dtype=np.float32) / 255.0
         lum: npt.NDArray[np.float32] = (
             0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
@@ -67,7 +67,7 @@ class ImageAnalysis(ImageVector):
         entry["contrast"] = float(np.std(lum)) / 0.5
         return entry
 
-    def _sharpness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _sharpness(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
         lap: npt.NDArray[np.float32] = (
             -4 * gray
@@ -81,7 +81,7 @@ class ImageAnalysis(ImageVector):
         entry["sharpness"] = float(raw_sharp / (raw_sharp + 500.0))
         return entry
 
-    def _noise_score(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _noise_score(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
         blur: npt.NDArray[np.float32] = (
             gray
@@ -96,7 +96,7 @@ class ImageAnalysis(ImageVector):
         entry["noise_score"] = float(norm * 4.0)
         return entry
 
-    def _colorfulness(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _colorfulness(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         rgb: npt.NDArray[np.float32] = np.asarray(img, dtype=np.float32)
         rg, yb = (
             rgb[..., 0] - rgb[..., 1],
@@ -110,8 +110,8 @@ class ImageAnalysis(ImageVector):
         return entry
 
     def _artifact_score(
-        self, img: Image.Image, entry: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, img: Image.Image, entry: dict[str, Any]
+    ) -> dict[str, Any]:
         gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
         h, w = gray.shape
         sx, sy = max(4, min(8, w // 256)), max(4, min(8, h // 256))
@@ -125,7 +125,7 @@ class ImageAnalysis(ImageVector):
         entry["artifact_score"] = float(min(1.0, (v + h_val) / (2.0 * rng) * 5.0))
         return entry
 
-    def _edge_density(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _edge_density(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         gray: npt.NDArray[np.float32] = np.asarray(img.convert("L"), dtype=np.float32)
         dx = np.roll(gray, -1, 1) - np.roll(gray, 1, 1)
         dy = np.roll(gray, -1, 0) - np.roll(gray, 1, 0)
@@ -134,7 +134,7 @@ class ImageAnalysis(ImageVector):
         entry["edge_density"] = float(np.mean(mag) / 255.0)
         return entry
 
-    def _texture_lbp(self, img: Image.Image, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _texture_lbp(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
         gray: npt.NDArray[np.uint8] = np.asarray(img.convert("L"), dtype=np.uint8)
         lbp: npt.NDArray[np.float64] = local_binary_pattern(
             gray, 8, 1, method="uniform"
@@ -147,9 +147,9 @@ class ImageAnalysis(ImageVector):
 
     def analyze_image_batch(
         self,
-        image_batch: List[Image.Image],
-        data_batch: List[ImageEntry],
-    ) -> List[ImageEntry]:
+        image_batch: list[Image.Image],
+        data_batch: list[ImageEntry],
+    ) -> list[ImageEntry]:
         if len(image_batch) != len(data_batch):
             raise IndexError("Batch mismatch")
 
@@ -168,7 +168,7 @@ class ImageAnalysis(ImageVector):
 
     def analyze_images_from_paths(
         self, batch_size: int = 32, max_workers: int = 16
-    ) -> List[ImageEntry]:
+    ) -> list[ImageEntry]:
         total: int = len(self.path_list)
         if total == 0:
             return []
@@ -183,7 +183,7 @@ class ImageAnalysis(ImageVector):
             for i in range(0, total, batch_size)
         ]
 
-        results: List[ImageEntry] = []
+        results: list[ImageEntry] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(process_single_batch, *b) for b in batches]
             with tqdm(total=total, desc="Analyzing", unit="img") as pbar:

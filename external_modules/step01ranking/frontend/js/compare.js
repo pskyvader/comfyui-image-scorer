@@ -164,3 +164,28 @@ const compareMode = {
         this.fetchNextComparePair();
     },
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE CLEANUP FOR MODE SWITCHING
+// ═══════════════════════════════════════════════════════════════════
+
+async function clearCompareModeState() {
+    /**
+     * Clear all compare mode state when switching away from this mode
+     */
+    try {
+        // Clear the compareMode state
+        compareMode.comparisons = [];
+        compareMode.imageA = null;
+        compareMode.imageB = null;
+        compareMode.loadingComparison = false;
+        
+        // Clear DOM references
+        compareMode.imgA = null;
+        compareMode.imgB = null;
+        compareMode.controls = null;
+        compareMode.loader = null;
+    } catch (e) {
+        console.error("Error clearing compare mode state:", e);
+    }
+}

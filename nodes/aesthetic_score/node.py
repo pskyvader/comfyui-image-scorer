@@ -1,5 +1,5 @@
 import torch
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any
 import numpy as np
 from PIL import Image
 from ...shared.helpers import export_image_batch
@@ -15,7 +15,7 @@ class AestheticScoreNode:
         pass
 
     @classmethod
-    def INPUT_TYPES(cls) -> Dict[str, Dict[str, Any]]:
+    def INPUT_TYPES(cls) -> dict[str, dict[str, Any]]:
         return {
             "required": {
                 "image": ("IMAGE",),  # [B, H, W, C],
@@ -63,7 +63,7 @@ class AestheticScoreNode:
         min_images: int = 1,
         max_images: int = 10,
         memory_usage: float = 0.85,
-    ) -> Tuple[torch.Tensor, torch.Tensor, bool, List[float]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, bool, list[float]]:
 
         batch_size = 10
 
@@ -86,7 +86,7 @@ class AestheticScoreNode:
         if not (float(lora_strength) >= 0.0):
             raise ValueError("'lora_strength' must be a non-negative float.")
 
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "steps": steps,
             "cfg": cfg,
             "sampler": sampler,
@@ -99,11 +99,11 @@ class AestheticScoreNode:
         }
         image_analysis = ImageAnalysis([])
         images_list = image_analysis.prepare_image_batch(image)
-        processed_data: List[Tuple[str, Dict[str, Any], str, str]] = []
+        processed_data: list[tuple[str, dict[str, Any], str, str]] = []
         for i in range(0, len(images_list), batch_size):
             current_batch = images_list[i : i + batch_size]
-            data: Tuple[str, Dict[str, Any], str, str] = ("", entry, "", "")
-            data_batch: List[Tuple[str, Dict[str, Any], str, str]] = [data] * len(
+            data: tuple[str, dict[str, Any], str, str] = ("", entry, "", "")
+            data_batch: list[tuple[str, dict[str, Any], str, str]] = [data] * len(
                 current_batch
             )
             data_batch = image_analysis.analyze_image_batch(current_batch, data_batch)
@@ -159,7 +159,7 @@ class AestheticScoreNode:
         )
 
         # Select images above threshold first
-        selected: List[int] = [i for i in sorted_indices if all_scores[i] >= threshold]
+        selected: list[int] = [i for i in sorted_indices if all_scores[i] >= threshold]
 
         # If not enough images, fill using top-scoring remaining images
         if len(selected) < int(min_images):

@@ -2,16 +2,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Union, Optional, Iterator
+from typing import Any, Union, Iterator
 from collections.abc import MutableMapping
 
 from .io import load_json
 
 PathLike = Union[str, Path]
-ConfigDict = Dict[str, Any]
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_FILE = PROJECT_ROOT.joinpath("config", "config.json")
-SUB_CONFIG_MAPPING = {
+ConfigDict = dict[str, Any]
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
+CONFIG_FILE: Path = PROJECT_ROOT.joinpath("config", "config.json")
+SUB_CONFIG_MAPPING: dict[str, str] = {
     "prepare": "prepare_config",
     "training": "training_config",
     "vector": "vector_config",
@@ -21,12 +21,12 @@ SUB_CONFIG_MAPPING = {
 def _get_config_file(path: PathLike) -> Path:
     p = Path(path)
     if not p.is_absolute():
-        p = PROJECT_ROOT.joinpath(p)
+        p: Path = PROJECT_ROOT.joinpath(p)
     return p
 
 
 def _load_raw_config(path: PathLike) -> ConfigDict:
-    config_file = _get_config_file(path)
+    config_file: Path = _get_config_file(path)
     if not config_file.exists():
         return {}
     data, err = load_json(str(config_file), expect=dict, default=None)
@@ -36,7 +36,7 @@ def _load_raw_config(path: PathLike) -> ConfigDict:
 
 
 def _save_raw_config(data: ConfigDict, path: PathLike) -> None:
-    config_file = _get_config_file(path)
+    config_file: Path = _get_config_file(path)
     ensure_dir(config_file.parent)
     with open(config_file, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
@@ -50,8 +50,8 @@ _sentinel = object()
 
 
 class AutoSaveDict(MutableMapping):
-    def __init__(self, data: Dict[str, Any], save_callback: callable):
-        self._data = data
+    def __init__(self, data: dict[str, Any], save_callback: callable) -> None:
+        self._data: dict[str, Any] = data
         self._save_callback = save_callback
 
     def get(self, key: str, default: Any = _sentinel) -> Any:
@@ -86,7 +86,7 @@ class AutoSaveDict(MutableMapping):
     def __len__(self) -> int:
         return len(self._data)
 
-    def copy(self) -> Dict[str, Any]:
+    def copy(self) -> dict[str, Any]:
         return self._data.copy()
 
     def __repr__(self) -> str:
@@ -109,11 +109,11 @@ class Config(MutableMapping):
     Use .get(key) (without default) or direct access [key]. Both will raise KeyError if missing.
     """
 
-    def __init__(self, config_file: PathLike = CONFIG_FILE):
-        self._root_path = _get_config_file(config_file)
-        self._cache: Dict[str, Any] = {}
-        self._root_data: Optional[ConfigDict] = None
-        self._wrappers: Dict[str, AutoSaveDict] = {}
+    def __init__(self, config_file: PathLike = CONFIG_FILE) -> None:
+        self._root_path: Path = _get_config_file(config_file)
+        self._cache: dict[str, Any] = {}
+        self._root_data: ConfigDict | None = None
+        self._wrappers: dict[str, AutoSaveDict] = {}
 
     def get(self, key: str, default: Any = _sentinel) -> Any:
         if default is not _sentinel:
@@ -134,12 +134,12 @@ class Config(MutableMapping):
         if self._root_data is not None:
             _save_raw_config(self._root_data, self._root_path)
 
-    def _get_sub(self, section: str) -> Optional[ConfigDict]:
-        pointer = SUB_CONFIG_MAPPING.get(section)
+    def _get_sub(self, section: str) -> ConfigDict | None:
+        pointer: str | None = SUB_CONFIG_MAPPING.get(section)
         if not pointer:
             return None
 
-        root = self._get_root()
+        root: dict[str, Any] = self._get_root()
         if pointer not in root:
             return None
 
@@ -156,15 +156,15 @@ class Config(MutableMapping):
         if section not in self._cache:
             return
 
-        pointer = SUB_CONFIG_MAPPING.get(section)
-        root = self._get_root()
+        pointer: str | None = SUB_CONFIG_MAPPING.get(section)
+        root: dict[str, Any] = self._get_root()
         path = root[pointer]
         _save_raw_config(self._cache[section], path)
 
     def __getitem__(self, key: str) -> Any:
         # Check subconfig mappings
         if key in SUB_CONFIG_MAPPING:
-            data = self._get_sub(key)
+            data: dict[str, Any] | None = self._get_sub(key)
             if data is None:
                 raise KeyError(f"Subconfig '{key}' not configured")
             if key not in self._wrappers:
@@ -172,7 +172,7 @@ class Config(MutableMapping):
             return self._wrappers[key]
 
         # Check root
-        root = self._get_root()
+        root: dict[str, Any] = self._get_root()
         if key in root:
             val = root[key]
             if isinstance(val, dict):
@@ -182,7 +182,7 @@ class Config(MutableMapping):
 
         # Check deep keys in subconfigs
         for section in SUB_CONFIG_MAPPING:
-            data = self._get_sub(section)
+            data: dict[str, Any] | None = self._get_sub(section)
             if data and key in data:
                 # We return a wrapper for the sub-dict, but this wrapper is ephemeral.
                 # Logic for caching ephemeral deep wrappers is complex.
@@ -206,11 +206,11 @@ class Config(MutableMapping):
             return
 
         # If key in root
-        root = self._get_root()
+        root: dict[str, Any] = self._get_root()
 
         # Check if overwrite subconfig deep key
         for section in SUB_CONFIG_MAPPING:
-            data = self._get_sub(section)
+            data: dict[str, Any] | None = self._get_sub(section)
             if data is not None and key in data:
                 data[key] = value
                 self._save_sub(section)
@@ -220,14 +220,14 @@ class Config(MutableMapping):
         self._save_root()
 
     def __delitem__(self, key: str) -> None:
-        root = self._get_root()
+        root: dict[str, Any] = self._get_root()
         if key in root:
             del root[key]
             self._save_root()
             return
 
         for section in SUB_CONFIG_MAPPING:
-            data = self._get_sub(section)
+            data: dict[str, Any] | None = self._get_sub(section)
             if data and key in data:
                 del data[key]
                 self._save_sub(section)
@@ -236,10 +236,10 @@ class Config(MutableMapping):
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
-        keys = set(self._get_root().keys())
+        keys: set[str] = set(self._get_root().keys())
         keys.update(SUB_CONFIG_MAPPING.keys())
         for section in SUB_CONFIG_MAPPING:
-            data = self._get_sub(section)
+            data: dict[str, Any] | None = self._get_sub(section)
             if data:
                 keys.update(data.keys())
         return iter(keys)

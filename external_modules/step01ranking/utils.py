@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, List, Dict
+from typing import Any
 from flask import send_from_directory, abort
 from urllib.parse import unquote
 from shared.io import load_single_entry_mapping, discover_files, collect_valid_files
@@ -10,7 +10,7 @@ import random
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _image_root = None
-_image_list_cache: List[str] = []
+_image_list_cache: list[str] = []
 
 
 def serve_file(subpath: str) -> Any:
@@ -26,7 +26,7 @@ def get_json_path(img_path: str) -> str:
     return os.path.splitext(img_path)[0] + ".json"
 
 
-def load_metadata(image_path: str) -> Dict[str, Any] | None:
+def load_metadata(image_path: str) -> dict[str, Any] | None:
     metadata_path = get_json_path(image_path)
     payload, ts, err = load_single_entry_mapping(metadata_path)
     if err:
@@ -116,7 +116,7 @@ def scan_batch(root: str, limit: int = 100) -> bool:
     return added_any_unscored
 
 
-def get_unscored_images(root: str) -> List[str]:
+def get_unscored_images(root: str) -> list[str]:
     """
     Return **truly unscored images** for the client.
     Only images with score=NULL in database.
@@ -126,7 +126,7 @@ def get_unscored_images(root: str) -> List[str]:
 
     unscored_paths = get_all(unscored_only=True)
     root_path = Path(root)
-    unscored: List[str] = []
+    unscored: list[str] = []
 
     for img in unscored_paths:
         try:

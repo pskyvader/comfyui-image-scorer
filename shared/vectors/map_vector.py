@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import Any
 from ..loaders.maps_loader import maps_list
 from ..config import config
 from .helpers import get_value_from_entry
@@ -7,11 +7,11 @@ from .helpers import get_value_from_entry
 class MapVector:
     def __init__(self, name: str) -> None:
         self.name: str = name
-        self.value_list: List[str] = []
-        self.vector_list: List[List[float]] = []
+        self.value_list: list[str] = []
+        self.vector_list: list[list[float]] = []
         self.vector_config = config["vector"]["vectors"]
 
-    def one_hot(self, index: int, length: int) -> List[int]:
+    def one_hot(self, index: int, length: int) -> list[int]:
         """Return a one-hot encoded vector of ``length`` with 1 at ``index``.
 
         Out-of-range indexes produce a zero vector rather than raising.
@@ -23,10 +23,10 @@ class MapVector:
 
     def parse_value_list(
         self,
-        entries: List[Dict[str, Any]],
+        entries: list[dict[str, Any]],
         add_new_values: bool = False,
-        alias: List[str] | None = None,
-    ) -> List[str]:
+        alias: list[str] | None = None,
+    ) -> list[str]:
         for entry in entries:
             # for entry_date in entry.values():
             current_value = get_value_from_entry(entry, self.name, alias)
@@ -49,7 +49,7 @@ class MapVector:
             self.value_list.append(current_value)
         return self.value_list
 
-    def create_vector_list(self) -> List[List[float]]:
+    def create_vector_list(self) -> list[list[float]]:
         for current_value in self.value_list:
             index, size = maps_list.get_value(self.name, current_value)
             if index == -1:

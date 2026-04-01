@@ -1,41 +1,94 @@
-# Development Instructions for ComfyUI Trainer
-# NEVER TOUCH THE VIRTUAL ENVIRONMENT FILES OR FOLDERS!
-### AI-jobs: unless explicitly instructed, the only place to create new files for any extra task is in the folder ./AI_jobs
-## Always Do This
-- All of these files show be used as reference always:
-    - [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md)
-    - [config/config.json](../config/config.json)
-    - [config/prepare_config.json](../config/prepare_config.json)
-    - [config/training_config.json](../config/training_config.json)
-    - [todo.md](../todo.md)
-    - pyproject.toml
-    - this file
-- when one task is done, move it from todo.md to done.md, and then immediately proceed to the next task. Dont wait for feedback or reviews until all tasks are done.
-- always follow the instructions in todo.md and done.md
-- check and fix code style issues (see ## Error Handling)
-- Run test sequence after making changes. (#testing process section below)
-- See [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) for detailed file structure with all modules, classes, and functions.
+# Development Instructions for ComfyUI Image Scorer
+
+## ⚠️ CRITICAL CONSTRAINTS
+- **ONLY modify files inside `custom_nodes/comfyui-image-scorer/` folder**
+- **NEVER modify anything outside this folder** (even for reading Python files, you can read but not modify)
+- **ALWAYS use ComfyUI's virtual environment** located at `e:/ComfyUI/.venv` (or user's ComfyUI root/.venv)
+- **ALWAYS confirm you're inside the venv before running any code** - check prompt starts with `(.venv)`
+- **Forbidden to modify**: ComfyUI core files, other custom nodes, system files
+
+## Project Overview
+**ComfyUI Image Scorer** is a comprehensive image aesthetic scoring system integrated as a ComfyUI custom node.
+- **Location**: `e:\ComfyUI\custom_nodes\comfyui-image-scorer\`
+- **Python Version**: 3.14+ (see pyproject.toml)
+- **Dependencies**: Managed via `uv` tool (see pyproject.toml)
+
+## Entry Points
+The project has three main processing steps:
+1. **Step 01 - Ranking** (`external_modules/step01ranking/`): Web UI for scoring images (Flask server)
+2. **Step 02 - Prepare** (`external_modules/step02prepare/`): Data preparation (images + text)
+3. **Step 03 - Training** (`external_modules/step03training/`): Model training & analysis (Jupyter notebooks)
+
+## Always Reference These Files
+- [todo.md](../todo.md) - Current task list (MUST follow these tasks)
+- [config/config.json](../config/config.json) - Main configuration
+- [config/prepare_config.json](../config/prepare_config.json) - Data preparation settings
+- [config/training_config.json](../config/training_config.json) - Training parameters
+- [config/vector_config.json](../config/vector_config.json) - Vector configuration
+- [pyproject.toml](../pyproject.toml) - Dependencies and project metadata
+- This file
+
+## Virtual Environment Setup
+**ABSOLUTE REQUIREMENT**: Always use ComfyUI's venv
+- Workspace location: `e:\ComfyUI`
+- Virtual environment: `e:\ComfyUI\.venv`
+- Activate: `e:\ComfyUI\.venv\Scripts\activate.ps1` (Windows PowerShell)
+- After activation, your prompt should show: `(.venv) PS> `
 
 ## Dependency Management
-- always use `pyproject.toml` to add new dependencies.
-- use uv tool to add new dependencies:
-    - to add a new dependency: `uv add <package-name>` (e.g., `uv add requests`)
-    - to remove a dependency: `uv remove <package-name>` (e.g., `uv remove requests`)
-    - to update all dependencies: `uv update`
-- after modifying `pyproject.toml`, run `pip install -e .` to update the virtual environment.
+⚠️ Use `uv` tool, NOT pip directly:
+```powershell
+# Add new dependency
+uv add <package-name>
+
+# Remove dependency  
+uv remove <package-name>
+
+# Update all dependencies
+uv update
+```
+
+After modifying `pyproject.toml`:
+```powershell
+pip install -e .
+```
 
 ## Common Commands
-- always use the present virtual environment to any script execution, except for Jupyter notebooks
-- Activate virtual environment: `.venv\Scripts\activate.ps1` (Windows PowerShell)
-- any python code: `python` (or `.venv\Scripts\python` only if not activated)
-- when running code, always run in the format of `python <path-to-script>` not as a module (no -m flag).
+**Always execute from project root with venv activated!**
+
+```powershell
+# Verify venv is active (should show: (.venv) PS>)
+python --version
+
+# Run Python scripts
+python external_modules/step01ranking/score_server.py
+python external_modules/step02prepare/full_data/prepare_data.py --rebuild --limit 10
+
+# Run tests
+pytest
+
+# Run notebooks (requires Jupyter)
+jupyter notebook external_modules/step03training/full_data/training.ipynb
+```
+
+## Code Style & Type Hints
+- Use Python 3.9+ type hints:
+  - ✅ `dict` instead of `Dict`
+  - ✅ `list` instead of `List`
+  - ✅ `tuple` instead of `Tuple`
+  - ✅ `X | None` instead of `Optional[X]`
+  - ✅ Keep `TypedDict`, `Literal`, `Any` from typing module
+- All files must pass type checking with Pylance
+- Never use `# type: ignore` or `# noqa` without explicit justification
+- All errors must be fixed, not silenced
 
 ## Reuse Existing Modules
-When adding new features, check [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) for available functions to reuse. 
-Avoid duplicating functionality.
-when adding new features, always update the structure file
-when adding new features, check if existing modules can use the new functionality to avoid code duplication.
-after adding new features, test using #testing process below.
+When adding new features:
+1. Check [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) for available functions
+2. Avoid duplicating functionality
+3. Always update PROJECT_STRUCTURE.md when adding new functions/classes
+4. Run test suite after changes
+
 
 # test creation guidelines
 - there should always be at least one test per method or function.
@@ -43,29 +96,68 @@ after adding new features, test using #testing process below.
 - Ensure error handling covers edge cases (bad JSON, missing files, etc.)
 
 # testing process
-always follow [## Common Commands] first to activate the virtual environment.
-then follow these steps:
-1. run the tests after any change (pytest)
-2. when running tests, ensure all tests pass before continue
-3. after all tests pass, Remove generated files after modifications
-4. run the main code in each main directory to ensure no runtime errors in this precise order:
-    - reset prepare config file (config/prepare_config.json), set vector schema/slots values to 1, (this is needed for testing all functions, including resize of the vectors).
-    - `python step01ranking/score_server.py --test-run` (verify config and exit)
-    - `python step02prepare/full_data/prepare_data.py --rebuild --limit 10` (first run with small limit to verify no runtime errors)
-    - `python step02prepare/full_data/prepare_data.py` (second run full without limit nor rebuild to check full data prepare)
-    - `python step02prepare/text_data/prepare_text_data.py --rebuild (use `--rebuild` to force regeneration)
-    - `step03training/full_data/training.ipynb` 
-    - `step03training/full_data/hyperparameter_optimize_loop.ipynb`     
-    - `step03training/text_data/training.ipynb`
-    - `python step04export/deploy.py` (to verify deployment process, and then confirm that the files exist in the folder)
+**CRITICAL**: Always activate venv first before running tests!
 
-5. after everything runs without errors, update the `PROJECT_STRUCTURE.md` file if any new files, methods, or classes were added.
-6. Check for missing libraries add any new one to `pyproject.toml` if needed.
+```powershell
+# Step 1: Confirm venv is active
+(.venv) PS> python --version
 
+# Step 2: Run all tests
+(.venv) PS> pytest
 
+# Step 3: When tests pass, run main pipeline validation
+(.venv) PS> python external_modules/step01ranking/score_server.py --test-run
+
+(.venv) PS> python external_modules/step02prepare/full_data/prepare_data.py --rebuild --limit 10
+
+(.venv) PS> python external_modules/step02prepare/full_data/prepare_data.py
+
+(.venv) PS> python external_modules/step02prepare/text_data/prepare_text_data.py --rebuild
+
+# Step 4: Notebooks (if modified)
+(.venv) PS> jupyter notebook external_modules/step03training/full_data/training.ipynb
+```
+
+**After each pipeline run**:
+1. Verify no errors in output
+2. Check that output files were created (vectors.jsonl, scores.jsonl, etc.)
+3. Remove generated test outputs
+4. Run full test suite to ensure no regressions
 
 ## Error Handling
-- never use silent failures, or default fallbacks
-- always fix any type of error, no matter how irrelevant they seem (for example: type hints warnings, unused variables, etc.)
-- never hide or ignore errors (like tagging with `# noqa` or `# type: ignore`)
-- **STRICT CONFIGURATION**: Never use `.get(key, default)` or `value = d[k] if k in d else default`. All configuration keys MUST exist. If a key is missing, let it raise `KeyError`. This enforces config schema validity. Do not hardcode "fallback" values in the code.
+- **STRICT CONFIGURATION**: Never use `.get(key, default)` or `value = d[k] if k in d else default`. All configuration keys MUST exist. If a key is missing, let it raise `KeyError`. This enforces config schema validity.
+- Never use silent failures or default fallbacks
+- Always fix any type of error, including:
+  - Type hints warnings
+  - Unused variables
+  - Unused imports
+  - Incorrect exception handling
+  - Missing return statements
+- Never hide or ignore errors (like tagging with `# noqa` or `# type: ignore` without explicit justification)
+- All errors must be fixed, not worked around
+
+## File Organization
+```
+custom_nodes/comfyui-image-scorer/
+├── external_modules/
+│   ├── step01ranking/        # Scoring UI server
+│   ├── step02prepare/         # Data preparation
+│   └── step03training/        # Model training
+├── shared/                    # Shared utilities
+├── nodes/                     # ComfyUI node implementations
+├── tests/                     # Test suite
+├── config/                    # Configuration files
+├── output/                    # Generated outputs
+└── ...
+```
+
+## When Making Changes
+1. **Before starting**: Read the task description in todo.md
+2. **During coding**: Follow all constraints above
+3. **After coding**:
+   - Run `pytest` to verify tests pass
+   - Run pipeline validation steps
+   - Update PROJECT_STRUCTURE.md if needed
+   - Check for type hint warnings
+   - Remove temporary/generated files
+4. **When done**: Mark task as complete in todo.md

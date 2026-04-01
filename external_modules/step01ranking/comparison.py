@@ -29,16 +29,14 @@ def get_paired_images(
     max_tolerance: float = 1.0,
 ) -> Pair | None:
     global _cached_pairs
-    if len(_cached_pairs) > safety_limit:
-        # remove oldest added elements
-        _cached_pairs = _cached_pairs[-int(safety_limit / 2) :]
     image_pair = None
     i = None
-    min_tolerance = tolerance = 0
+    min_tolerance: float = 0
+    tolerance: float = 0
     alpha = 2.0
 
     for i in range(1, max_comparison_count + 1):
-        safety_limit_level = safety_limit * i
+        safety_limit_level: int = safety_limit * i
         tolerance = 0.01 + max_tolerance * (1 - (i / max_comparison_count) ** alpha)
         min_tolerance = tolerance
         while min_tolerance >= 0 and image_pair is None:
@@ -55,6 +53,12 @@ def get_paired_images(
     if image_pair is not None:
         _cached_pairs.append(image_pair[0])
         _cached_pairs.append(image_pair[1])
+    elif len(_cached_pairs) > safety_limit:
+        # remove oldest added elements
+        _cached_pairs = _cached_pairs[-int(safety_limit / 2) :]
+        return get_paired_images(
+            score, safety_limit, max_comparison_count, max_tolerance
+        )
     return image_pair
 
 
@@ -64,7 +68,7 @@ def get_paired_images(
 #     print(f"Score groups: {score_groups}")
 
 #     # Store the highest valid level for each score: {score: highest_lvl}
-#     best_per_score: Dict[int, int] = {}
+#     best_per_score: dict[int, int] = {}
 
 #     for s, level_counts in score_groups.items():
 #         highest_healthy_lvl = 0 if level_counts.get(0, 0) >= safety_limit else -1
@@ -91,7 +95,7 @@ def get_paired_images(
 #     min_level_found = min(best_per_score.values())
 
 #     # Find all scores that reached this specific max level
-#     top_candidates: List[tuple[int, int, int]] = []
+#     top_candidates: list[tuple[int, int, int]] = []
 #     for s, lvl in best_per_score.items():
 #         if lvl == min_level_found:
 #             count = score_groups[s][lvl]
@@ -126,14 +130,14 @@ def get_paired_images(
 #     except ValueError:
 #         return None
 
-#     paths: List[str] = get_images_by_level(chosen_score, chosen_level)
+#     paths: list[str] = get_images_by_level(chosen_score, chosen_level)
 
 #     if len(paths) < safety_limit:
 #         return None
 
-#     sampled_paths: List[str] = random.sample(paths, safety_limit)
+#     sampled_paths: list[str] = random.sample(paths, safety_limit)
 
-#     seen: List[SeenItem] = []
+#     seen: list[SeenItem] = []
 
 #     best_pair: Optional[Pair] = None
 #     smallest_diff: float = float("inf")
@@ -305,9 +309,9 @@ def apply_comparison_and_write(
     effective_score_loser = loser_data["score"] + loser_data["score_modifier"] / 10
 
     score_difference = effective_score_winner - effective_score_loser
-    #if winner is below loser, then effectively switch places
+    # if winner is below loser, then effectively switch places
     if score_difference < 0:
-        score_scale = max(score_scale, -score_difference)
+        score_scale = max(score_scale, (-score_difference * 10))
 
     # score_scale: float = 1 + 0.3 + random.random() * 0.2
     # last_compared_winner = _get_last_compared(winner_path, winner_data)

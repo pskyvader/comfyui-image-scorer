@@ -1,9 +1,9 @@
-from typing import Any, Dict
+from typing import Any
 import random
 from shared.training.model_trainer import grid_base
 
 
-def generate_random_config() -> Dict[str, Any]:
+def generate_random_config() -> dict[str, Any]:
     # Initialize metadata
     cfg = {"best_score": -1000000.0, "training_time": 0.0}
     for key, cell in grid_base.items():
@@ -22,7 +22,7 @@ def generate_random_config() -> Dict[str, Any]:
     return cfg
 
 
-def crossover_config(cfg1: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, Any]:
+def crossover_config(cfg1: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, Any]:
     # Reset metadata for new offspring
     new_cfg = {"best_score": -1000000.0, "training_time": 0.0}
     for key in grid_base.keys():
@@ -37,7 +37,7 @@ def crossover_config(cfg1: Dict[str, Any], cfg2: Dict[str, Any]) -> Dict[str, An
     return new_cfg
 
 
-def generate_fastest_setup() -> Dict[str, Any]:
+def generate_fastest_setup() -> dict[str, Any]:
     """Generates a config likely to be fast (fewer estimators, shallow trees)."""
     # Metadata for optimizer: high training time so real runs replace it
     cfg = {"best_score": -1000000.0, "training_time": 99999.0}
@@ -63,7 +63,7 @@ def generate_fastest_setup() -> Dict[str, Any]:
     return cfg
 
 
-def generate_slowest_setup() -> Dict[str, Any]:
+def generate_slowest_setup() -> dict[str, Any]:
     """Generates a config likely to be slow (max estimators, deep trees)."""
     # Metadata for optimizer: low score so real runs replace it
     cfg = {"best_score": -1000000.0, "training_time": 99999.0}

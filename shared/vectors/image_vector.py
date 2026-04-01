@@ -1,15 +1,13 @@
 from PIL import Image
-from typing import List, Any, Dict, Tuple
+from typing import Any
 from tqdm import tqdm
+from collections import defaultdict, OrderedDict
 import torch
 from torchvision import transforms
 import numpy as np
+
 from ..loaders.model_loader import model_loader
 from ..config import config
-from typing import List
-from tqdm import tqdm
-from collections import defaultdict, OrderedDict
-
 from .helpers import l2_normalize_batch
 from ..io import load_json, atomic_write_json
 from ..paths import vectors_size_file
@@ -18,9 +16,9 @@ from ..paths import vectors_size_file
 class ImageVector:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.image_list: List[Image.Image]=[]
-        self.path_list: List[str] = []
-        self.vector_list: List[List[float]] = []
+        self.image_list: list[Image.Image]=[]
+        self.path_list: list[str] = []
+        self.vector_list: list[list[float]] = []
         self.model: Any = None
         self.vector_length: int = 0
         self._transform = transforms.Compose(
@@ -41,11 +39,11 @@ class ImageVector:
         # only use dedicated memory
         torch.cuda.set_per_process_memory_fraction(0.99, 0)
 
-    def array_to_pil(self, arr: Any) -> List[Image.Image]:
+    def array_to_pil(self, arr: Any) -> list[Image.Image]:
         arr = np.asarray(arr)
         if arr.ndim == 4:
             # Batch of images
-            out: List[Image.Image] = []
+            out: list[Image.Image] = []
             for i in range(arr.shape[0]):
                 sub = self.array_to_pil(arr[i])
                 out.extend(sub)
@@ -75,7 +73,7 @@ class ImageVector:
             return [Image.fromarray(arr).convert("RGB")]
         raise ValueError(f"Unsupported ndarray shape: {arr.shape}")
 
-    def prepare_image_batch(self, image: Any) -> List[Image.Image]:
+    def prepare_image_batch(self, image: Any) -> list[Image.Image]:
         """
         Convert various image inputs into a list of RGB PIL Images.
         Accepts torch.Tensor, numpy arrays, PIL.Image, or list/tuple of these.
@@ -95,15 +93,15 @@ class ImageVector:
             res = self.array_to_pil(image)
             return res
         if isinstance(image, (list, tuple)):
-            out: List[Image.Image] = []
+            out: list[Image.Image] = []
             for it in image:
                 out.extend(self.prepare_image_batch(it))
             return out
         raise TypeError(f"Unsupported image type: {type(image)}")
 
     def create_image_vector_batch(
-        self, current_batch: List[Image.Image]
-    ) -> List[List[float]]:
+        self, current_batch: list[Image.Image]
+    ) -> list[list[float]]:
         """
         Encodes a batch of images into vectors. Assumes all images in the batch
         have the same size.
@@ -115,7 +113,7 @@ class ImageVector:
         # batch_shape = (batch_size, img_size[0], img_size[1])
 
         model = self.model
-        transformed_images: List[torch.Tensor] = [
+        transformed_images: list[torch.Tensor] = [
             self._transform(img) for img in current_batch
         ]
         # sprint(f"transformed images[0] type: {type(transformed_images[0])}")
@@ -152,7 +150,7 @@ class ImageVector:
 
         width_str = str(width)
         height_str = str(height)
-        vector_width: Dict[str, int] = {}
+        vector_width: dict[str, int] = {}
         if self.vector_sizes:
             if width_str in self.vector_sizes:
                 vector_width = self.vector_sizes[width_str]
@@ -265,7 +263,7 @@ class ImageVector:
         return batch_size
 
     def create_vector_list(self,
-        memory_usage: float = 0.85,rebuild:bool=False) -> List[List[float]]| None:
+        memory_usage: float = 0.85,rebuild:bool=False) -> list[list[float]]| None:
         
         self.model, self.vector_length, _ = model_loader.load_vision_model()
         batch_size = self.get_batch_size(
@@ -294,7 +292,7 @@ class ImageVector:
         memory_usage: float = 0.85,
         rebuild_width: int = -1,
         rebuild_height: int = -1,
-    ) -> List[List[float]]| Tuple[int,int]:
+    ) -> list[list[float]]| tuple[int,int]:
         """
         Exact-size bucketing with controlled RAM and VRAM usage.
 
@@ -310,7 +308,7 @@ class ImageVector:
         # self.vector_length = vector_length
 
         total = len(self.path_list)
-        vectors: List[List[float]] = [[]] * total  # preserve original order
+        vectors: list[list[float]] = [[]] * total  # preserve original order
         if len(self.path_list) == 0:
             print("empty image list")
             return self.vector_list
@@ -318,7 +316,7 @@ class ImageVector:
         # --------------------------------------------------
         # PASS 1: Build buckets using only metadata
         # --------------------------------------------------
-        buckets: Dict[Tuple[int, int], List[Tuple[int, str]]] = defaultdict(list)
+        buckets: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
 
         for idx, img_path in enumerate(self.path_list):
             with Image.open(img_path) as img:

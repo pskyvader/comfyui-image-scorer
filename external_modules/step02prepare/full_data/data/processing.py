@@ -1,6 +1,5 @@
-from typing import  List
 import numpy as np
-def check_for_leakage(vectors_list: List[List[float]], scores_list: List[int]) -> None:
+def check_for_leakage(vectors_list: list[list[float]], scores_list: list[int]) -> None:
     if not vectors_list or not scores_list:
         raise RuntimeError(f"check leakage: Empty vectors or scores list, vectors list: {len(vectors_list)}, scores list: {len(scores_list)}")
     if len(vectors_list) != len(scores_list):
@@ -12,7 +11,7 @@ def check_for_leakage(vectors_list: List[List[float]], scores_list: List[int]) -
 
     arr = np.array(vectors_list)
     y_arr = np.array(scores_list)
-    corrs: List[float] = []
+    corrs: list[float] = []
     for i in range(arr.shape[1]):
         col = arr[:, i]
         if np.allclose(col, col[0]):

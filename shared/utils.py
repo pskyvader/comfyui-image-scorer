@@ -5,11 +5,11 @@ tests. They are written to be defensive and to avoid raising for bad input where
 possible.
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any
 import ast
 
 
-def parse_custom_text(val: Any = None) -> Dict[str, Any]:
+def parse_custom_text(val: Any = None) -> dict[str, Any]:
     """Parse a stored custom text value into a dictionary.
 
     Accepts None, an already-parsed dict, or a string containing a Python
@@ -30,7 +30,7 @@ def parse_custom_text(val: Any = None) -> Dict[str, Any]:
     return {}
 
 
-def first_present(d: Dict[str, Any], keys: Tuple[str, ...], default: Any = None) -> Any:
+def first_present(d: dict[str, Any], keys: tuple[str, ...], default: Any = None) -> Any:
     """Return the first key from ``keys`` present in ``d`` with a non-None value.
 
     If none of the keys are present, return ``default``.

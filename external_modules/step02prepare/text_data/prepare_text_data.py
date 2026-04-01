@@ -1,7 +1,7 @@
 import argparse
 import sys
 import os
-from typing import Dict, List
+from typing import Any
 from pathlib import Path
 
 # Ensure project root is on sys.path so package imports work when running as a script
@@ -24,7 +24,7 @@ from .text_processing import (
 from shared.paths import text_data_file,image_root
 
 
-def run_prepare_text(rebuild: bool = False) -> Dict[str, int]:
+def run_prepare_text(rebuild: bool = False) -> dict[str, int]:
     print("Starting text data export...")
 
     output_file = text_data_file
@@ -37,7 +37,7 @@ def run_prepare_text(rebuild: bool = False) -> Dict[str, int]:
         
     processed_files = load_text_index(index_file)
     print(f"Index has {len(processed_files)} already processed entries")
-    error_log: List[Dict[str, str]] = []
+    error_log: list[dict[str, str]] = []
     files = list(collect_files(image_root))
     with open(output_file, "a", encoding="utf-8") as outf:
         new_count = process_text_files(files, processed_files, outf, error_log)

@@ -1,5 +1,6 @@
 import sqlite3
 from time import time
+from typing import Any
 from shared.paths import cache_file
 
 
@@ -222,6 +223,84 @@ def get_all(unscored_only: bool = True) -> list[str]:
         else:
             rows = conn.execute("SELECT path FROM cache").fetchall()
         return [r["path"] for r in rows]
+
+
+def get_scored(
+    limit: int = 100,
+    offset: int = 0,
+    effective_score_min: float | None = None,
+    effective_score_max: float | None = None,
+    comparisons_min: int | None = None,
+    comparisons_max: int | None = None,
+    volatility_min: float | None = None,
+    volatility_max: float | None = None,
+) -> tuple[list[dict[str,str|float|int|None]], int]:
+    """Return scored image metadata with pagination and optional filtering.
+
+    Args:
+        limit: Number of rows to return
+        offset: Number of rows to skip
+        effective_score_min: Min effective score (score + modifier/10)
+        effective_score_max: Max effective score (score + modifier/10)
+        comparisons_min: Min comparison count
+        comparisons_max: Max comparison count
+        volatility_min: Min volatility (absolute value)
+        volatility_max: Max volatility (absolute value)
+
+    Returns a tuple of (rows, total_count) where rows is a list of dicts.
+    """
+    with _get_conn() as conn:
+        # Build WHERE clause with filters
+        where_clauses = ["score IS NOT NULL"]
+        params: list[int|float] = []
+
+        if effective_score_min is not None or effective_score_max is not None:
+            # For effective score filtering, we need to check: (score + modifier/10) between min and max
+            # SQLite: (score + score_modifier/10.0)
+            if effective_score_min is not None:
+                where_clauses.append("(score + score_modifier/10.0) >= ?")
+                params.append(float(effective_score_min))
+            if effective_score_max is not None:
+                where_clauses.append("(score + score_modifier/10.0) <= ?")
+                params.append(float(effective_score_max))
+
+        if comparisons_min is not None:
+            where_clauses.append("comparison_count >= ?")
+            params.append(int(comparisons_min))
+        if comparisons_max is not None:
+            where_clauses.append("comparison_count <= ?")
+            params.append(int(comparisons_max))
+
+        if volatility_min is not None:
+            where_clauses.append("ABS(volatility) >= ?")
+            params.append(float(volatility_min))
+        if volatility_max is not None:
+            where_clauses.append("ABS(volatility) <= ?")
+            params.append(float(volatility_max))
+
+        where_clause: str = " AND ".join(where_clauses)
+
+        # Get total count with filters
+        total_query: str = f"SELECT COUNT(*) as cnt FROM cache WHERE {where_clause}"
+        total = conn.execute(total_query, params).fetchone()["cnt"]
+
+        # Get paginated results
+        rows_query: str = f"SELECT path, score, comparison_count, score_modifier, volatility FROM cache WHERE {where_clause} ORDER BY ROWID DESC LIMIT ? OFFSET ?"
+        rows: list[Any] = conn.execute(rows_query, params + [limit, offset]).fetchall()
+
+        result: list[dict[str,str|float|int|None]] = []
+        for r in rows:
+            result.append(
+                {
+                    "path": str(r["path"]),
+                    "score": int(r["score"]) if r["score"] is not None else None,
+                    "comparison_count": int(r["comparison_count"]),
+                    "score_modifier": float(r["score_modifier"]),
+                    "volatility": float(r["volatility"]),
+                }
+            )
+
+        return result, int(total)
 
 
 def total_cached_unscored() -> int:

@@ -4,8 +4,8 @@ from pathlib import Path
 import random
 from threading import Thread
 from time import sleep
-from flask import Flask, request, send_from_directory, jsonify
-
+from flask import Flask, request, send_from_directory, jsonify, send_file
+from typing import Any
 import argparse
 
 if __name__ == "__main__":
@@ -106,6 +106,43 @@ def serve_image_route(subpath: str):
     return serve_file(subpath)
 
 
+@app.route("/thumbnail/<path:subpath>")
+def serve_thumbnail_route(subpath: str):
+    """
+    Serve thumbnail for image. Falls back to full image if thumbnail generation fails.
+    Generates thumbnails on-the-fly and caches them.
+    """
+    import io
+    from PIL import Image
+
+    try:
+        root = image_root()
+        # Build full path
+        full_path = os.path.join(root, subpath.replace("/", os.sep))
+
+        if not os.path.exists(full_path):
+            return "Not found", 404
+
+        # Try to generate thumbnail
+        try:
+            img = Image.open(full_path)
+            img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+
+            # Serve thumbnail in memory
+            img_io = io.BytesIO()
+            img.save(img_io, format="JPEG", quality=85)
+            img_io.seek(0)
+
+            return send_file(img_io, mimetype="image/jpeg")
+        except Exception as thumb_error:
+            # Fall back to full image if thumbnail fails
+            print(f"Thumbnail generation failed for {subpath}: {thumb_error}")
+            return serve_file(subpath)
+    except Exception as e:
+        print(f"Error serving thumbnail for {subpath}: {e}")
+        return "Error", 500
+
+
 @app.route("/metadata/<path:subpath>")
 def serve_metadata_route(subpath: str):
     return serve_file(subpath)
@@ -145,6 +182,98 @@ def status():
             # "scanning": scanning,
         }
     )
+
+
+# ───────────────────────────────
+# Gallery API endpoint
+# ───────────────────────────────
+@app.route("/api/scores")
+def get_scores():
+    """
+    Get all scored images with their metadata for gallery view.
+    Returns JSON array of scored images with score, modifier, comparison count, volatility.
+
+    Query Parameters:
+        page: Page number (1-based), default 1
+        per_page: Items per page, default 100
+        effective_score_min: Min effective score (1-5)
+        effective_score_max: Max effective score (1-5)
+        comparisons_min: Min comparison count (0-10)
+        comparisons_max: Max comparison count (0-10)
+        volatility_min: Min volatility (0-1)
+        volatility_max: Max volatility (0-1)
+    """
+    from .cache import get_scored
+    from pathlib import Path
+
+    try:
+        # Pagination parameters
+        page = request.args.get("page", default=1, type=int)
+        per_page = request.args.get("per_page", default=100, type=int)
+        if page < 1:
+            page = 1
+        if per_page < 1:
+            per_page = 100
+
+        offset = (page - 1) * per_page
+
+        # Filter parameters (optional)
+        effective_score_min = request.args.get(
+            "effective_score_min", default=None, type=float
+        )
+        effective_score_max = request.args.get(
+            "effective_score_max", default=None, type=float
+        )
+        comparisons_min = request.args.get("comparisons_min", default=None, type=int)
+        comparisons_max = request.args.get("comparisons_max", default=None, type=int)
+        volatility_min = request.args.get("volatility_min", default=None, type=float)
+        volatility_max = request.args.get("volatility_max", default=None, type=float)
+
+        # Query DB for scored images with pagination and filters
+        rows, total = get_scored(
+            limit=per_page,
+            offset=offset,
+            effective_score_min=effective_score_min,
+            effective_score_max=effective_score_max,
+            comparisons_min=comparisons_min,
+            comparisons_max=comparisons_max,
+            volatility_min=volatility_min,
+            volatility_max=volatility_max,
+        )
+
+        root = image_root()
+        root_path = Path(root)
+
+        scores: list[Any] = []
+        for r in rows:
+            try:
+                path: str = str(r.get("path"))
+                # Convert absolute path to relative (forward slashes)
+                try:
+                    rel = Path(path).relative_to(root_path).as_posix()
+                except Exception:
+                    rel = Path(path).as_posix()
+
+                scores.append(
+                    {
+                        "file_id": rel,
+                        "image": rel,
+                        "score": r.get("score"),
+                        "modifier": r.get("score_modifier", 0.0),
+                        "comparison_count": r.get("comparison_count", 0),
+                        "volatility": r.get("volatility", 0.0),
+                    }
+                )
+            except Exception as e:
+                print(f"Error processing row {r}: {e}")
+                continue
+
+        return jsonify(
+            {"scores": scores, "total": total, "page": page, "per_page": per_page}
+        )
+    except Exception as e:
+        print(f"Error getting scores: {e}")
+        return jsonify({"error": str(e), "scores": [], "total": 0}), 500
 
 
 # ───────────────────────────────
@@ -211,7 +340,9 @@ def compare_next():
     if score is None:
         score = 0  # 0 means any score
 
-    pair_data = get_paired_images(score,safety_limit=30,max_comparison_count=10,max_tolerance=1.0)
+    pair_data = get_paired_images(
+        score, safety_limit=30, max_comparison_count=10, max_tolerance=1.0
+    )
 
     if not pair_data:
         return (

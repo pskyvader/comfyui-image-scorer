@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple
+from typing import Any
 import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
@@ -19,28 +19,28 @@ class VectorList:
 
     def __init__(
         self,
-        raw_data: List[Tuple[str, Dict[str, Any], str, str]],
-        index_list: List[str],
-        vectors_list: List[List[float]],
-        scores_list: List[int],
-        text_list: List[Dict[str, Any]],
+        raw_data: list[tuple[str, dict[str, Any], str, str]],
+        index_list: list[str],
+        vectors_list: list[list[float]],
+        scores_list: list[int],
+        text_list: list[dict[str, Any]],
         add_new: bool,
         merge_lists: bool = False,
         read_only: bool = False,
         process_images: bool = True,
     ) -> None:
 
-        self.add_new = add_new
+        self.add_new_to_map = add_new
         self.index_list = index_list
         self.vectors_list = vectors_list
         self.scores_list = scores_list
         self.text_list = text_list
-        self.image_paths: List[str] = []
-        self.entries: List[Any] = []
-        self.unique_ids: List[str] = []
-        self.scores: List[int] = []
+        self.image_paths: list[str] = []
+        self.entries: list[Any] = []
+        self.unique_ids: list[str] = []
+        self.scores: list[int] = []
         self.vector_config = config["vector"]["vectors"]
-        self.sorted_vectors: Dict[str, Any] = {}
+        self.sorted_vectors: dict[str, Any] = {}
         self.merge_lists = merge_lists
         self.read_only = read_only
         self.process_images = process_images
@@ -61,15 +61,15 @@ class VectorList:
                 self.scores.append(current_score + (score_modifier * 0.1))
                 self.image_paths.append(image_path)
 
-        self.final_vector: List[List[float]] = []
-        self.final_text_data: List[Dict[str, Any]] = []
+        self.final_vector: list[list[float]] = []
+        self.final_text_data: list[dict[str, Any]] = []
 
     def configure_sorted_vectors(self) -> None:
-        image_type: List[Dict[str, Any]] = []
-        map_type: List[Dict[str, Any]] = []
-        int_type: List[Dict[str, Any]] = []
-        float_type: List[Dict[str, Any]] = []
-        embedding_type: List[Dict[str, Any]] = []
+        image_type: list[dict[str, Any]] = []
+        map_type: list[dict[str, Any]] = []
+        int_type: list[dict[str, Any]] = []
+        float_type: list[dict[str, Any]] = []
+        embedding_type: list[dict[str, Any]] = []
 
         for c in self.vector_config:
             if c["type"] == self._IMAGE:
@@ -121,7 +121,7 @@ class VectorList:
             # print(f"Vector config for {v}: {c}")
             if c["type"] == self._MAP:
                 map_vector: MapVector = c["vector"]
-                map_vector.parse_value_list(self.entries, self.add_new,alias)
+                map_vector.parse_value_list(self.entries, self.add_new_to_map,alias)
                 map_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = map_vector
             elif c["type"] == self._INT:
@@ -152,7 +152,7 @@ class VectorList:
                 self.sorted_vectors[v]["vector"] = image_vector
 
     def validate_and_convert(
-        self, data: List[List[str]], name: str, target_size: int
+        self, data: list[list[str]], name: str, target_size: int
     ) -> npt.NDArray[np.float32]:
         try:
             return np.array(data, dtype=np.float32)
@@ -167,7 +167,7 @@ class VectorList:
                 f"Actual lengths at those indices: {lengths[bad_indices[:5]]}"
             )
 
-    def join_vectors(self) -> List[List[float]]:
+    def join_vectors(self) -> list[list[float]]:
         clean_arrays: list[npt.NDArray[np.float32]] = []
         with tqdm(
             total=len(self.sorted_vectors),
@@ -191,11 +191,11 @@ class VectorList:
 
     def convert_text_list(
         self,
-        clean_arrays: List[Dict[str, Any]],
+        clean_arrays: list[dict[str, Any]],
         current_vector: Any,
         name: str,
         column_type: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
 
         if column_type in [self._MAP, self._INT, self._FLOAT]:
             result = current_vector.value_list
@@ -217,8 +217,8 @@ class VectorList:
             clean_arrays[i][name] = result[i]
         return clean_arrays
 
-    def join_text_data(self) -> List[Dict[str, Any]]:
-        clean_arrays: List[Dict[str, Any]] = []
+    def join_text_data(self) -> list[dict[str, Any]]:
+        clean_arrays: list[dict[str, Any]] = []
         with tqdm(
             total=len(self.sorted_vectors),
             desc="joining text data",
@@ -248,7 +248,7 @@ class VectorList:
         self.index_list.extend(self.unique_ids)
         self.scores_list.extend(self.scores)
 
-    def fix_row(self, row: List[float], expected_total: int) -> List[float]:
+    def fix_row(self, row: list[float], expected_total: int) -> list[float]:
         difference = expected_total - len(row)
         if difference < 0:
             raise ValueError(

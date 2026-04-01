@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.typing as npt
-from typing import Any, Dict, List
+from typing import Any
 
 
 def l2_normalize_batch(vectors: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
@@ -11,9 +11,9 @@ def l2_normalize_batch(vectors: npt.NDArray[np.float32]) -> npt.NDArray[np.float
 
 
 def get_value_from_entry(
-    entry: Dict[str, Any], name: str, alias: List[str] | None = None
+    entry: dict[str, Any], name: str, alias: list[str] | None = None
 ) -> Any:
-    custom_text: Dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
+    custom_text: dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
     # print(
     #     f"entry: {entry}, name: {name}, custom_text: {custom_text}, type: {type(entry)}",
     #     flush=True,

@@ -182,3 +182,27 @@ const batchMode = {
         }
     },
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE CLEANUP FOR MODE SWITCHING
+// ═══════════════════════════════════════════════════════════════════
+
+async function clearBatchModeState() {
+    /**
+     * Clear all batch mode state when switching away from this mode
+     */
+    try {
+        // Clear the batchMode state
+        batchMode.images = [];
+        batchMode.batchScores = {};
+        batchMode.selectedCount = 0;
+        batchMode.loadingBatch = false;
+        
+        // Clear DOM references
+        batchMode.table = null;
+        batchMode.loader = null;
+        batchMode.submitBtn = null;
+    } catch (e) {
+        console.error("Error clearing batch mode state:", e);
+    }
+}

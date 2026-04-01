@@ -1,12 +1,9 @@
-from typing import List, Tuple, Set, Dict
 import re
 
+WeightedTerm = tuple[str, float]
 
 
-WeightedTerm = Tuple[str, float]
-
-
-def extract_weight_from_paren(text: str) -> Tuple[str, float]:
+def extract_weight_from_paren(text: str) -> tuple[str, float]:
     match = re.match(r"^\((.+?):(\d+\.?\d*)\)$", text.strip())
     if match:
         return (match.group(1).strip(), float(match.group(2)))
@@ -16,12 +13,12 @@ def extract_weight_from_paren(text: str) -> Tuple[str, float]:
     return (stripped, 1.0)
 
 
-def split_weighted_compound(text: str, weight: float) -> List[WeightedTerm]:
+def split_weighted_compound(text: str, weight: float) -> list[WeightedTerm]:
     text = text.strip()
     if not text:
         return []
     parts = re.split(r"\s*,\s*", text)
-    results: List[WeightedTerm] = []
+    results: list[WeightedTerm] = []
     for part in parts:
         part = part.strip()
         if not part:
@@ -46,15 +43,15 @@ def split_weighted_compound(text: str, weight: float) -> List[WeightedTerm]:
     return results
 
 
-def parse_parenthesized_term(text: str) -> List[WeightedTerm]:
+def parse_parenthesized_term(text: str) -> list[WeightedTerm]:
     term, weight = extract_weight_from_paren(text)
     return split_weighted_compound(term, weight)
 
 
-def tokenize_text(text: str, splitters: Set[str]) -> List[str]:
+def tokenize_text(text: str, splitters: set[str]) -> list[str]:
     # Preserve parenthesized groups as tokens
-    tokens: List[str] = []
-    buf: List[str] = []
+    tokens: list[str] = []
+    buf: list[str] = []
     i = 0
     L = len(text)
 
@@ -109,10 +106,10 @@ def clean_term(term: str) -> str:
 
 
 def filter_terms(
-    terms: List[WeightedTerm], connectors: Set[str], splitters: Set[str]
-) -> List[WeightedTerm]:
+    terms: list[WeightedTerm], connectors: set[str], splitters: set[str]
+) -> list[WeightedTerm]:
     always_remove = {"a", "an", "the", "in", "is", "at", "to", "by", "of", ""}
-    filtered: List[WeightedTerm] = []
+    filtered: list[WeightedTerm] = []
     for term, weight in terms:
         term = clean_term(term)
         if len(term) <= 1:
@@ -124,8 +121,8 @@ def filter_terms(
     return filtered
 
 
-def deduplicate_terms(terms: List[WeightedTerm]) -> List[WeightedTerm]:
-    term_weights: Dict[str, float] = {}
+def deduplicate_terms(terms: list[WeightedTerm]) -> list[WeightedTerm]:
+    term_weights: dict[str, float] = {}
     for term, weight in terms:
         if term in term_weights:
             term_weights[term] = max(term_weights[term], weight)
@@ -135,8 +132,8 @@ def deduplicate_terms(terms: List[WeightedTerm]) -> List[WeightedTerm]:
 
 
 def extract_terms(
-    text: str, connectors: Set[str] | None = None, splitters: Set[str] | None = None
-) -> List[WeightedTerm]:
+    text: str, connectors: set[str] | None = None, splitters: set[str] | None = None
+) -> list[WeightedTerm]:
     if not text:
         return []
     if connectors is None:
@@ -144,7 +141,7 @@ def extract_terms(
     if splitters is None:
         splitters = {"but", "not", ",", "and", "or"}
     tokens = tokenize_text(text, splitters)
-    all_terms: List[WeightedTerm] = []
+    all_terms: list[WeightedTerm] = []
     for token in tokens:
         token = token.strip()
         if not token:

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple, List
+from typing import Any
 import os
 import random
 from itertools import product, islice
@@ -9,24 +9,24 @@ from shared.training.model_trainer import model_trainer, grid_base, around
 from shared.config import config
 from shared.io import load_json, atomic_write_json
 
-_last_used_keys: Dict[str, List[str]] = {}
+_last_used_keys: dict[str, list[str]] = {}
 
 
-def load_statistics() -> Dict[str, Dict[str, int]]:
+def load_statistics() -> dict[str, dict[str, int]]:
     data, _ = load_json(hyperparameters_statistics, dict, {})
     return data
 
 
-def save_statistics(statistics: Dict[str, Dict[str, int]]):
+def save_statistics(statistics: dict[str, dict[str, int]]):
     atomic_write_json(hyperparameters_statistics, statistics, indent=4)
 
 
 def prepare_optimization_setup(
-    base_cfg: Dict[str, Any], strategy: str
-) -> Tuple[Dict[str, Any], str]:
+    base_cfg: dict[str, Any], strategy: str
+) -> tuple[dict[str, Any], str]:
     global _last_used_keys
     current_last_used = _last_used_keys[strategy] if strategy in _last_used_keys else []
-    param_grid: Dict[str, Any] = {}
+    param_grid: dict[str, Any] = {}
     chosen = 0
     limit = 1
     keys = list(grid_base.keys())
@@ -58,8 +58,8 @@ def prepare_optimization_setup(
 
 
 def generate_combos(
-    param_grid: Dict[str, Any], max_combos: int
-) -> List[Dict[str, Any]]:
+    param_grid: dict[str, Any], max_combos: int
+) -> list[dict[str, Any]]:
     keys = list(param_grid.keys())
     value_lists = [list(param_grid[k]) for k in keys]
     all_combos = [dict(zip(keys, vals)) for vals in product(*value_lists)]
@@ -68,11 +68,11 @@ def generate_combos(
 
 
 def evaluate_hyperparameter_combo(
-    current_cfg: Dict[str, Any],
+    current_cfg: dict[str, Any],
     temp_model_base: str,
     X: np.ndarray,
     y: np.ndarray,
-) -> Tuple[float, float, str]:
+) -> tuple[float, float, str]:
     _, metrics = model_trainer.train_model(
         config_dict=current_cfg, X=X, y=y, enable_plotting=True
     )
@@ -91,7 +91,7 @@ def evaluate_hyperparameter_combo(
 
 
 def update_top_config(
-    current_config: Dict[str, Any],
+    current_config: dict[str, Any],
     score: float,
     t_time: float,
     primary_metric: str,
@@ -113,7 +113,7 @@ def update_top_config(
 
 
 def update_fastest_config(
-    current_config: Dict[str, Any],
+    current_config: dict[str, Any],
     score: float,
     t_time: float,
     primary_metric: str,
@@ -156,7 +156,7 @@ def update_fastest_config(
 
 
 def update_slowest_config(
-    current_config: Dict[str, Any],
+    current_config: dict[str, Any],
     score: float,
     t_time: float,
     primary_metric: str,
@@ -200,12 +200,12 @@ def update_slowest_config(
 
 
 def optimize_hyperparameters(
-    base_cfg: Dict[str, Any],
+    base_cfg: dict[str, Any],
     max_combos: int,
     X: np.ndarray,
     y: np.ndarray,
     strategy: str = "generic",
-) -> List[Tuple[Dict[str, Any], Dict[str, float]]]:
+) -> list[tuple[dict[str, Any], dict[str, float]]]:
 
     param_grid, temp_model_base = prepare_optimization_setup(base_cfg, strategy)
     # todo: use tqdm for progress bar and logging instead of print statements
@@ -213,7 +213,7 @@ def optimize_hyperparameters(
 
     combos = generate_combos(param_grid, max_combos)
     current_cfg = base_cfg.copy()
-    results: List[Tuple[Dict[str, Any], Dict[str, float]]] = []
+    results: list[tuple[dict[str, Any], dict[str, float]]] = []
     new_score = False
     # for i, combo in enumerate(tqdm(combos,position=1, desc=f"HPO Search ({strategy})", unit="combo")):
     for i, combo in enumerate(combos):

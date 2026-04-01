@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, List, Set, Tuple, TextIO, Any
+from typing import TextIO, Any
 from PIL import Image
 
 from ..full_data.data.metadata import load_metadata_entry
@@ -13,7 +13,7 @@ from ...shared.io import load_index_set, atomic_write_json
 from ...shared.paths import image_root
 
 
-def extract_text_components(entry: Dict[str, Any]) -> Dict[str, Any]:
+def extract_text_components(entry: dict[str, Any]) -> dict[str, Any]:
     normalization = config["prepare"]["normalization"]
     (
         cfg,
@@ -59,10 +59,10 @@ def extract_text_components(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def process_text_files(
-    files: List[Tuple[str, str]],
-    processed_files: Set[str],
+    files: list[tuple[str, str]],
+    processed_files: set[str],
     outf: TextIO,
-    error_log: List[Dict[str, str]],
+    error_log: list[dict[str, str]],
 ) -> int:
     """Extract text metadata for scored images and append to the export file."""
     new_count = 0
@@ -108,12 +108,12 @@ def process_text_files(
     return new_count
 
 
-def load_text_index(path: str) -> Set[str]:
+def load_text_index(path: str) -> set[str]:
     data, err = load_index_set(path, [])
     if err and err != "not_found":
         print(f"Error loading text index {path}: {err}")
     return data
 
 
-def save_text_index(index: Set[str], path: str) -> None:
+def save_text_index(index: set[str], path: str) -> None:
     atomic_write_json(path, sorted(index), indent=2)

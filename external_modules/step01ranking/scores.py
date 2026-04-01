@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any
 from flask import jsonify
 from pathlib import Path
 
@@ -7,7 +7,7 @@ from .utils import get_json_path, image_root
 from .cache import add
 
 
-def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
+def _write_score(json_path: str, score: Any) -> tuple[bool, str | None]:
     """
     Write score to JSON metadata file.
     json_path: Full path to the .json metadata file
@@ -29,7 +29,7 @@ def _write_score(json_path: str, score: Any) -> Tuple[bool, str | None]:
         return False, str(e)
 
 
-def _normalize_items(data: Any) -> Tuple[List[Dict[str, Any]], Tuple[Any, int] | None]:
+def _normalize_items(data: Any) -> tuple[list[dict[str, Any]], tuple[Any, int] | None]:
     if isinstance(data, dict) and "image" in data:
         return [data], None
     if isinstance(data, dict):

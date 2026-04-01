@@ -3,7 +3,7 @@ from numpy import typing as npt
 import lightgbm as lgb
 from tqdm import tqdm
 import gc
-from typing import Any, Tuple, Dict, List
+from typing import Any
 from sklearn.preprocessing import PolynomialFeatures
 
 from ..config import config
@@ -20,7 +20,7 @@ class DataTransformer:
 
     def filter_unused_features(
         self, x: npt.NDArray[np.float32], y: npt.NDArray[np.float32], steps: int, verbose: bool = True
-    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         """
         Trains a fast LightGBM model to identify and remove features with zero importance
         and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
@@ -33,14 +33,14 @@ class DataTransformer:
         user_verbosity = int(config["training"]["verbosity"])
 
         # Create training model using shared trainer with minimal config
-        config_dict: Dict[str, Any] = {
+        config_dict: dict[str, Any] = {
             "n_estimators": steps,
         }
         model_trainer.create_training_model(config_dict)
         model = model_trainer.training_model
 
         # Setup callbacks for logging
-        callbacks: List[Any] = [
+        callbacks: list[Any] = [
             lgb.log_evaluation(period=-1)
         ]  # suppress default logger
 
@@ -108,8 +108,8 @@ class DataTransformer:
         X_batch: npt.NDArray[np.float32],
         y_batch: npt.NDArray[np.float32],
         n_features_in: int,
-        accumulators: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        accumulators: dict[str, Any],
+    ) -> dict[str, Any]:
 
         # Generate Poly
         X_poly_full: npt.NDArray[np.float32] = self.poly.fit_transform(X_batch)
@@ -130,8 +130,8 @@ class DataTransformer:
         return accumulators
 
     def compute_correlations(
-        self, k: int, accumulators: Dict[str, Any], n_samples: int, dtype
-    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        self, k: int, accumulators: dict[str, Any], n_samples: int, dtype
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         n = accumulators["n"]
         # Compute Correlations (Pearson)
         numerator = (n * accumulators["sum_xy"]) - (
@@ -168,7 +168,7 @@ class DataTransformer:
         x: npt.NDArray[np.float32],
         y: npt.NDArray[np.float32],
         target_k: int = 500,
-    ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         """
         Generates and selects top K interaction features (x*y) using batched processing
         to avoid OOM. Concatenates them to X.
@@ -206,7 +206,7 @@ class DataTransformer:
 
         # Accumulators for correlation calculation
 
-        accumulators: Dict[str, Any] = {
+        accumulators: dict[str, Any] = {
             "sum_x": np.zeros(n_interactions),
             "sum_x_sq": np.zeros(n_interactions),
             "sum_xy": np.zeros(n_interactions),
@@ -263,7 +263,7 @@ class DataTransformer:
 
         return interaction_data
 
-    def apply_feature_filter(self, vecs: List[npt.NDArray[np.float32]]) -> List[npt.NDArray[np.float32]]:
+    def apply_feature_filter(self, vecs: list[npt.NDArray[np.float32]]) -> list[npt.NDArray[np.float32]]:
         """
         Applies the feature filter (kept_indices) from filtered_data_cache.npz to the input vector.
         model_bin_dir: directory containing filtered_data_cache.npz
@@ -274,13 +274,13 @@ class DataTransformer:
             raise FileNotFoundError("Training data not found, must generate first")
 
         _, kept_indices = filtered_data_cached
-        results: List[npt.NDArray[np.float32]] = []
+        results: list[npt.NDArray[np.float32]] = []
         for vec in vecs:
             filtered_vector = vec[kept_indices]
             results.append(filtered_vector)
         return results
 
-    def apply_interaction_features(self, vecs: List[npt.NDArray[np.float32]]) -> npt.NDArray[np.float32]:
+    def apply_interaction_features(self, vecs: list[npt.NDArray[np.float32]]) -> npt.NDArray[np.float32]:
         """
         Applies the interaction features (from interaction_data_cache.npz) to the input vector.
         model_bin_dir: directory containing interaction_data_cache.npz

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Optional, Union
+from typing import Any, Union
 import os
 import time
 import numpy as np
@@ -18,7 +18,7 @@ class PlotManager:
     """Manages all plotting functionality for model training and analysis."""
 
     # Metric direction mapping (shared across methods)
-    METRIC_DIRECTIONS: Dict[str, Dict[str, bool]] = {
+    METRIC_DIRECTIONS: dict[str, dict[str, bool]] = {
         "lambdarank": {"ndcg": True},
         "multiclass": {"multi_logloss": False, "multi_error": False},
         "binary": {"binary_logloss": False, "auc": True},
@@ -33,7 +33,7 @@ class PlotManager:
     @staticmethod
     def _prepare_finite_data(
         y: Any, preds: Any
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Filter out non-finite values from y and predictions."""
         y_sample = np.asarray(y).ravel()
         preds = np.asarray(preds).ravel()
@@ -185,7 +185,7 @@ class PlotManager:
             plt.show()
 
     @staticmethod
-    def prepare_plot_data(y: Any, preds: Any) -> Tuple[np.ndarray, np.ndarray]:
+    def prepare_plot_data(y: Any, preds: Any) -> tuple[np.ndarray, np.ndarray]:
         """Prepare data for plotting by filtering out non-finite values."""
         y_sample, preds_sample = PlotManager._prepare_finite_data(y, preds)
         if y_sample.size == 0:
@@ -239,7 +239,7 @@ class PlotManager:
 
     @staticmethod
     def _plot_metric_on_axes(
-        ax: Any, metric_name: str, values: List[float], label: str, direction_higher: bool
+        ax: Any, metric_name: str, values: list[float], label: str, direction_higher: bool
     ) -> None:
         """Helper to plot a single metric on an axis."""
         ax.plot(values, label=f"{label} {metric_name}")
@@ -259,8 +259,8 @@ class PlotManager:
 
     @staticmethod
     def plot_metric(
-        axes: List[Any],
-        current_metric: Dict[str, List[float]],
+        axes: list[Any],
+        current_metric: dict[str, list[float]],
         label: str = "Valid",
     ) -> None:
         """Plot individual metrics on subplots."""
@@ -272,7 +272,7 @@ class PlotManager:
             PlotManager._plot_metric_on_axes(ax, metric, values, label, direction_higher)
 
     @staticmethod
-    def plot_loss_curve(result_metrics: Dict[str, Any] | None = None) -> None:
+    def plot_loss_curve(result_metrics: dict[str, Any] | None = None) -> None:
         """Plot loss curves from training results."""
         try:
             curves = None
@@ -329,12 +329,12 @@ class PlotManager:
     
     
     @staticmethod
-    def plot_continuous_analysis(data_dict: Dict[str, List[Tuple[float, float]]], group_name: str, x_label:str,y_label:str):
+    def plot_continuous_analysis(data_dict: dict[str, list[tuple[float, float]]], group_name: str, x_label:str,y_label:str):
         """
         Iterates through a dictionary and creates individual scatter plots.
         
         Args:
-            data_dict: The dictionary containing category names (str) and data points (List[Tuple]).
+            data_dict: The dictionary containing category names (str) and data points (list[Tuple]).
             group_name: A string representing the source dictionary (e.g., 'lora_data').
         """
         for title, points in data_dict.items():
@@ -360,12 +360,12 @@ class PlotManager:
             plt.show()
             
     @staticmethod
-    def plot_discrete_analysis(data_dict: Dict[str, Dict[str | int, List[float]]], group_name: str, x_label: str, y_label: str):
+    def plot_discrete_analysis(data_dict: dict[str, dict[str | int, list[float]]], group_name: str, x_label: str, y_label: str):
         """
         Iterates through a nested dictionary and creates individual scatter plots for discrete data.
         
         Args:
-            data_dict: Dict[title, Dict[x_value, List[y_values]]]
+            data_dict: dict[title, dict[x_value, list[y_values]]]
             group_name: A string representing the source dictionary (e.g., 'discrete_data').
             x_label: Label for the x-axis.
             y_label: Label for the y-axis.
@@ -400,7 +400,7 @@ class PlotManager:
 
     @staticmethod
     def plot_aggregate_summary(
-        data_dict: Dict[str, List[Tuple[float, float]]], 
+        data_dict: dict[str, list[tuple[float, float]]], 
         group_name: str, 
         value_label: str,
         top_percent: float = 0.10,
@@ -427,7 +427,7 @@ class PlotManager:
         frequent_data = sorted_by_usage[:usage_threshold]
 
         # 2. Calculate Statistics
-        stats_list: List[Dict[str, Any]] = []
+        stats_list: list[dict[str, Any]] = []
         for name, points in frequent_data:
             scores = [p[1] for p in points]
             stats_list.append({
@@ -483,7 +483,7 @@ class PlotManager:
         plt.show()
         
     @staticmethod
-    def plot_individual_metrics(data_dict: Dict[str, List[Tuple[float, float]]], cols: int = 4, bins: int = 10):
+    def plot_individual_metrics(data_dict: dict[str, list[tuple[float, float]]], cols: int = 4, bins: int = 10):
         """
         Plots Average Score (Y) vs Setting Value (X) for every metric.
         Bar width represents the sample size (count) for that bucket.
@@ -561,7 +561,7 @@ class PlotManager:
        
     @staticmethod
     def plot_discrete_object_analysis(
-        discrete_data: Dict[str, Dict[Union[str, int], List[float]]], 
+        discrete_data: dict[str, dict[Union[str, int], list[float]]], 
         title_prefix: str = "Discrete Analysis"
     ) -> None:
         """
@@ -572,10 +572,10 @@ class PlotManager:
             if not categories:
                 continue
 
-            labels: List[str] = []
-            means: List[float] = []
-            errors: List[float] = []
-            counts: List[int] = []
+            labels: list[str] = []
+            means: list[float] = []
+            errors: list[float] = []
+            counts: list[int] = []
 
             # Sort categories (ints numerically, strings alphabetically)
             sorted_keys = sorted(categories.keys(), key=lambda x: (isinstance(x, str), x))
@@ -647,7 +647,7 @@ class LivePlotCallback:
         if self.save_path:
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         self.last_plot_time = time.time()
-        self.history: Dict[str, Dict[str, List[float]]] = {
+        self.history: dict[str, dict[str, list[float]]] = {
             "valid": {},
             "train": {},
         }

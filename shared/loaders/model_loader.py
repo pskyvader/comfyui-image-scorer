@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any
 import torch
 from torch import nn
 import timm
@@ -8,12 +8,12 @@ from sentence_transformers import SentenceTransformer
 
 class ModelLoader:
     def __init__(self):
-        self.embedding_model: Optional[Tuple[SentenceTransformer, int]] = None
-        self.vision_model: Optional[Tuple[nn.Module, int, int]] = None
+        self.embedding_model: Optional[tuple[SentenceTransformer, int]] = None
+        self.vision_model: Optional[tuple[nn.Module, int, int]] = None
         self.cnn_model: Optional[Any] = None
         self.prepare_config = config["prepare"]
 
-    def load_vision_model(self) -> Tuple[nn.Module, int, int]:
+    def load_vision_model(self) -> tuple[nn.Module, int, int]:
         if self.vision_model is not None:
             return self.vision_model
 
@@ -53,7 +53,7 @@ class ModelLoader:
         self.vision_model = (model, output_dim, total_memory)
         return self.vision_model
 
-    def load_embedding_model(self) -> Tuple[SentenceTransformer, int]:
+    def load_embedding_model(self) -> tuple[SentenceTransformer, int]:
         if self.embedding_model is not None:
             return self.embedding_model
 

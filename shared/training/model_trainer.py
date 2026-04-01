@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union, Sequence, Tuple, cast, Set
+from typing import Any, Union, Sequence, cast
 import random
 
 import os
@@ -28,7 +28,7 @@ from ..config import config
 
 
 # step is relative percentage for float/int types
-grid_base: Dict[str, Any] = {
+grid_base: dict[str, Any] = {
     "learning_rate": {
         # Purpose: Shrinks the contribution of each tree by learning_rate. Controls how fast the model learns.
         # Speed: Lower values slow down training significantly as more trees (n_estimators) are needed to reach convergence.
@@ -169,8 +169,8 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
         else:
             v = float(random.uniform(vmin, vmax))
 
-    result: List[Union[int, float]] = []
-    candidates: Set[Union[int, float]] = set()
+    result: list[Union[int, float]] = []
+    candidates: set[Union[int, float]] = set()
     if cell["type"] == "int":
         higher: int = int(higher)
         lower: int = int(lower)
@@ -213,7 +213,7 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
 
 class ModelTrainer:
 
-    METRIC_DIRECTIONS: Dict[str, Dict[str, bool]] = {
+    METRIC_DIRECTIONS: dict[str, dict[str, bool]] = {
         "lambdarank": {
             "ndcg": True,  # higher is better
         },
@@ -235,7 +235,7 @@ class ModelTrainer:
 
     def __init__(self) -> None:
         self.training_model = None
-        self.eval_metrics: List[Any] = []
+        self.eval_metrics: list[Any] = []
         # self.final_model = None
         self.n_estimators = None
         self.test_size = None
@@ -247,14 +247,14 @@ class ModelTrainer:
 
     def r2_metric(
         self, y_true: np.ndarray, y_pred: np.ndarray
-    ) -> Tuple[str, float, bool]:
+    ) -> tuple[str, float, bool]:
         """Custom R2 metric for LightGBM evaluation."""
         return ("r2", float(r2_score(y_true, y_pred)), True)
 
-    def create_training_model(self, config_dict: Dict[str, Any]):
+    def create_training_model(self, config_dict: dict[str, Any]):
 
         # Base LightGBM parameters
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "random_state": config["training"]["random_state"],
             "verbosity": -1,
             "objective": config["training"]["objective"],
@@ -293,7 +293,7 @@ class ModelTrainer:
         self, progress_bar: Any, status_bar: Any, enable_plotting: bool = False
     ) -> None:
         # Setup callbacks for logging
-        callbacks: List[Any] = []
+        callbacks: list[Any] = []
         # Always suppress default logger to ensure clean output
         callbacks.append(lgb.log_evaluation(period=-1))
 
@@ -325,7 +325,7 @@ class ModelTrainer:
         model = self.training_model
         model_type = type(model).__name__
 
-        self.result_metrics: Dict[str, Any] = {
+        self.result_metrics: dict[str, Any] = {
             "model_type": model_type,
             "training_time": training_time,
         }
@@ -449,11 +449,11 @@ class ModelTrainer:
 
     def train_model(
         self,
-        config_dict: Dict[str, Any],
+        config_dict: dict[str, Any],
         X: np.ndarray,
         y: np.ndarray,
         enable_plotting: bool = False,
-    ) -> Tuple[Any, Dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any]]:
         if config["training"]["device"] != "cuda":
             raise ValueError("Training must use CUDA device.")
 
@@ -463,7 +463,7 @@ class ModelTrainer:
 
         random_state = config["training"]["random_state"]
         split_res = cast(
-            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
             tuple(
                 train_test_split(
                     X, y, test_size=self.test_size, random_state=random_state
@@ -487,7 +487,7 @@ class ModelTrainer:
                 message=".*X does not have valid feature names.*",
             )
 
-            parameters: Dict[str, Any] = {
+            parameters: dict[str, Any] = {
                 "X": x_train,
                 "y": y_train,
                 "eval_set": [(x_train, y_train), (x_test, y_test)],
