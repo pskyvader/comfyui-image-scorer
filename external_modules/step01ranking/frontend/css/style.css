@@ -32,6 +32,7 @@ header {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    min-height: 50px;
 }
 
 h2 {

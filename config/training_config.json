@@ -1,5 +1,5 @@
 {
-    "random_state": 34,
+    "random_state": 42,
     "max_iters": 100,
     "max_combos": 4,
     "save_on_improvement": true,
@@ -8,8 +8,8 @@
     "num_class": 5,
     "verbosity": 1,
     "top": {
-        "best_score": 0.42077362436157295,
-        "training_time": 33.130226612091064,
+        "best_score": 0.42307545767903176,
+        "training_time": 37.24578619003296,
         "learning_rate": 0.03699423745256131,
         "n_estimators": 1197,
         "num_leaves": 492,
@@ -21,7 +21,7 @@
         "colsample_bytree": 0.38342214964815025,
         "min_split_gain": 0.33868916442931807,
         "early_stopping_rounds": 90,
-        "test_size": 0.09643566777090959
+        "test_size": 0.10607923454800056
     },
     "fastest": {
         "best_score": 0.39227956061658065,
@@ -40,8 +40,8 @@
         "test_size": 0.12990780000000002
     },
     "slowest": {
-        "best_score": 0.3490896270493341,
-        "training_time": 60.59233212471008,
+        "best_score": 0.3511408692131769,
+        "training_time": 61.31051993370056,
         "learning_rate": 0.021435888100000012,
         "n_estimators": 234,
         "num_leaves": 85,
@@ -53,6 +53,6 @@
         "colsample_bytree": 1.0,
         "min_split_gain": 0.011000000000000001,
         "early_stopping_rounds": 39,
-        "test_size": 0.19602000000000006
+        "test_size": 0.2156220000000001
     }
 }

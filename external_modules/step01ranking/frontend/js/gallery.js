@@ -81,6 +81,9 @@ async function loadGalleryPage(page = 1) {
     if (isLoadingMore && page !== 1) return;
     isLoadingMore = true;
 
+    const statusText = document.getElementById("status-text");
+    if (statusText && page === 1) statusText.innerText = "Loading gallery images...";
+
     try {
         const params = new URLSearchParams({
             page: page,
@@ -112,14 +115,31 @@ async function loadGalleryPage(page = 1) {
         }
 
         updatePagination();
+
     } catch (error) {
         console.error("Error loading gallery page:", error);
         const grid = document.getElementById("gallery-grid");
         if (grid && currentPage === 1) {
             grid.innerHTML = '<div class="gallery-empty">Error loading images</div>';
         }
+        if (statusText) statusText.innerText = "Error loading gallery.";
     } finally {
-        isLoadingMore = false;
+        // THE FIX: Use a debounce to yield to the browser's rendering engine.
+        // This gives the DOM time to paint the new images, expand the container height,
+        // and physically push the sentinel down before we check if we need to load more.
+        setTimeout(() => {
+            isLoadingMore = false;
+            
+            // Safely check if the screen is still empty after the DOM has updated
+            const sentinel = document.querySelector('.gallery-sentinel');
+            if (sentinel) {
+                const rect = sentinel.getBoundingClientRect();
+                // If sentinel is still visible, fetch the next page
+                if (rect.top < window.innerHeight && currentPage * ITEMS_PER_PAGE < totalGalleryCount) {
+                    loadGalleryPage(currentPage + 1);
+                }
+            }
+        }, 250); // 250ms debounce prevents rapid-fire API spam
     }
 }
 
@@ -194,20 +214,19 @@ function createGalleryItem(item) {
 
 function setupInfiniteScroll() {
     const grid = document.getElementById('gallery-grid');
-    const wrapper = document.querySelector('.gallery-wrapper');
-    if (!grid || !wrapper) return;
+    if (!grid) return;
 
     // Disconnect existing observer if re-initializing
     if (scrollObserver) scrollObserver.disconnect();
 
-    // Create sentinel OUTSIDE the grid, so `grid.innerHTML = ""` doesn't destroy it.
+    // Create sentinel OUTSIDE the grid, so grid.innerHTML = "" doesn't destroy it.
     let sentinel = document.querySelector('.gallery-sentinel');
     if (!sentinel) {
         sentinel = document.createElement('div');
         sentinel.className = 'gallery-sentinel';
         sentinel.style.height = '1px';
         sentinel.style.visibility = 'hidden';
-        // Append as a sibling of the grid, inside the wrapper
+        // Append as a sibling of the grid
         grid.parentNode.insertBefore(sentinel, grid.nextSibling);
     }
 
@@ -220,7 +239,7 @@ function setupInfiniteScroll() {
                 }
             }
         },
-        { root: wrapper, rootMargin: '500px' }
+        { root: null, rootMargin: '500px' }
     );
 
     scrollObserver.observe(sentinel);
@@ -328,11 +347,12 @@ function attachFilterListeners() {
     const bindFilter = (inputId, displayId, stateKey, isInt = false) => {
         const input = document.getElementById(inputId);
         if (input) {
-            input.addEventListener("input", (e) => {
+            input.addEventListener("input", async (e) => {
                 const val = isInt ? parseInt(e.target.value) : parseFloat(e.target.value);
                 filterState[stateKey] = val;
                 const display = document.getElementById(displayId);
                 if (display) display.textContent = e.target.value;
+                await new Promise(resolve => setTimeout(resolve, 500)); // Yield to ensure UI updates before processing
                 applyFilters();
             });
         }
@@ -403,7 +423,6 @@ function loadFilterState() {
         const saved = localStorage.getItem("galleryFilterState");
         if (saved) {
             filterState = { ...filterState, ...JSON.parse(saved) };
-            // Optional: You can iterate over state to update UI elements here if needed
         }
     } catch (error) {
         console.warn("Could not load filter state:", error);
@@ -415,10 +434,11 @@ function loadFilterState() {
 // ==========================================
 
 function updatePagination() {
-    const countEl = document.getElementById("page-info");
+    const statusText = document.getElementById("status-text");
     const totalPages = Math.max(1, Math.ceil(totalGalleryCount / ITEMS_PER_PAGE));
-    if (countEl) {
-        countEl.textContent = `Page ${currentPage} of ${totalPages} | Total: ${totalGalleryCount} images | Loaded: ${galleryData.length}`;
+    
+    if (statusText) {
+        statusText.innerText = `Page ${currentPage} of ${totalPages} | Total: ${totalGalleryCount} images | Loaded: ${galleryData.length}`;
     }
 }
 

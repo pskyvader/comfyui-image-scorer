@@ -37,7 +37,7 @@ class DataTransformer:
             "n_estimators": steps,
         }
         model_trainer.create_training_model(config_dict)
-        model = model_trainer.training_model
+        model: None | lgb.LGBMRanker | lgb.LGBMClassifier | lgb.LGBMRegressor = model_trainer.training_model
 
         # Setup callbacks for logging
         callbacks: list[Any] = [
@@ -57,7 +57,7 @@ class DataTransformer:
         model.fit(x, y, callbacks=callbacks)
 
         # Get feature importances (gain)
-        importances = model.feature_importances_
+        importances: np.ndarray[tuple[Any, ...], np.dtype[Any]] = model.feature_importances_
         n_features = len(importances)
 
         if verbose:
@@ -130,7 +130,7 @@ class DataTransformer:
         return accumulators
 
     def compute_correlations(
-        self, k: int, accumulators: dict[str, Any], n_samples: int, dtype
+        self, k: int, accumulators: dict[str, Any], n_samples: int, dtype: np.dtype[Any]
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         n = accumulators["n"]
         # Compute Correlations (Pearson)
@@ -151,7 +151,7 @@ class DataTransformer:
         top_k_indices_local = np.argsort(f_scores)[-k:]
         top_k_indices_local = np.sort(top_k_indices_local)
         # Pass 2: Build
-        X_interactions = np.zeros((n_samples, k), dtype=dtype)
+        X_interactions:npt.NDArray[np.float32] = np.zeros((n_samples, k), dtype=dtype)
         return X_interactions, top_k_indices_local
 
     def build_interaction_batch(

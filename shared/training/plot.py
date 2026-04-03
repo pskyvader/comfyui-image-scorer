@@ -31,9 +31,7 @@ class PlotManager:
         return PlotManager.METRIC_DIRECTIONS[objective].get(metric, True)
 
     @staticmethod
-    def _prepare_finite_data(
-        y: Any, preds: Any
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _prepare_finite_data(y: Any, preds: Any) -> tuple[np.ndarray, np.ndarray]:
         """Filter out non-finite values from y and predictions."""
         y_sample = np.asarray(y).ravel()
         preds = np.asarray(preds).ravel()
@@ -140,7 +138,6 @@ class PlotManager:
         label_threshold: int = 10,
     ) -> None:
         """Plot actual vs predicted values with continuous data."""
-        
 
         sizes = PlotManager._calculate_scatter_sizes(
             np.ones(len(y_plot)), min_size_px, max_size_px, power
@@ -209,8 +206,7 @@ class PlotManager:
         """Compare a trained model vs data."""
         rng = np.random.default_rng()
         indices = rng.choice(len(x), size=limit, replace=False)
-        
-        
+
         x_sample = x[indices]
         y_sample = y[indices]
         model = training_loader.load_training_model()
@@ -239,7 +235,11 @@ class PlotManager:
 
     @staticmethod
     def _plot_metric_on_axes(
-        ax: Any, metric_name: str, values: list[float], label: str, direction_higher: bool
+        ax: Any,
+        metric_name: str,
+        values: list[float],
+        label: str,
+        direction_higher: bool,
     ) -> None:
         """Helper to plot a single metric on an axis."""
         ax.plot(values, label=f"{label} {metric_name}")
@@ -269,7 +269,9 @@ class PlotManager:
             ax = axes[i]
             values = current_metric[metric]
             direction_higher = PlotManager._get_metric_direction(objective, metric)
-            PlotManager._plot_metric_on_axes(ax, metric, values, label, direction_higher)
+            PlotManager._plot_metric_on_axes(
+                ax, metric, values, label, direction_higher
+            )
 
     @staticmethod
     def plot_loss_curve(result_metrics: dict[str, Any] | None = None) -> None:
@@ -326,13 +328,17 @@ class PlotManager:
 
         except Exception as e:
             print("Failed to plot curves:", e)
-    
-    
+
     @staticmethod
-    def plot_continuous_analysis(data_dict: dict[str, list[tuple[float, float]]], group_name: str, x_label:str,y_label:str):
+    def plot_continuous_analysis(
+        data_dict: dict[str, list[tuple[float, float]]],
+        group_name: str,
+        x_label: str,
+        y_label: str,
+    ):
         """
         Iterates through a dictionary and creates individual scatter plots.
-        
+
         Args:
             data_dict: The dictionary containing category names (str) and data points (list[Tuple]).
             group_name: A string representing the source dictionary (e.g., 'lora_data').
@@ -341,29 +347,34 @@ class PlotManager:
             if not points:
                 print(f"No data for {title}")
                 continue
-                
+
             # Unpack the list of tuples [(x1, y1), (x2, y2), ...] into two lists
             # x_coords = [x1, x2, ...], y_coords = [y1, y2, ...]
             x_coords, y_coords = zip(*points)
-            
+
             plt.figure(figsize=(10, 6))
-            plt.scatter(x_coords, y_coords, color='blue', alpha=0.7, edgecolors='black')
-            
+            plt.scatter(x_coords, y_coords, color="blue", alpha=0.7, edgecolors="black")
+
             # Setting the title and labels
             plt.title(f"{group_name}: {title}", fontsize=14)
             plt.xlabel(x_label, fontsize=12)
             plt.ylabel(y_label, fontsize=12)
-            plt.grid(True, linestyle='--', alpha=0.6)
-            
+            plt.grid(True, linestyle="--", alpha=0.6)
+
             # Display or save the plot
             plt.tight_layout()
             plt.show()
-            
+
     @staticmethod
-    def plot_discrete_analysis(data_dict: dict[str, dict[str | int, list[float]]], group_name: str, x_label: str, y_label: str):
+    def plot_discrete_analysis(
+        data_dict: dict[str, dict[str | int, list[float]]],
+        group_name: str,
+        x_label: str,
+        y_label: str,
+    ):
         """
         Iterates through a nested dictionary and creates individual scatter plots for discrete data.
-        
+
         Args:
             data_dict: dict[title, dict[x_value, list[y_values]]]
             group_name: A string representing the source dictionary (e.g., 'discrete_data').
@@ -374,42 +385,43 @@ class PlotManager:
             if not inner_dict:
                 print(f"No data for {title}")
                 continue
-                
+
             x_coords = []
             y_coords = []
-            
+
             # Flatten the nested structure into x, y coordinates
             for x_val, y_list in inner_dict.items():
                 for y_val in y_list:
                     x_coords.append(x_val)
                     y_coords.append(y_val)
-            
+
             plt.figure(figsize=(10, 6))
-            plt.scatter(x_coords, y_coords, color='orange', alpha=0.7, edgecolors='black')
-            
+            plt.scatter(
+                x_coords, y_coords, color="orange", alpha=0.7, edgecolors="black"
+            )
+
             # Setting the title and labels using your new parameters
             plt.title(f"{group_name}: {title}", fontsize=14)
             plt.xlabel(x_label, fontsize=12)
             plt.ylabel(y_label, fontsize=12)
-            plt.grid(True, linestyle='--', alpha=0.6)
-            
+            plt.grid(True, linestyle="--", alpha=0.6)
+
             # Display or save the plot
             plt.tight_layout()
             plt.show()
 
-
     @staticmethod
     def plot_aggregate_summary(
-        data_dict: dict[str, list[tuple[float, float]]], 
-        group_name: str, 
+        data_dict: dict[str, list[tuple[float, float]]],
+        group_name: str,
         value_label: str,
         top_percent: float = 0.10,
         limit: int = 0,
-        ascending: bool = False
+        ascending: bool = False,
     ) -> None:
         """
         Plots a sorted bar chart with usage thresholds and display limits.
-        
+
         Args:
             data_dict: Dict of {name: [(weight, score), ...]}.
             group_name: Title of the data (e.g., 'Prompts').
@@ -422,7 +434,9 @@ class PlotManager:
             return
 
         # 1. Significance Filter: Keep only the top X% by usage count
-        sorted_by_usage = sorted(data_dict.items(), key=lambda x: len(x[1]), reverse=True)
+        sorted_by_usage = sorted(
+            data_dict.items(), key=lambda x: len(x[1]), reverse=True
+        )
         usage_threshold = max(1, int(len(sorted_by_usage) * top_percent))
         frequent_data = sorted_by_usage[:usage_threshold]
 
@@ -430,12 +444,14 @@ class PlotManager:
         stats_list: list[dict[str, Any]] = []
         for name, points in frequent_data:
             scores = [p[1] for p in points]
-            stats_list.append({
-                "name": name,
-                "mean": mean(scores),
-                "std": stdev(scores) if len(scores) > 1 else 0.0,
-                "count": len(scores)
-            })
+            stats_list.append(
+                {
+                    "name": name,
+                    "mean": mean(scores),
+                    "std": stdev(scores) if len(scores) > 1 else 0.0,
+                    "count": len(scores),
+                }
+            )
 
         # 3. Performance Sort (Best vs Worst)
         stats_list.sort(key=lambda x: x["mean"], reverse=not ascending)
@@ -449,41 +465,66 @@ class PlotManager:
             return
 
         # 5. Visualization
-        labels = [f"{s['name'][:30]}...\n(n={s['count']})" if len(s['name']) > 35 
-                  else f"{s['name']}\n(n={s['count']})" for s in stats_list]
+        labels = [
+            (
+                f"{s['name'][:30]}...\n(n={s['count']})"
+                if len(s["name"]) > 35
+                else f"{s['name']}\n(n={s['count']})"
+            )
+            for s in stats_list
+        ]
         means = [s["mean"] for s in stats_list]
         errors = [s["std"] for s in stats_list]
 
         plt.figure(figsize=(14, 8))
-        
+
         # Color logic: Green for good, Red for bad based on sorting intent
         cmap = plt.cm.RdYlGn if not ascending else plt.cm.RdYlGn_r
         colors = cmap([0.1 + (0.8 * (i / len(means))) for i in range(len(means))])
 
-        bars = plt.bar(labels, means, yerr=errors, capsize=6, 
-                       color=colors, edgecolor='black', alpha=0.8)
+        bars = plt.bar(
+            labels,
+            means,
+            yerr=errors,
+            capsize=6,
+            color=colors,
+            edgecolor="black",
+            alpha=0.8,
+        )
 
         # Title adjustments based on filters
         sort_type = "Worst" if ascending else "Best"
         limit_text = f"Top {limit} " if limit > 0 else "All Significant "
-        plt.title(f"{limit_text}{sort_type} {group_name}\n(Filter: Top {int(top_percent*100)}% by Usage)", 
-                  fontsize=14, fontweight='bold')
-        
+        plt.title(
+            f"{limit_text}{sort_type} {group_name}\n(Filter: Top {int(top_percent*100)}% by Usage)",
+            fontsize=14,
+            fontweight="bold",
+        )
+
         plt.ylabel(f"Avg {value_label}", fontsize=12)
-        plt.xticks(rotation=45, ha='right', fontsize=9)
-        plt.grid(axis='y', linestyle=':', alpha=0.5)
+        plt.xticks(rotation=45, ha="right", fontsize=9)
+        plt.grid(axis="y", linestyle=":", alpha=0.5)
 
         # Data Labels
         for bar in bars:
             h = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, h, f'{h:.3f}', 
-                     ha='center', va='bottom', fontsize=8, fontweight='bold')
+            plt.text(
+                bar.get_x() + bar.get_width() / 2,
+                h,
+                f"{h:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                fontweight="bold",
+            )
 
         plt.tight_layout()
         plt.show()
-        
+
     @staticmethod
-    def plot_individual_metrics(data_dict: dict[str, list[tuple[float, float]]], cols: int = 4, bins: int = 10):
+    def plot_individual_metrics(
+        data_dict: dict[str, list[tuple[float, float]]], cols: int = 4, bins: int = 10
+    ):
         """
         Plots Average Score (Y) vs Setting Value (X) for every metric.
         Bar width represents the sample size (count) for that bucket.
@@ -491,7 +532,7 @@ class PlotManager:
         active_metrics = {k: v for k, v in data_dict.items() if v}
         keys = list(active_metrics.keys())
         num_plots = len(keys)
-        
+
         if num_plots == 0:
             return
 
@@ -522,33 +563,44 @@ class PlotManager:
             actual_centers = []
 
             for b_idx in range(1, len(bin_centers) + 1):
-                mask = (bin_indices == b_idx)
-                if not np.any(mask): continue
-                
+                mask = bin_indices == b_idx
+                if not np.any(mask):
+                    continue
+
                 group_y = y_raw[mask]
                 means.append(mean(group_y))
                 stds.append(stdev(group_y) if len(group_y) > 1 else 0.0)
                 counts.append(len(group_y))
-                actual_centers.append(bin_centers[b_idx-1])
+                actual_centers.append(bin_centers[b_idx - 1])
 
             # --- VARIABLE WIDTH CALCULATION ---
             # Normalize counts to a reasonable width so they don't overlap
             counts = np.array(counts)
             if len(actual_centers) > 1:
                 # Base width is 80% of the distance between centers
-                max_width = (actual_centers[1] - actual_centers[0]) * 0.8 
+                max_width = (actual_centers[1] - actual_centers[0]) * 0.8
                 widths = (counts / counts.max()) * max_width
             else:
-                widths = [0.5] # Default for single-column data
+                widths = [0.5]  # Default for single-column data
 
             # --- PLOTTING ---
-            bars = ax.bar(actual_centers, means, yerr=stds, width=widths, 
-                          capsize=5, color='skyblue', edgecolor='navy', alpha=0.7)
+            bars = ax.bar(
+                actual_centers,
+                means,
+                yerr=stds,
+                width=widths,
+                capsize=5,
+                color="skyblue",
+                edgecolor="navy",
+                alpha=0.7,
+            )
 
-            ax.set_title(f"{key}\n(Width = Sample Size)", fontsize=11, fontweight='bold')
+            ax.set_title(
+                f"{key}\n(Width = Sample Size)", fontsize=11, fontweight="bold"
+            )
             ax.set_xlabel("Setting Value")
             ax.set_ylabel("Avg Score (± Std Dev)")
-            ax.grid(axis='y', linestyle=':', alpha=0.6)
+            ax.grid(axis="y", linestyle=":", alpha=0.6)
 
         # Cleanup
         for j in range(i + 1, len(axes)):
@@ -556,13 +608,11 @@ class PlotManager:
 
         plt.tight_layout()
         plt.show()
-       
-       
-       
+
     @staticmethod
     def plot_discrete_object_analysis(
-        discrete_data: dict[str, dict[Union[str, int], list[float]]], 
-        title_prefix: str = "Discrete Analysis"
+        discrete_data: dict[str, dict[Union[str, int], list[float]]],
+        title_prefix: str = "Discrete Analysis",
     ) -> None:
         """
         Analyzes a nested discrete data structure.
@@ -578,13 +628,15 @@ class PlotManager:
             counts: list[int] = []
 
             # Sort categories (ints numerically, strings alphabetically)
-            sorted_keys = sorted(categories.keys(), key=lambda x: (isinstance(x, str), x))
+            sorted_keys = sorted(
+                categories.keys(), key=lambda x: (isinstance(x, str), x)
+            )
 
             for cat_key in sorted_keys:
                 scores = categories[cat_key]
                 if not scores:
                     continue
-                
+
                 labels.append(str(cat_key))
                 means.append(mean(scores))
                 errors.append(stdev(scores) if len(scores) > 1 else 0.0)
@@ -597,51 +649,53 @@ class PlotManager:
             widths = (counts_array / counts_array.max()) * 0.8
 
             plt.figure(figsize=(12, 6))
-            
+
             # Use a distinctive color for the bars
             colors = plt.cm.plasma(np.linspace(0.2, 0.6, len(labels)))
 
             bars = plt.bar(
-                labels, 
-                means, 
-                yerr=errors, 
-                width=widths, 
-                capsize=8, 
-                color=colors, 
-                edgecolor='black', 
-                alpha=0.8
+                labels,
+                means,
+                yerr=errors,
+                width=widths,
+                capsize=8,
+                color=colors,
+                edgecolor="black",
+                alpha=0.8,
             )
 
-            plt.title(f"{title_prefix}: {metric_name}\n(Width = Sample Count)", fontsize=14, fontweight='bold')
+            plt.title(
+                f"{title_prefix}: {metric_name}\n(Width = Sample Count)",
+                fontsize=14,
+                fontweight="bold",
+            )
             plt.ylabel("Average Score (± Std Dev)", fontsize=12)
             plt.xlabel("Category / Setting", fontsize=12)
-            plt.grid(axis='y', linestyle=':', alpha=0.7)
+            plt.grid(axis="y", linestyle=":", alpha=0.7)
 
             # Add count overlay for precision
             for bar, count in zip(bars, counts):
                 plt.text(
-                    bar.get_x() + bar.get_width()/2, 
-                    0.02, 
-                    f"n={count}", 
-                    ha='center', 
-                    va='bottom', 
-                    fontsize=9, 
-                    color='white', 
-                    fontweight='bold'
+                    bar.get_x() + bar.get_width() / 2,
+                    0.02,
+                    f"n={count}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                    color="white",
+                    fontweight="bold",
                 )
 
             plt.tight_layout()
-            plt.show() 
-        
-        
-        
-
+            plt.show()
 
 
 class LivePlotCallback:
     """Callback to plot training progress only at the end of training."""
 
-    def __init__(self, save_path: Optional[str] = None, frequency: int = 30, status_bar=None) -> None:
+    def __init__(
+        self, save_path: str | None = None, frequency: int = 30, status_bar=None
+    ) -> None:
         """Initialize callback to plot only final results."""
         self.save_path = save_path
         if self.save_path:

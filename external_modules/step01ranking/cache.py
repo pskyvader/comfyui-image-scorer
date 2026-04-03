@@ -228,8 +228,8 @@ def get_all(unscored_only: bool = True) -> list[str]:
 def get_scored(
     limit: int = 100,
     offset: int = 0,
-    effective_score_min: float | None = None,
-    effective_score_max: float | None = None,
+    effective_score_min: float | None = 1,
+    effective_score_max: float | None = 5,
     comparisons_min: int | None = None,
     comparisons_max: int | None = None,
     volatility_min: float | None = None,
@@ -254,15 +254,14 @@ def get_scored(
         where_clauses = ["score IS NOT NULL"]
         params: list[int|float] = []
 
-        if effective_score_min is not None or effective_score_max is not None:
             # For effective score filtering, we need to check: (score + modifier/10) between min and max
             # SQLite: (score + score_modifier/10.0)
-            if effective_score_min is not None:
-                where_clauses.append("(score + score_modifier/10.0) >= ?")
-                params.append(float(effective_score_min))
-            if effective_score_max is not None:
-                where_clauses.append("(score + score_modifier/10.0) <= ?")
-                params.append(float(effective_score_max))
+        if effective_score_min is not None and effective_score_min > 1:
+            where_clauses.append("(score + score_modifier/10.0) >= ?")
+            params.append(float(effective_score_min))
+        if effective_score_max is not None and effective_score_max < 5:
+            where_clauses.append("(score + score_modifier/10.0) <= ?")
+            params.append(float(effective_score_max))
 
         if comparisons_min is not None:
             where_clauses.append("comparison_count >= ?")
@@ -282,7 +281,10 @@ def get_scored(
 
         # Get total count with filters
         total_query: str = f"SELECT COUNT(*) as cnt FROM cache WHERE {where_clause}"
+        
         total = conn.execute(total_query, params).fetchone()["cnt"]
+        print(f"total query: {total_query} with params {params} returned {total}")
+
 
         # Get paginated results
         rows_query: str = f"SELECT path, score, comparison_count, score_modifier, volatility FROM cache WHERE {where_clause} ORDER BY ROWID DESC LIMIT ? OFFSET ?"

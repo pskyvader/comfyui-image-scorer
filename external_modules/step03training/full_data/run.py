@@ -255,20 +255,23 @@ def optimize_hyperparameters(
                     "Slowest improved but still too slow; skipping remaining combos in this batch."
                 )
                 break
-    if new_score:
-        global _last_used_keys
-        current_last_used = (
-            _last_used_keys[strategy] if strategy in _last_used_keys else []
-        )
-        # remove last element
-        if len(current_last_used) > 0:
+
+    global _last_used_keys
+    current_last_used = _last_used_keys[strategy] if strategy in _last_used_keys else []
+
+    # remove last element
+    if len(current_last_used) > 0:
+        if new_score:
             last_element = current_last_used.pop()
-            statistics = load_statistics()
-            if not strategy in statistics:
-                statistics[strategy] = {}
-            if not last_element in statistics[strategy]:
-                statistics[strategy][last_element] = 0
-            statistics[strategy][last_element] += 1
-            save_statistics(statistics)
+        else:
+            last_element = current_last_used[-1]
+
+        statistics = load_statistics()
+        if not strategy in statistics:
+            statistics[strategy] = {}
+        if not last_element in statistics[strategy]:
+            statistics[strategy][last_element] = 0
+        statistics[strategy][last_element] += 1 if new_score else -1
+        save_statistics(statistics)
 
     return results

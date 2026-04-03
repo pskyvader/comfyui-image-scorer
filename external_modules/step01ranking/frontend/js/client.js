@@ -268,7 +268,7 @@ function startNewImageMonitoring() {
      */
     if (!newImagesCheckInterval) {
         console.log("Starting new image monitoring...");
-        newImagesCheckInterval = setInterval(checkForNewImages, 5000);
+        newImagesCheckInterval = setInterval(checkForNewImages, 50000);
     }
 }
 
@@ -288,7 +288,7 @@ function stopNewImageMonitoring() {
 // ═══════════════════════════════════════════════════════════════════
 
 startPolling();
-startNewImageMonitoring();
+// startNewImageMonitoring();
 switchMode("single");
 
 

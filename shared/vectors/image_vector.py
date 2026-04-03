@@ -170,23 +170,23 @@ class ImageVector:
 
         channels = 3
 
-        max_size = 100
+        max_size = 200
         min_size = 2
         last_size = 0
 
-        if vector_width:
-            # Get all recorded heights for this width as integers
-            existing_heights = sorted([int(h) for h in vector_width.keys()])
+        # if vector_width:
+        #     # Get all recorded heights for this width as integers
+        #     existing_heights = sorted([int(h) for h in vector_width.keys()])
 
-            # upper values (larger heights) => smaller batch size (min_size)
-            # upper_heights = [h for h in existing_heights if h > height]
-            # if upper_heights:
-            #     min_size = vector_width[str(min(upper_heights))]
+        #     # upper values (larger heights) => smaller batch size (min_size)
+        #     # upper_heights = [h for h in existing_heights if h > height]
+        #     # if upper_heights:
+        #     #     min_size = vector_width[str(min(upper_heights))]
 
-            # lower values (smaller heights) => larger batch size (max_size)
-            lower_heights = [h for h in existing_heights if h < height]
-            if lower_heights:
-                max_size = vector_width[str(max(lower_heights))]
+        #     # lower values (smaller heights) => larger batch size (max_size)
+        #     lower_heights = [h for h in existing_heights if h < height]
+        #     if lower_heights:
+        #         max_size = vector_width[str(max(lower_heights))]
 
         while not max_size == min_size:
             torch.cuda.empty_cache()

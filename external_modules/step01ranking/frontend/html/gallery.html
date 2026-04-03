@@ -6,9 +6,10 @@
     <div class="gallery-filters">
         <div class="gallery-filters-header">
             <h3>Filters</h3>
-            <button class="btn btn-secondary" id="toggle-filters-btn" onclick="toggleAdvancedFilters()">Show Advanced Filters</button>
+            <button class="btn btn-secondary" id="toggle-filters-btn" onclick="toggleAdvancedFilters()">Show Advanced
+                Filters</button>
         </div>
-        
+
         <div class="filter-group">
             <label>Effective Score (Score + Modifier/10)</label>
             <div class="slider-container">
@@ -29,7 +30,20 @@
                     <span id="comparisons-min-val">0</span> - <span id="comparisons-max-val">10</span>
                 </div>
             </div>
+            <div class="filter-group">
+                <label>Volatility (0-1, Absolute Value)</label>
+                <div class="slider-container">
+                    <input type="range" id="filter-volatility-min" class="slider-min" min="0" max="1" value="0"
+                        step="0.05">
+                    <input type="range" id="filter-volatility-max" class="slider-max" min="0" max="1" value="1"
+                        step="0.05">
+                    <div class="slider-values">
+                        <span id="volatility-min-val">0.0</span> - <span id="volatility-max-val">1.0</span>
+                    </div>
+                </div>
+            </div>
         </div>
+
 
         <button class="btn btn-reset" onclick="resetFilters()">Reset Filters</button>
     </div>
@@ -41,10 +55,6 @@
     <div id="gallery-sentinel" class="gallery-infinite-scroll-loader">
         <div class="spinner"></div>
         <span style="margin-left: 10px;">Loading more...</span>
-    </div>
-
-    <div class="gallery-pagination">
-        <span id="page-info">Loading...</span>
     </div>
 
     <div id="image-modal" class="image-modal">

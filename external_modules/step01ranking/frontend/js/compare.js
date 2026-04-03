@@ -130,16 +130,19 @@ const compareMode = {
         const loserData = winner === "left" ? this.compareRightData : this.compareLeftData;
 
         try {
+            const body = JSON.stringify({
+                winner_image: winnerImage,
+                loser_image: loserImage,
+                winner_data: winnerData,
+                loser_data: loserData,
+            });
+            await this.fetchNextComparePair();
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay to ensure UI updates before next fetch
             const res = await fetch("/compare/submit", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    winner_image: winnerImage,
-                    loser_image: loserImage,
-                    winner_data: winnerData,
-                    loser_data: loserData,
-                }),
-            })
+                body: body,
+            });
 
             this.loader.querySelector(".loader-text").innerText = "Updating…";
 
@@ -149,7 +152,7 @@ const compareMode = {
                 buttons.forEach(btn => btn.classList.remove("hidden"));
                 return;
             }
-            this.fetchNextComparePair();
+
 
 
         } catch (e) {
@@ -179,7 +182,7 @@ async function clearCompareModeState() {
         compareMode.imageA = null;
         compareMode.imageB = null;
         compareMode.loadingComparison = false;
-        
+
         // Clear DOM references
         compareMode.imgA = null;
         compareMode.imgB = null;
