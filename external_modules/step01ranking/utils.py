@@ -8,7 +8,7 @@ from .cache import add, get_all, set_absolute_total, get_cached_metadata
 from shared.config import PROJECT_ROOT, config
 import random
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_EXTENSIONS: set[str] = {".png", ".jpg", ".jpeg", ".webp"}
 _image_root = None
 _image_list_cache: list[str] = []
 
@@ -16,7 +16,7 @@ _image_list_cache: list[str] = []
 def serve_file(subpath: str) -> Any:
     """Serve file relative to image_root, properly decoded."""
     root = Path(image_root())
-    path = root / unquote(subpath)
+    path: Path = root / unquote(subpath)
     if not path.exists() or not path.is_file():
         abort(404)
     return send_from_directory(str(path.parent), path.name, conditional=True)
@@ -46,8 +46,6 @@ def image_root() -> str:
     return _image_root
 
 
-
-
 def scan_batch(root: str, limit: int = 100) -> bool:
     """
     Scan images and add to database with their metadata.
@@ -57,21 +55,25 @@ def scan_batch(root: str, limit: int = 100) -> bool:
         True if any new unscored files were found
     """
     global _image_list_cache
-    if len(_image_list_cache)==0:
-        _image_list_cache=get_all(False)
-        
+    if len(_image_list_cache) == 0:
+        _image_list_cache = get_all(False)
 
     # Get all image-json file pairs from root
     all_file_pairs = list(discover_files(root))
     if not all_file_pairs:
         return False
     collected_valid_files = collect_valid_files(
-        all_file_pairs, set(_image_list_cache), root, max_workers=40, scored_only=False,limit=1000
+        all_file_pairs,
+        set(_image_list_cache),
+        root,
+        max_workers=40,
+        scored_only=False,
+        limit=1000,
     )
     set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
-    if len(collected_valid_files)==0:
+    if len(collected_valid_files) == 0:
         return False
-    
+
     random.shuffle(collected_valid_files)  # Shuffle to ensure random processing order
 
     added_any_unscored = False
@@ -84,10 +86,10 @@ def scan_batch(root: str, limit: int = 100) -> bool:
         if score is not None:
             if score < 1:
                 print(f"file {file_id} has a negative score")
-                score=2
-            elif score >5:
-                score=4
-            
+                score = 2
+            elif score > 5:
+                score = 4
+
         comparison_count = entry.get("comparison_count", 0)
         score_modifier = entry.get("score_modifier", 0)
 

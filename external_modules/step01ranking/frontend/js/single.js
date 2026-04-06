@@ -110,7 +110,8 @@ const singleMode = {
             };
 
             // Start loading
-            this.imgTag.src =  `/thumbnail/${encodeURIComponent(this.currentImage)}`;
+            this.imgTag.src = `/image/${encodeURIComponent(this.currentImage)}`;
+            // this.imgTag.src =  `/thumbnail/${encodeURIComponent(this.currentImage)}`;
         } catch (e) {
             console.error("Error loading next image:", e);
             this.loader.querySelector(".loader-text").innerText = "Error loading image";
@@ -160,7 +161,7 @@ async function clearSingleModeState() {
         // Clear the singleMode state object
         singleMode.currentImage = null;
         singleMode.loadingImage = false;
-        
+
         // Clear DOM references
         singleMode.previewDiv = null;
         singleMode.imgTag = null;

@@ -117,32 +117,32 @@ class VectorList:
         # split by data type
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
-            alias=c.get("alias", None)
+            alias = c.get("alias", None)
             # print(f"Vector config for {v}: {c}")
             if c["type"] == self._MAP:
                 map_vector: MapVector = c["vector"]
-                map_vector.parse_value_list(self.entries, self.add_new_to_map,alias)
+                map_vector.parse_value_list(self.entries, self.add_new_to_map, alias)
                 map_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = map_vector
             elif c["type"] == self._INT:
-                int_vector:IntVector = c["vector"]
-                int_vector.parse_value_list(self.entries,alias)
+                int_vector: IntVector = c["vector"]
+                int_vector.parse_value_list(self.entries, alias)
                 int_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = int_vector
             elif c["type"] == self._FLOAT:
-                float_vector:FloatVector = c["vector"]
-                float_vector.parse_value_list(self.entries,alias)
+                float_vector: FloatVector = c["vector"]
+                float_vector.parse_value_list(self.entries, alias)
                 float_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = float_vector
             elif c["type"] == self._EMBEDDING:
-                embedding_vector :EmbeddingVector= c["vector"]
-                embedding_vector.parse_value_list(self.entries,alias)
+                embedding_vector: EmbeddingVector = c["vector"]
+                embedding_vector.parse_value_list(self.entries, alias)
                 embedding_vector.create_vector_list(batch_size=256)
                 embedding_vector.create_text_list(batch_size=256)
 
                 self.sorted_vectors[v]["vector"] = embedding_vector
             elif c["type"] == self._IMAGE and self.process_images:
-                image_vector:ImageVector = c["vector"]
+                image_vector: ImageVector = c["vector"]
                 image_vector.path_list = self.image_paths
                 result = (-1, -1)
                 while isinstance(result, tuple):
@@ -186,7 +186,7 @@ class VectorList:
 
         print("assembling vectors...")
         self.final_vector = np.column_stack(clean_arrays).tolist()
-        #self._update_lists()
+        # self._update_lists()
         return self.final_vector
 
     def convert_text_list(
@@ -235,7 +235,7 @@ class VectorList:
 
         print("assembling text data...")
         self.final_text_data = clean_arrays
-        #self._update_lists()
+        # self._update_lists()
         return self.final_text_data
 
     def update_lists(self) -> None:
@@ -243,7 +243,7 @@ class VectorList:
         if not self.merge_lists:
             self.vectors_list.extend(self.final_vector)
         else:
-            self.vectors_list = self.final_vector
+            self.vectors_list: list[list[float]] = self.final_vector
         self.text_list.extend(self.final_text_data)
         self.index_list.extend(self.unique_ids)
         self.scores_list.extend(self.scores)

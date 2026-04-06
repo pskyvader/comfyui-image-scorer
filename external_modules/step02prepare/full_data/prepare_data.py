@@ -135,7 +135,7 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
     # Load existing data
     print("loading existing data...")
     index_list = load_single_jsonl(index_file)
-
+    index_size = len(index_list)
     # In text-only mode, we reprocess ALL existing scored images to update their text extraction
     # Build processed_data for VectorList (same format as run_prepare)
     print(f"collecting files in {image_root}...")
@@ -152,21 +152,21 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
 
     all_collected_dict = {}
     for entry in all_collected:
-        img_path: str = entry[0]
+        img_path: str = entry[3]
         all_collected_dict[img_path] = entry
 
     # Filter to only the ones we've scored before
     collected_data: list[Any] = []
-    last_processed = all_collected[0]
+    last_processed: tuple[str, dict[str, Any], str, str] = all_collected[0]
 
     for item in processed_files:
         if item in all_collected_dict:
-            last_processed = item
+            last_processed = all_collected_dict[item]
         else:
             print(
                 f"WARNING: file not found during text-only process: {item}, using last found as placeholder"
             )
-            last_processed[1]["score"]=-1  # mark as not found
+            last_processed[1]["score"] = -1  # mark as not found
 
         collected_data.append(last_processed)
 
@@ -181,6 +181,8 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         return {"total": len(index_list), "new": 0, "text_processed": 0}
 
     print(f"Found {len(collected_data)} scored files for text reprocessing")
+    # print(f"collected data sample: {collected_data[0]}")
+    print(f"index list size: {len(index_list)} items")
 
     # Create VectorList in text-only mode: only processes text data, not images
     vectors_list_parser = VectorList(
@@ -190,10 +192,11 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         [],
         [],
         add_new=False,
-        merge_lists=True,
+        merge_lists=False,
         read_only=False,
         process_images=False,  # CRITICAL: Skip image processing
     )
+    print(f"index list size: {len(index_list)} items")
 
     print("processing text data only (no image analysis)...")
     try:
@@ -204,8 +207,9 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
 
         new_text_list = vectors_list_parser.text_list
         new_score_list = vectors_list_parser.scores_list
-        if len(new_text_list) != len(new_score_list) or len(new_text_list) != len(
-            index_list
+        if (
+            len(new_text_list) != len(new_score_list)
+            or len(new_text_list) != index_size
         ):
             raise RuntimeError(
                 f"list mismatched lengths: text {len(new_text_list)}, scores {len(new_score_list)}, index {len(index_list)}"
@@ -286,7 +290,9 @@ def run_rebuild_scores_only() -> dict[str, int]:
             updated_count += 1
         else:
             # File doesn't exist, use old score
-            old_score: Any | Literal[3] = old_scores_list[idx] if idx < len(old_scores_list) else 3
+            old_score: Any | Literal[3] = (
+                old_scores_list[idx] if idx < len(old_scores_list) else 3
+            )
             new_scores_list.append(old_score)
             missing_count += 1
             print(

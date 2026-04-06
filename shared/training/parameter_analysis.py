@@ -1,19 +1,22 @@
 """
 Parameter Analysis Module
 Analyzes relationships between parameters/terms and image scores.
-Generates 2D scatter plots and correlation statistics.
+Generates correlation statistics and visualizations.
 """
 
 import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Any 
+from typing import Any
 
 try:
     import matplotlib.pyplot as plt
     import matplotlib
-    matplotlib.use('Agg')  # Use non-interactive backend
+
+    matplotlib.use("Agg")  # Use non-interactive backend
+    from matplotlib.colors import Normalize
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     print("Warning: matplotlib not available - analysis will be limited")
@@ -21,6 +24,7 @@ except ImportError:
 
 try:
     from sklearn.preprocessing import MinMaxScaler
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     print("Warning: scikit-learn not available - normalization will be basic")
@@ -75,7 +79,7 @@ class ParameterAnalyzer:
             return
 
         print("  - Extracting parameters...")
-        
+
         # Extract common parameters from vectors
         steps_list = []
         cfg_list = []
@@ -180,7 +184,9 @@ class ParameterAnalyzer:
 
             for term_data in pos_terms:
                 if isinstance(term_data, (list, tuple)):
-                    term, weight = term_data[0], term_data[1] if len(term_data) > 1 else 1.0
+                    term, weight = term_data[0], (
+                        term_data[1] if len(term_data) > 1 else 1.0
+                    )
                 else:
                     term, weight = str(term_data), 1.0
 
@@ -190,7 +196,9 @@ class ParameterAnalyzer:
 
             for term_data in neg_terms:
                 if isinstance(term_data, (list, tuple)):
-                    term, weight = term_data[0], term_data[1] if len(term_data) > 1 else 1.0
+                    term, weight = term_data[0], (
+                        term_data[1] if len(term_data) > 1 else 1.0
+                    )
                 else:
                     term, weight = str(term_data), 1.0
 
@@ -244,7 +252,7 @@ class ParameterAnalyzer:
         ylabel: str,
         normalize: bool = False,
     ) -> None:
-        """Create 2D scatter plot."""
+        """Create 1D scatter plot with color mapping."""
         if not MATPLOTLIB_AVAILABLE:
             return
 
@@ -287,17 +295,30 @@ class ParameterAnalyzer:
         ylabel: str,
         zlabel: str,
     ) -> None:
-        """Create 2D scatter plot with color coding."""
+        """Create 2D scatter plot with color coding for Z dimension."""
         if not MATPLOTLIB_AVAILABLE:
             return
 
         try:
             fig, ax = plt.subplots(figsize=(12, 9))
 
-            scatter = ax.scatter(x, y, c=colors, cmap="coolwarm", s=100, alpha=0.7, edgecolors="k", linewidth=0.5)
+            scatter = ax.scatter(
+                x,
+                y,
+                c=colors,
+                cmap="coolwarm",
+                s=100,
+                alpha=0.7,
+                edgecolors="k",
+                linewidth=0.5,
+            )
             ax.set_xlabel(xlabel, fontsize=12)
             ax.set_ylabel(ylabel, fontsize=12)
-            ax.set_title(f"{xlabel} vs {ylabel} (colored by {zlabel})", fontsize=14, fontweight="bold")
+            ax.set_title(
+                f"{xlabel} vs {ylabel} (colored by {zlabel})",
+                fontsize=14,
+                fontweight="bold",
+            )
 
             cbar = plt.colorbar(scatter, ax=ax)
             cbar.set_label(zlabel, fontsize=12)
@@ -333,7 +354,9 @@ class ParameterAnalyzer:
             category_scores[cat].append(float(score))
         return category_scores
 
-    def _save_category_stats(self, filename: str, category_scores: dict[str, list[float]]) -> None:
+    def _save_category_stats(
+        self, filename: str, category_scores: dict[str, list[float]]
+    ) -> None:
         """Save statistics for categorical data."""
         stats = {}
         for category, scores in category_scores.items():
@@ -448,6 +471,7 @@ def main():
     except Exception as e:
         print(f"✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
 

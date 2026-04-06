@@ -6,8 +6,6 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 from statistics import mean, stdev
 
-import seaborn as sns
-import pandas as pd
 import math
 
 from ..loaders.training_loader import training_loader

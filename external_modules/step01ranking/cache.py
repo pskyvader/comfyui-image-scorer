@@ -58,6 +58,19 @@ def _get_meta(key: str) -> str | None:
 # ───────────────────────────
 # lifecycle / scan flags
 # ───────────────────────────
+def get_total_single_level(score: int = 0, level: int = 1) -> int:
+    """Get total count of images for a specific score and comparison level."""
+    # score=0 means all not null
+    query = "SELECT COUNT(*) as cnt FROM cache WHERE comparison_count < ? AND score "
+    params: list[int] = [level]
+    if 1 <= score <= 5:
+        query += "= ?"
+        params.append(score)
+    else:
+        query += "IS NOT NULL"
+    with _get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+        return row["cnt"]
 
 
 # 1️⃣ Get total elements per level, grouped by score
@@ -103,13 +116,13 @@ Pair = tuple[str, str, Meta, Meta]
 def get_image_pair(
     max_comparison_count: int = 10,
     tolerance: float = 1.0,
-    min_tolerance:float=0,
+    min_tolerance: float = 0,
     score: int = 0,
     safety_limit: int = 20,
     _cached_pairs: list[str] = [],
 ) -> Pair | None:
     base_filter = "FROM cache WHERE comparison_count < ?"
-    excluded_paths: tuple[str, ...] = tuple(_cached_pairs)
+    excluded_paths: set[str] = set(_cached_pairs)
     exclusion_clause: str = (
         f" AND path NOT IN ({','.join(['?'] * len(excluded_paths))})"
         if excluded_paths
@@ -121,8 +134,9 @@ def get_image_pair(
 
         # Safety check
         totals: dict[int, dict[int, int]] = get_total_per_level(score)
-        print(f"Score groups: {totals}")
-        
+
+        # print(f"Score groups: {totals}")
+
         if score > 0:
             score_levels: dict[int, int] = totals.get(score, {})
             available_count = sum(
@@ -137,6 +151,10 @@ def get_image_pair(
                 for lvl, count in score_levels.items()
                 if lvl < max_comparison_count
             )
+
+        print(
+            f"available count for level {max_comparison_count} and score {score} (+/- {min_tolerance}-{tolerance}): {available_count}"
+        )
 
         if available_count < safety_limit:
             return None
@@ -155,12 +173,11 @@ def get_image_pair(
         if not first_row:
             return None
 
-        first_image: Meta = dict(first_row)
         first_effective_score: float = (
-            float(first_image["score"]) + float(first_image["score_modifier"]) / 10.0
+            float(first_row["score"]) + float(first_row["score_modifier"]) / 10.0
         )
-        
-        #print(f"excluded paths:{excluded_paths}")
+
+        # print(f"excluded paths:{excluded_paths}")
 
         # Pick second image directly in SQL
         second_row: Meta = conn.execute(
@@ -175,7 +192,7 @@ def get_image_pair(
             """,
             (
                 max_comparison_count,
-                first_image["path"],
+                first_row["path"],
                 first_effective_score,
                 min_tolerance,
                 tolerance,
@@ -184,12 +201,13 @@ def get_image_pair(
         ).fetchone()
 
         if not second_row:
+            _cached_pairs.append(first_row["path"])
             return None
 
         return (
-            str(first_image["path"]),
+            str(first_row["path"]),
             str(second_row["path"]),
-            first_image,
+            first_row,
             dict(second_row),
         )
 
@@ -234,7 +252,7 @@ def get_scored(
     comparisons_max: int | None = None,
     volatility_min: float | None = None,
     volatility_max: float | None = None,
-) -> tuple[list[dict[str,str|float|int|None]], int]:
+) -> tuple[list[dict[str, str | float | int | None]], int]:
     """Return scored image metadata with pagination and optional filtering.
 
     Args:
@@ -252,10 +270,10 @@ def get_scored(
     with _get_conn() as conn:
         # Build WHERE clause with filters
         where_clauses = ["score IS NOT NULL"]
-        params: list[int|float] = []
+        params: list[int | float] = []
 
-            # For effective score filtering, we need to check: (score + modifier/10) between min and max
-            # SQLite: (score + score_modifier/10.0)
+        # For effective score filtering, we need to check: (score + modifier/10) between min and max
+        # SQLite: (score + score_modifier/10.0)
         if effective_score_min is not None and effective_score_min > 1:
             where_clauses.append("(score + score_modifier/10.0) >= ?")
             params.append(float(effective_score_min))
@@ -281,16 +299,17 @@ def get_scored(
 
         # Get total count with filters
         total_query: str = f"SELECT COUNT(*) as cnt FROM cache WHERE {where_clause}"
-        
+
         total = conn.execute(total_query, params).fetchone()["cnt"]
         print(f"total query: {total_query} with params {params} returned {total}")
 
-
         # Get paginated results
-        rows_query: str = f"SELECT path, score, comparison_count, score_modifier, volatility FROM cache WHERE {where_clause} ORDER BY ROWID DESC LIMIT ? OFFSET ?"
+        rows_query: str = (
+            f"SELECT path, score, comparison_count, score_modifier, volatility FROM cache WHERE {where_clause} ORDER BY ROWID DESC LIMIT ? OFFSET ?"
+        )
         rows: list[Any] = conn.execute(rows_query, params + [limit, offset]).fetchall()
 
-        result: list[dict[str,str|float|int|None]] = []
+        result: list[dict[str, str | float | int | None]] = []
         for r in rows:
             result.append(
                 {

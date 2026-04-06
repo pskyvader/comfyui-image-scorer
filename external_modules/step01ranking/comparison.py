@@ -12,7 +12,7 @@ import math
 
 from .utils import load_metadata, get_json_path
 from shared.io import atomic_write_json
-from .cache import add, get_image_pair
+from .cache import add, get_image_pair, get_total_single_level
 
 
 Meta = dict[str, int | float | str]
@@ -37,16 +37,34 @@ def get_paired_images(
 
     for i in range(1, max_comparison_count + 1):
         safety_limit_level: int = safety_limit * i
+        total_level: int = get_total_single_level(score, i)
         tolerance = 0.01 + max_tolerance * (1 - (i / max_comparison_count) ** alpha)
         min_tolerance = tolerance
-        while min_tolerance >= 0 and image_pair is None:
-            min_tolerance -= 0.1
+        tolerance_step: float = max(tolerance * 0.2, 0.1)
+        print(
+            f"Level {i}: total={total_level}, safety_limit={safety_limit_level}, tolerance={tolerance:.4f}"
+        )
+        while (
+            total_level > safety_limit_level
+            and min_tolerance >= 0
+            and image_pair is None
+        ):
+            min_tolerance -= tolerance_step
             image_pair: Pair | None = get_image_pair(
-                i, tolerance, min_tolerance, score, safety_limit_level, _cached_pairs
+                i,
+                tolerance,
+                min_tolerance,
+                score,
+                safety_limit_level,
+                _cached_pairs=_cached_pairs,
             )
 
         if image_pair is not None:
             break
+        if len(_cached_pairs) > safety_limit_level:
+            # remove oldest added elements
+            _cached_pairs = _cached_pairs[-int(safety_limit_level / 2) :]
+
     if i:
         print(f"last level: {i}, tolerance: {min_tolerance} - {tolerance}")
 
@@ -59,6 +77,8 @@ def get_paired_images(
         return get_paired_images(
             score, safety_limit, max_comparison_count, max_tolerance
         )
+
+    print(f"cached pairs count: {len(_cached_pairs)}")
     return image_pair
 
 

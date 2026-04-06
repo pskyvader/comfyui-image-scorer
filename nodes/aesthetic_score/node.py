@@ -1,7 +1,6 @@
 import torch
 from typing import Any
 import numpy as np
-from PIL import Image
 from ...shared.helpers import export_image_batch
 from ...shared.vectors.vectors import VectorList
 from ...shared.image_analysis import ImageAnalysis

@@ -11,7 +11,9 @@ cache_file: str = os.path.join(output_dir, "cache.db")
 image_root: str = config["image_root"]
 
 vectors_size_file: str = os.path.join(output_dir, "image_vector_size.json")
-hyperparameters_statistics: str = os.path.join(output_dir, "hyperparameters_statistics.json")
+hyperparameters_statistics: str = os.path.join(
+    output_dir, "hyperparameters_statistics.json"
+)
 
 vectors_dir: str = os.path.join(output_dir, "vectors")
 vectors_file: str = os.path.join(vectors_dir, config["vectors_file"])
@@ -21,7 +23,14 @@ text_data_file: str = os.path.join(vectors_dir, config["text_data_file"])
 
 
 models_dir: str = os.path.join(output_dir, "models")
+training_dir: str = os.path.join(output_dir, config["training_subfolder"])
+
 training_model: str = os.path.join(models_dir, config["training_model"])
 processed_data: str = os.path.join(models_dir, config["processed_data"])
 filtered_data: str = os.path.join(models_dir, config["filtered_data"])
 interaction_data: str = os.path.join(models_dir, config["interaction_data"])
+
+# Training and analysis file paths (hardcoded in training_dir)
+matrix_analysis_file: str = os.path.join(training_dir, "matrix_analysis_results.jsonl")
+matrix_summary_file: str = os.path.join(training_dir, "matrix_analysis_summary.json")
+analysis_results_file: str = os.path.join(training_dir, "analysis_results.json")

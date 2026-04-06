@@ -13,5 +13,6 @@
     "training_model": "model.npz",
     "processed_data": "processed_data.npz",
     "filtered_data": "filtered_data.npz",
-    "interaction_data": "interaction_data.npz"
+    "interaction_data": "interaction_data.npz",
+    "training_subfolder": "training"
 }

@@ -336,9 +336,8 @@ def compare_next():
     """
     root = image_root()
 
-    score = request.args.get("score", type=int)
-    if score is None:
-        score = 0  # 0 means any score
+    score: int = request.args.get("score", type=int, default=0)
+    # 0 means any score
 
     pair_data = get_paired_images(
         score, safety_limit=30, max_comparison_count=10, max_tolerance=1.0

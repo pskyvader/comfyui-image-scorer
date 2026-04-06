@@ -5,21 +5,24 @@ from .helpers import get_value_from_entry, l2_normalize_batch
 from ..loaders.model_loader import model_loader
 from ..vectors.terms import extract_terms
 
+
 class EmbeddingVector:
     def __init__(self, name: str) -> None:
         self.name = name
         self.value_list: list[str] = []
         self.vector_list: list[list[float]] = []
-        self.text_list=[]
+        self.text_list: list[list[tuple[str, float]]] = []
 
-    def parse_value_list(self, entries: list[dict[str, Any]],alias:list[str]|None=None) -> list[str]:
+    def parse_value_list(
+        self, entries: list[dict[str, Any]], alias: list[str] | None = None
+    ) -> list[str]:
         for entry in entries:
             # for entry_date in entry.values():
-            current_value = get_value_from_entry(entry, self.name,alias)
+            current_value = get_value_from_entry(entry, self.name, alias)
             if not current_value:
                 current_value = ""
             self.value_list.append(current_value)
-        
+
         return self.value_list
 
     def create_vector_batch(self, current_batch: list[str]) -> list[list[float]]:
@@ -37,8 +40,8 @@ class EmbeddingVector:
                 f"CLIP returned unexpected vector length "
                 f"{processed.shape[-1]}, expected {vector_length}"
             )
-        
-        normalized=l2_normalize_batch(processed)
+
+        normalized = l2_normalize_batch(processed)
 
         # Convert to Python lists only once at the end
         return normalized.tolist()
@@ -54,13 +57,13 @@ class EmbeddingVector:
                 pbar.update(len(current_batch))
 
         return self.vector_list
-    
-    def create_text_batch(self, batch:list[str])->list[list[tuple[str, float]]]:
-        text_list:list[list[tuple[str, float]]]=[]
+
+    def create_text_batch(self, batch: list[str]) -> list[list[tuple[str, float]]]:
+        text_list: list[list[tuple[str, float]]] = []
         for text in batch:
             text_list.append(extract_terms(text))
         return text_list
-    
+
     def create_text_list(self, batch_size: int = 4) -> list[list[tuple[str, float]]]:
         total = len(self.value_list)
         with tqdm(total=total, desc="Mapped", unit=" " + self.name) as pbar:
