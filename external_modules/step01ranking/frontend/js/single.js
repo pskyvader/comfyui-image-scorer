@@ -129,18 +129,21 @@ const singleMode = {
         this.loader.classList.remove("hidden");
 
         try {
+            const data = { image: this.currentImage, score }
             await fetch("/submit_score", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ image: this.currentImage, score }),
+                body: JSON.stringify(data),
             });
-            this.loadNext();
         } catch (e) {
             console.error("Error submitting score:", e);
-            this.loader.querySelector(".loader-text").innerText = "Error submitting score…";
-            this.loadingImage = false;
-            resumePolling();
+            // this.loader.querySelector(".loader-text").innerText = "Error submitting score…";
+            // this.loadingImage = false;
+            // resumePolling();
         }
+
+
+        await this.loadNext();
     },
 
     // Skip current image

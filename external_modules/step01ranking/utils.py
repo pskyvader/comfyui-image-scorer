@@ -3,10 +3,13 @@ from pathlib import Path
 from typing import Any
 from flask import send_from_directory, abort
 from urllib.parse import unquote
+
+from numpy import size
 from shared.io import load_single_entry_mapping, discover_files, collect_valid_files
 from .cache import add, get_all, set_absolute_total, get_cached_metadata
 from shared.config import PROJECT_ROOT, config
 import random
+import matplotlib.pyplot as plt
 
 IMAGE_EXTENSIONS: set[str] = {".png", ".jpg", ".jpeg", ".webp"}
 _image_root = None
@@ -70,7 +73,13 @@ def scan_batch(root: str, limit: int = 100) -> bool:
         scored_only=False,
         limit=1000,
     )
-    set_absolute_total(len(_image_list_cache) + len(collected_valid_files))
+    if len(collected_valid_files) == 0:
+        absolute_total = len(_image_list_cache)
+    else:
+        absolute_total = int(max(len(all_file_pairs), len(all_file_pairs) / 2))
+
+    set_absolute_total(absolute_total)
+
     if len(collected_valid_files) == 0:
         return False
 
@@ -138,3 +147,60 @@ def get_unscored_images(root: str) -> list[str]:
         unscored.append(rel_path)
 
     return unscored
+
+
+def print_slot_distribution(buckets, precision=0, limit=11):
+    print(f"\nBucket distribution with precision {precision}:")
+
+    scale = 1.1**precision
+    # Base font sizes to be scaled
+    base_fs = 12
+
+    # Scale figure size
+    plt.figure(figsize=(10 * scale, 6 * scale))
+
+    bucket_keys = sorted(buckets.keys())
+    counts = [len(buckets[key]) for key in bucket_keys]
+
+    # width=0.8/scale is already good for the bars
+    plt.bar(bucket_keys, counts, width=0.1 * (1 / scale))
+
+    # Scale Labels and Title
+    plt.xlabel("Score Buckets", fontsize=base_fs * scale)
+    plt.ylabel("Number of Images", fontsize=base_fs * scale)
+    plt.title(
+        f"Image Distribution (Precision: {precision})", fontsize=(base_fs + 4) * scale
+    )
+
+    # Scale Tick Labels (the numbers on the axes)
+    plt.xticks(bucket_keys, fontsize=base_fs * scale)
+    plt.yticks(fontsize=base_fs * scale)
+
+    # Scale Grid thickness
+    plt.grid(axis="y", linestyle="--", alpha=0.7, linewidth=1 * scale)
+
+    # Adjust layout to prevent clipping
+    plt.tight_layout()
+    plt.show()
+
+
+ImageSlot = list[dict[str, str | float | int | None]]
+ImageBucket = dict[float, ImageSlot]
+
+
+def move_to_slot(
+    image_buckets: ImageBucket,
+    current_slot: float,
+    target_slot: float,
+    target_size: int,
+) -> ImageBucket:
+    source_list: ImageSlot = image_buckets[current_slot]
+    num_to_move: int = len(source_list) - target_size
+
+    image_buckets[target_slot].sort(key=lambda x: int(x["comparison_count"]))
+
+    if num_to_move > 0:
+        image_buckets[target_slot].extend(source_list[:num_to_move])
+        image_buckets[current_slot] = source_list[num_to_move:]
+
+    return image_buckets

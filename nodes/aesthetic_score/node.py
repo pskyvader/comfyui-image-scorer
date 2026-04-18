@@ -82,8 +82,8 @@ class AestheticScoreNode:
             raise ValueError("'scheduler' must be a non-empty string.")
         if not model_name.strip():
             raise ValueError("'model_name' must be a non-empty string.")
-        if not (float(lora_strength) >= 0.0):
-            raise ValueError("'lora_strength' must be a non-negative float.")
+        # if not (float(lora_strength) >= 0.0):
+        #     raise ValueError("'lora_strength' must be a non-negative float.")
 
         entry: dict[str, Any] = {
             "steps": steps,

@@ -19,7 +19,11 @@ class DataTransformer:
         pass
 
     def filter_unused_features(
-        self, x: npt.NDArray[np.float32], y: npt.NDArray[np.float32], steps: int, verbose: bool = True
+        self,
+        x: npt.NDArray[np.float32],
+        y: npt.NDArray[np.float32],
+        steps: int,
+        verbose: bool = True,
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
         """
         Trains a fast LightGBM model to identify and remove features with zero importance
@@ -37,7 +41,9 @@ class DataTransformer:
             "n_estimators": steps,
         }
         model_trainer.create_training_model(config_dict)
-        model: None | lgb.LGBMRanker | lgb.LGBMClassifier | lgb.LGBMRegressor = model_trainer.training_model
+        model: None | lgb.LGBMRanker | lgb.LGBMClassifier | lgb.LGBMRegressor = (
+            model_trainer.training_model
+        )
 
         # Setup callbacks for logging
         callbacks: list[Any] = [
@@ -57,7 +63,9 @@ class DataTransformer:
         model.fit(x, y, callbacks=callbacks)
 
         # Get feature importances (gain)
-        importances: np.ndarray[tuple[Any, ...], np.dtype[Any]] = model.feature_importances_
+        importances: np.ndarray[tuple[Any, ...], np.dtype[Any]] = (
+            model.feature_importances_
+        )
         n_features = len(importances)
 
         if verbose:
@@ -151,11 +159,14 @@ class DataTransformer:
         top_k_indices_local = np.argsort(f_scores)[-k:]
         top_k_indices_local = np.sort(top_k_indices_local)
         # Pass 2: Build
-        X_interactions:npt.NDArray[np.float32] = np.zeros((n_samples, k), dtype=dtype)
+        X_interactions: npt.NDArray[np.float32] = np.zeros((n_samples, k), dtype=dtype)
         return X_interactions, top_k_indices_local
 
     def build_interaction_batch(
-        self, X_batch: npt.NDArray[np.float32], top_k_indices_local: npt.NDArray[np.float32], n_features_in: int
+        self,
+        X_batch: npt.NDArray[np.float32],
+        top_k_indices_local: npt.NDArray[np.float32],
+        n_features_in: int,
     ) -> npt.NDArray[np.float32]:
         X_poly_full = self.poly.fit_transform(X_batch)
         current_interactions = X_poly_full[:, n_features_in:][:, top_k_indices_local]
@@ -263,7 +274,9 @@ class DataTransformer:
 
         return interaction_data
 
-    def apply_feature_filter(self, vecs: list[npt.NDArray[np.float32]]) -> list[npt.NDArray[np.float32]]:
+    def apply_feature_filter(
+        self, vecs: list[npt.NDArray[np.float32]]
+    ) -> list[npt.NDArray[np.float32]]:
         """
         Applies the feature filter (kept_indices) from filtered_data_cache.npz to the input vector.
         model_bin_dir: directory containing filtered_data_cache.npz
@@ -280,7 +293,9 @@ class DataTransformer:
             results.append(filtered_vector)
         return results
 
-    def apply_interaction_features(self, vecs: list[npt.NDArray[np.float32]]) -> npt.NDArray[np.float32]:
+    def apply_interaction_features(
+        self, vecs: list[npt.NDArray[np.float32]]
+    ) -> npt.NDArray[np.float32]:
         """
         Applies the interaction features (from interaction_data_cache.npz) to the input vector.
         model_bin_dir: directory containing interaction_data_cache.npz

@@ -212,6 +212,34 @@ def get_image_pair(
         )
 
 
+def clamp_outsiders() -> None:
+    """
+    Resets outliers to hardcoded limits:
+    - Below 1.0 becomes Score 1, Modifier 0
+    - Above 5.0 becomes Score 5, Modifier 0
+    """
+    with _get_conn() as conn:
+        # 1. Reset everything below the floor
+        conn.execute(
+            """
+            UPDATE cache 
+            SET score = 2, score_modifier = 0 
+            WHERE (score + (0.1 * score_modifier)) < 1.0
+            """
+        )
+
+        # 2. Reset everything above the ceiling
+        conn.execute(
+            """
+            UPDATE cache 
+            SET score = 4, score_modifier = 0 
+            WHERE (score + (0.1 * score_modifier)) > 5.0
+            """
+        )
+
+        conn.commit()
+
+
 # ───────────────────────────
 # cache operations
 # ───────────────────────────
@@ -231,6 +259,20 @@ def add(
         conn.commit()
 
 
+def update_multiple(paths: list[str], score: int, score_modifier: float) -> None:
+    """Batch update multiple paths with new score and modifier."""
+    with _get_conn() as conn:
+        seq = ",".join(["?"] * len(paths))
+        query: str = (
+            f"UPDATE cache SET score = ?, score_modifier = ? WHERE path IN ({seq})"
+        )
+        # print(
+        #     f"Executing batch update: {query} with score={score}, modifier={score_modifier}, paths={paths}"
+        # )
+        conn.execute(query, [score, score_modifier] + paths)
+        conn.commit()
+
+
 def get_all(unscored_only: bool = True) -> list[str]:
     """Return cached image paths."""
     global _last_served
@@ -246,8 +288,8 @@ def get_all(unscored_only: bool = True) -> list[str]:
 def get_scored(
     limit: int = 100,
     offset: int = 0,
-    effective_score_min: float | None = 1,
-    effective_score_max: float | None = 5,
+    effective_score_min: float | None = None,
+    effective_score_max: float | None = None,
     comparisons_min: int | None = None,
     comparisons_max: int | None = None,
     volatility_min: float | None = None,

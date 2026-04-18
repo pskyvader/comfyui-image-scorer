@@ -340,7 +340,7 @@ def compare_next():
     # 0 means any score
 
     pair_data = get_paired_images(
-        score, safety_limit=30, max_comparison_count=10, max_tolerance=1.0
+        score, safety_limit=100, max_comparison_count=10, max_tolerance=1.5
     )
 
     if not pair_data:
