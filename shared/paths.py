@@ -9,6 +9,7 @@ maps_dir: str = os.path.join(output_dir, "maps")
 cache_file: str = os.path.join(output_dir, "cache.db")
 
 image_root: str = config["image_root"]
+image_root_processed: str = os.path.join(image_root, "scored/")
 
 vectors_size_file: str = os.path.join(output_dir, "image_vector_size.json")
 hyperparameters_statistics: str = os.path.join(

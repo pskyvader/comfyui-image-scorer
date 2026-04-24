@@ -1,0 +1,12 @@
+{
+    "subfolder_threshold": 1000,
+    "transitive_depth": 3,
+    "lru_size": 100,
+    "target_comparisons_for_max_confidence": 5,
+    "max_workers": 100,
+    "batch_size": 1000,
+    "default_score": 0.5,
+    "default_confidence": 0.0,
+    "reserve_count": 10,
+    "indirect_impact_decay": 0.6
+}

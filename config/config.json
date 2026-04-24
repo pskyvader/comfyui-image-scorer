@@ -14,5 +14,6 @@
     "processed_data": "processed_data.npz",
     "filtered_data": "filtered_data.npz",
     "interaction_data": "interaction_data.npz",
-    "training_subfolder": "training"
+    "training_subfolder": "training",
+    "ranking_config": "config/ranking_config.json"
 }

@@ -15,6 +15,7 @@ SUB_CONFIG_MAPPING: dict[str, str] = {
     "prepare": "prepare_config",
     "training": "training_config",
     "vector": "vector_config",
+    "ranking": "ranking_config",
 }
 
 

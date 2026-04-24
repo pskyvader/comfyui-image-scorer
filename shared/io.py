@@ -141,7 +141,7 @@ def collect_valid_files(
 T = TypeVar("T")
 
 
-def _recursive_parse_json(obj: Any, path: str|None= None) -> Any:
+def _recursive_parse_json(obj: Any, path: str | None = None) -> Any:
     if isinstance(obj, dict):
         return {k: _recursive_parse_json(v, path) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -188,13 +188,14 @@ def load_json(
     except Exception:
         print(f"error parsing json file:{path_obj}, {fh}")
         raise
+        # return None, "invalid_json"
 
     if expect is not None and not isinstance(data, expect):
         return default, "invalid_type"
     return data, None
 
 
-def atomic_write_json(path: str, data: Any, *, indent: int|None = None) -> None:
+def atomic_write_json(path: str, data: Any, *, indent: int | None = None) -> None:
     p: Path = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
