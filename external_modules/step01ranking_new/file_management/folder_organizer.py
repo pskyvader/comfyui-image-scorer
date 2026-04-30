@@ -2,6 +2,7 @@
 
 
 import logging
+from .path_handler import get_ranked_root
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,6 @@ def ensure_tier_structure() -> bool:
         True if successful
     """
     try:
-        # Import here to avoid circular imports
-        from .path_handler import get_ranked_root
 
         ranked_root = get_ranked_root()
         ranked_root.mkdir(parents=True, exist_ok=True)

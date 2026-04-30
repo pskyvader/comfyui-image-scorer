@@ -2,6 +2,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
+import os
+import jsonlines
 
 from ..config import config
 from .image_vector import ImageVector
@@ -302,9 +304,6 @@ class VectorList:
             self.sorted_vectors[v]["vector"].vector_list = converted_vector
 
     def export_split_files(self, base_dir: str) -> None:
-        import os
-        import jsonlines
-        
         print("Exporting split data files...")
         
         for v in self.sorted_vectors:

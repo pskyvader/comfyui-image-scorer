@@ -27,7 +27,6 @@ def remove_models() -> None:
 
 
 def export_image_batch(pil_images: list[Image.Image]) -> Tensor:
-    import torch
     if not pil_images:
         return torch.zeros((1, 1, 1, 3), dtype=torch.float32)  # type: ignore[union-attr]
 

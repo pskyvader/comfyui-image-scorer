@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from flask import Flask, send_from_directory, request, send_file
 from urllib.parse import unquote
+import argparse
+import logging
 
 # Set up paths FIRST before any imports
 current_dir = str(Path(__file__).parent)
@@ -235,7 +237,6 @@ for rule in app.url_map.iter_rules():
 
 def main():
     """Main entry point."""
-    import argparse
 
     parser = argparse.ArgumentParser(description="Ranking System Server")
     parser.add_argument(
@@ -263,7 +264,6 @@ def main():
     args = parser.parse_args()
 
     # Configure global logging based on debug flag
-    import logging
     log_level = logging.DEBUG if args.debug else logging.INFO
     
     # Simple configuration that works well for both console and redirected output

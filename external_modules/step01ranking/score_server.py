@@ -7,6 +7,8 @@ from time import sleep
 from flask import Flask, request, send_from_directory, jsonify, send_file
 from typing import Any
 import argparse
+import io
+from PIL import Image
 
 if __name__ == "__main__":
     root_path = str(Path(__file__).parents[2])
@@ -24,9 +26,11 @@ from .utils import (
 
 from .scores import submit_scores_handler
 from .comparison import get_paired_images, apply_comparison_and_write
-from .cache import (
     get_absolute_total,
     total_cached,
+    get_comparison_stats,
+    total_cached_unscored,
+    get_scored,
 )
 
 app = Flask(__name__)
@@ -112,8 +116,6 @@ def serve_thumbnail_route(subpath: str):
     Serve thumbnail for image. Falls back to full image if thumbnail generation fails.
     Generates thumbnails on-the-fly and caches them.
     """
-    import io
-    from PIL import Image
 
     try:
         root = image_root()
@@ -153,7 +155,6 @@ def serve_metadata_route(subpath: str):
 # ───────────────────────────────
 @app.route("/status")
 def status():
-    from .cache import get_comparison_stats, total_cached_unscored
 
     trigger_scan()
 
@@ -203,8 +204,6 @@ def get_scores():
         volatility_min: Min volatility (0-1)
         volatility_max: Max volatility (0-1)
     """
-    from .cache import get_scored
-    from pathlib import Path
 
     try:
         # Pagination parameters

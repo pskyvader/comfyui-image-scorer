@@ -10,8 +10,6 @@ from threading import Lock
 import logging
 import sys
 from tqdm import tqdm
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent path for imports
 _root = Path(__file__).parent.parent.parent  # comfyui-image-scorer
@@ -24,18 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Import database functions
 from shared.config import config
-from database.images_table import (
-    add_image,
-    get_image as db_get_image,
-    get_all_images,
-    get_image_count,
-    update_image_score_confidence,
-    get_all_images as db_get_all_images,
-)
-from database.comparisons_table import (
-    add_historical_comparison,
-    deduplicate_comparisons,
-)
+from database.images_table import add_image, get_image as db_get_image
 
 # Use central paths definitions as the source of truth for filesystem roots
 from shared.paths import (
@@ -43,7 +30,6 @@ from shared.paths import (
     image_root_processed,
     output_dir,
 )
-from file_management.path_handler import compute_path_from_filename, get_ranked_root
 
 
 def _history_entry_to_comparison_row(
@@ -97,6 +83,7 @@ class ImageProcessor:
         self.total_discovered = 0
 
         # Server-side LRU for recently shown images
+        from collections import deque
 
         self.lru_size = int(ranking_conf["lru_size"])
         self.recent_images = deque(maxlen=self.lru_size)
@@ -282,6 +269,7 @@ class ImageProcessor:
                 chosen_score = cleaned_json.get("score", new_score)
 
             # Compute destination path using path handler (handles nested subfolders)
+            from file_management.path_handler import compute_path_from_filename
 
             # Write cleaned JSON back to the source BEFORE moving files so metadata
             # is preserved even if the move fails. Use an atomic replace where
@@ -455,6 +443,8 @@ class ImageProcessor:
     def sync_processed_images_from_db(self):
         """Load all filenames currently in the database into the processed set."""
         try:
+            from database.images_table import get_all_images
+
             all_imgs = get_all_images()
             with self.processed_lock:
                 self.processed_images.clear()
@@ -491,6 +481,7 @@ class ImageProcessor:
         count = 0
 
         # Get exclude roots to skip
+        from file_management.path_handler import get_ranked_root
 
         try:
             exclude_roots = {get_ranked_root().resolve(), Path(output_dir).resolve()}
@@ -521,6 +512,8 @@ class ImageProcessor:
 
         self.is_processing = True
         try:
+            from database.images_table import get_image as db_get_image, get_image_count
+
             # Get current DB count for global progress reporting
             db_count = get_image_count()
             total_goal = getattr(self, "total_discovered", 0)
@@ -544,11 +537,21 @@ class ImageProcessor:
 
             # Step 2: Find the next batch of files not in memory
             # Get exclude roots
-            exclude_roots: list[Path] = [
-                Path(image_root_processed).resolve(),
-                get_ranked_root().resolve(),
-                Path(output_dir).resolve(),
-            ]
+            exclude_roots = []
+            try:
+                exclude_roots.append(Path(image_root_processed).resolve())
+            except Exception:
+                pass
+            try:
+                from file_management.path_handler import get_ranked_root
+
+                exclude_roots.append(get_ranked_root().resolve())
+            except Exception:
+                pass
+            try:
+                exclude_roots.append(Path(output_dir).resolve())
+            except Exception:
+                pass
 
             # Step 2: Find all files not in memory and pick the oldest ones
             candidates = []
@@ -602,6 +605,7 @@ class ImageProcessor:
 
             # Step 3: Process the batch
             stats = {"processed": 0, "added": 0, "errors": 0, "failed": []}
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             # We use a combined description for tqdm to show progress
             # Global progress starts at current DB count
@@ -687,6 +691,15 @@ class ImageProcessor:
 
         Returns: Summary dict with statistics
         """
+        try:
+            from file_management.path_handler import get_ranked_root
+            from database.images_table import get_image as db_get_image
+            from database.images_table import get_all_images as db_get_all_images
+            from database.images_table import update_image_score_confidence
+            from database.comparisons_table import add_historical_comparison
+        except ImportError as e:
+            logger.error(f"Failed to import database/path functions: {e}")
+            return {"error": f"Import failed: {e}", "recovered": 0}
 
         ranked_root = get_ranked_root()
         if not ranked_root.exists():
@@ -706,6 +719,8 @@ class ImageProcessor:
         logger.info(f"Found {len(image_files)} images in ranked folder")
 
         stats = {"recovered": 0, "skipped": 0, "synced_history": 0, "errors": 0}
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         # Phase 1: Recover/Sync Images (Metadata only)
         with tqdm(
@@ -755,6 +770,8 @@ class ImageProcessor:
         # Phase 3: Deduplicate comparisons (relaxed matching by pair+winner, not exact timestamp)
         logger.info("[DATABASE] Phase 3: Deduplicating comparison history...")
         try:
+            from database.comparisons_table import deduplicate_comparisons
+
             dedup_count = deduplicate_comparisons()
             stats["deduplicated"] = dedup_count
             logger.info(f"[DATABASE] Removed {dedup_count} duplicate comparisons")
@@ -772,6 +789,11 @@ class ImageProcessor:
 
     def _rebuild_single_image(self, image_path: Path, phase: int = 1) -> str | None:
         """Worker for rebuilding a single image entry. Returns stats key to increment."""
+        from database.images_table import (
+            get_image as db_get_image,
+            update_image_score_confidence,
+        )
+        from database.comparisons_table import add_historical_comparison
 
         filename = image_path.name
         try:
@@ -852,6 +874,11 @@ class ImageProcessor:
         Cleanup the ranked folder by moving 'loose' files in tier folders
         into their respective precision subfolders if those subfolders exist.
         """
+        from file_management.path_handler import (
+            get_ranked_root,
+            compute_path_from_filename,
+        )
+        import shutil
 
         ranked_root = get_ranked_root()
         if not ranked_root.exists():

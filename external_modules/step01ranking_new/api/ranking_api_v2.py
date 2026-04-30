@@ -16,6 +16,7 @@ from database.images_table import get_all_images, get_image_count, get_image as 
 from shared.config import config
 from database.comparisons_table import get_total_comparisons, get_skipped_comparison_count
 from algorithm.merge_sort_ranker import select_pair_for_comparison, record_comparison
+from file_management.path_handler import sync_image_metadata_to_json
 
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
@@ -227,7 +228,6 @@ def register_ranking_routes(app) -> None:
 def sync_all_to_json():
     """Sync all current DB scores/confidence to their JSON files (Backup)."""
     try:
-        from file_management.path_handler import sync_image_metadata_to_json
 
         images = get_all_images()
         count = 0

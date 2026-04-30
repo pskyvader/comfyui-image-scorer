@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Any
+from shared.io import load_single_jsonl
+import traceback
 
 try:
     from sklearn.preprocessing import MinMaxScaler
@@ -448,7 +450,6 @@ Look for regions with:
 
 def main():
     """Standalone script to run parameter analysis."""
-    from shared.io import load_single_jsonl
 
     print("Parameter Analysis - Standalone Mode")
     print("=" * 50)
@@ -472,7 +473,6 @@ def main():
 
     except Exception as e:
         print(f"✗ Error: {e}")
-        import traceback
 
         traceback.print_exc()
 

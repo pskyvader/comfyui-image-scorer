@@ -6,6 +6,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+import math
+import time
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,6 @@ def get_ranked_root() -> Path:
 
 def compute_path_from_filename(filename: str, score: float) -> Path:
     """Compute full folder path for image based on score."""
-    import math
 
     ranked_root = get_ranked_root()
     score_truncated = math.floor(score * 10) / 10.0
@@ -87,8 +89,6 @@ def append_comparison_history_to_json(
     new_confidence: float | None = None,
 ) -> bool:
     """Append a comparison result to the image's JSON metadata."""
-    import time
-    import shutil
 
     img_path = find_image_path(filename)
     if not img_path:

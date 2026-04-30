@@ -29,15 +29,16 @@ from shared.paths import (
     text_data_file,
 )
 from shared.helpers import remove_models, remove_vectors
+from shared.vectors.vectors import VectorList
+from shared.image_analysis import ImageAnalysis
+from .data.processing import (
+    check_for_leakage,
+)
+import traceback
 
 
 def run_prepare(limit: int = 0) -> dict[str, int]:
     print("Loading vector libraries...")
-    from shared.vectors.vectors import VectorList
-    from shared.image_analysis import ImageAnalysis
-    from .data.processing import (
-        check_for_leakage,
-    )
 
     print("Starting image processing...")
 
@@ -125,7 +126,6 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
     Useful when text parsing logic changes but images don't need re-analysis.
     """
     print("TEXT-ONLY MODE: Processing text parsing only...")
-    from shared.vectors.vectors import VectorList
 
     if not os.path.isdir(image_root):
         raise FileNotFoundError(
@@ -232,7 +232,6 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
 
     except Exception as e:
         print(f"ERROR during text processing: {e}")
-        import traceback
 
         traceback.print_exc()
         raise

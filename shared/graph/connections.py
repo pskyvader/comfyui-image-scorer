@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
+from external_modules.step01ranking_new.database.images_table import get_all_images
+from external_modules.step01ranking_new.database.comparisons_table import (
+    get_all_comparisons,
+)
 
 
 @dataclass
@@ -23,16 +27,10 @@ class ComparisonConnections:
 
 
 def _load_all_images() -> list[dict[str, Any]]:
-    from external_modules.step01ranking_new.database.images_table import get_all_images
-
     return get_all_images()
 
 
 def _load_all_comparisons() -> list[dict[str, Any]]:
-    from external_modules.step01ranking_new.database.comparisons_table import (
-        get_all_comparisons,
-    )
-
     return get_all_comparisons()
 
 

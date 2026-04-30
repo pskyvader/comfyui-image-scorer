@@ -23,13 +23,15 @@ class TrainingLoader:
     def __init__(self, use_cache: bool):
         self.training_model: Any | None = None
         self.processed_data: Any | None = None
-        self.filtered_data: tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None = None
-        self.interaction_data: tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None = None
+        self.filtered_data: (
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+        ) = None
+        self.interaction_data: (
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+        ) = None
         self.vectors: npt.NDArray[np.float32] | None = None
         self.scores: npt.NDArray[np.float32] | None = None
         self.use_cache = use_cache
-
-
 
     def _reset_models(self) -> None:
         self.vectors = None
@@ -38,6 +40,10 @@ class TrainingLoader:
         self.processed_data = None
         self.filtered_data = None
         self.interaction_data = None
+
+    def remove_training_models(self) -> None:
+        remove_directory(Path(models_dir))
+        self._reset_models()
 
     def load_vectors(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.vectors is not None:
@@ -57,7 +63,9 @@ class TrainingLoader:
         self.scores = y_vector
         return self.scores
 
-    def load_filtered_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+    def load_filtered_data(
+        self,
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
         if self.use_cache and self.filtered_data is not None:
             return self.filtered_data
 
@@ -82,7 +90,9 @@ class TrainingLoader:
             self.filtered_data = saved_data
         return saved_data
 
-    def load_interaction_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+    def load_interaction_data(
+        self,
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
         if self.use_cache and self.interaction_data is not None:
             return self.interaction_data
 
