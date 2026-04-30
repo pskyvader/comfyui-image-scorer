@@ -1,6 +1,11 @@
 """Folder organizer - maintain score folder structure."""
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def ensure_tier_structure() -> bool:
     """
     Ensure score folders exist (scored_0.0 through scored_1.0).
@@ -25,5 +30,5 @@ def ensure_tier_structure() -> bool:
 
         return True
     except Exception as e:
-        print(f"Error creating score structure: {e}")
+        logger.error(f"Error creating score structure: {e}")
         return False

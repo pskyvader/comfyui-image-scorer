@@ -1,9 +1,12 @@
-from PIL import Image
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from typing import Any
 from tqdm import tqdm
 from collections import defaultdict, OrderedDict
 import torch
+from torch import Tensor
 from torchvision import transforms
+import torch as th
 import numpy as np
 import math
 import time
@@ -84,8 +87,17 @@ class ImageVector:
 
         # Start handling different input types
         if isinstance(image, str):
-            img = Image.open(image).convert("RGB")
-            return [img]
+            try:
+                img = Image.open(image).convert("RGB")
+                return [img]
+            except Exception as e:
+                print(f"Warning: Failed to load image {image}: {e}")
+                try:
+                    with Image.open(image) as temp_img:
+                        size = temp_img.size
+                except Exception:
+                    size = (512, 512)
+                return [Image.new("RGB", size, (0, 0, 0))]
         if isinstance(image, Image.Image):
             return [image.convert("RGB")]
         if isinstance(image, torch.Tensor):
@@ -115,13 +127,12 @@ class ImageVector:
         # batch_shape = (batch_size, img_size[0], img_size[1])
 
         model = self.model
-        transformed_images: list[torch.Tensor] = [
+        transformed_images = [
             self._transform(img) for img in current_batch
         ]
-        # sprint(f"transformed images[0] type: {type(transformed_images[0])}")
         device = next(model.parameters()).device
 
-        batch_tensor = torch.stack(transformed_images, dim=0).to(
+        batch_tensor = torch.stack(transformed_images, dim=0).to(  # type: ignore[arg-type]
             device, non_blocking=True
         )
 
@@ -224,8 +235,8 @@ class ImageVector:
                 f"for size ({width},{height}) trying batch size {current_size} (min: {min_size}, max: {max_size})....",
                 flush=True,
             )
-            batch_tensor = torch.zeros(
-                (current_size, channels, height, width), dtype=torch.float32
+            batch_tensor = torch.zeros(  # type: ignore[attr-defined]
+                (current_size, channels, height, width), dtype=torch.float  # type: ignore[attr-defined]
             ).to(device)
 
             # --------------------------
@@ -336,8 +347,12 @@ class ImageVector:
         buckets: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
 
         for idx, img_path in enumerate(self.path_list):
-            with Image.open(img_path) as img:
-                size = img.size  # (width, height)
+            try:
+                with Image.open(img_path) as img:
+                    size = img.size  # (width, height)
+            except Exception as e:
+                print(f"Warning: Failed to get size for {img_path}: {e}")
+                size = (512, 512)
             buckets[size].append((idx, img_path))
 
         sorted_buckets = OrderedDict(

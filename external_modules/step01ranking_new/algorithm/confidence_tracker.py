@@ -3,6 +3,7 @@
 from database.comparisons_table import get_effective_comparison_count
 from shared.config import config
 
+
 def calculate_confidence(
     filename: str,
     current_score: float = 0.5,
@@ -16,7 +17,7 @@ def calculate_confidence(
     The 10th newest comparison (index 9) has a 0.5 multiplier.
     """
     try:
-        target_comparisons = int(config.get("ranking", {}).get("target_comparisons_for_max_confidence", 5))
+        target_comparisons = int(config["ranking"]["target_comparisons_for_max_confidence"])
     except Exception:
         target_comparisons = 5
 
@@ -29,7 +30,7 @@ def calculate_confidence(
     effective_count = 0.0
     if filename:
         effective_count = get_effective_comparison_count(filename)
-    
+
     if effective_count <= 0 and comparison_count > 0:
         # Fallback if DB query fails: assume they were all direct comparisons recently
         effective_count = sum(0.5 ** (i / 9.0) for i in range(comparison_count))

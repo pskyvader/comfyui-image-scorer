@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import typing as npt
 import os
-from typing import Any, Optional
+from typing import Any
 from pathlib import Path
 import pickle
 import base64
@@ -21,12 +21,12 @@ from ..helpers import remove_directory
 
 class TrainingLoader:
     def __init__(self, use_cache: bool):
-        self.training_model: Optional[Any] = None
-        self.processed_data: Optional[Any] = None
-        self.filtered_data: Optional[tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]] = None
-        self.interaction_data: Optional[tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]] = None
-        self.vectors: Optional[npt.NDArray[np.float32]] = None
-        self.scores: Optional[npt.NDArray[np.float32]] = None
+        self.training_model: Any | None = None
+        self.processed_data: Any | None = None
+        self.filtered_data: tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None = None
+        self.interaction_data: tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None = None
+        self.vectors: npt.NDArray[np.float32] | None = None
+        self.scores: npt.NDArray[np.float32] | None = None
         self.use_cache = use_cache
 
 
@@ -38,10 +38,6 @@ class TrainingLoader:
         self.processed_data = None
         self.filtered_data = None
         self.interaction_data = None
-
-    def remove_training_models(self) -> None:
-        remove_directory(Path(models_dir))
-        self._reset_models()
 
     def load_vectors(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.vectors is not None:
@@ -61,7 +57,7 @@ class TrainingLoader:
         self.scores = y_vector
         return self.scores
 
-    def load_filtered_data(self) -> Optional[tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]]:
+    def load_filtered_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
         if self.use_cache and self.filtered_data is not None:
             return self.filtered_data
 
@@ -77,8 +73,8 @@ class TrainingLoader:
         return None
 
     def save_filtered_data(
-        self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[np.float32]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[Any]
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
         os.makedirs(models_dir, exist_ok=True)
         np.savez_compressed(filtered_data, X=x, kept_indices=kept_indices)
         saved_data = (x, kept_indices)
@@ -86,7 +82,7 @@ class TrainingLoader:
             self.filtered_data = saved_data
         return saved_data
 
-    def load_interaction_data(self) -> Optional[tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]]:
+    def load_interaction_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
         if self.use_cache and self.interaction_data is not None:
             return self.interaction_data
 
@@ -120,11 +116,11 @@ class TrainingLoader:
             return val.copy()
         return val
 
-    def load_training_model_diagnostics(self) -> Optional[dict[str, Any]]:
+    def load_training_model_diagnostics(self) -> dict[str, Any] | None:
         with np.load(Path(training_model), allow_pickle=True) as npz:
             return {k: self._normalize(npz[k]) for k in npz.files}
 
-    def load_training_model(self):
+    def load_training_model(self) -> Any:
         if self.training_model is not None:
             return self.training_model
 

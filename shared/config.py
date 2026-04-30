@@ -51,7 +51,7 @@ _sentinel = object()
 
 
 class AutoSaveDict(MutableMapping):
-    def __init__(self, data: dict[str, Any], save_callback: callable) -> None:
+    def __init__(self, data: dict[str, Any], save_callback: Any) -> None:
         self._data: dict[str, Any] = data
         self._save_callback = save_callback
 
@@ -158,6 +158,8 @@ class Config(MutableMapping):
             return
 
         pointer: str | None = SUB_CONFIG_MAPPING.get(section)
+        if pointer is None:
+            return
         root: dict[str, Any] = self._get_root()
         path = root[pointer]
         _save_raw_config(self._cache[section], path)

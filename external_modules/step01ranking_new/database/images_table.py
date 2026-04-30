@@ -1,22 +1,22 @@
 """Images table operations - index of ranked images (filename-only storage)."""
 
-from typing import Optional, List, Dict, Any
+from typing import Any
 from .schema import get_db_connection
 from collections import OrderedDict
 from shared.config import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Simple LRU cache for image metadata to reduce DB hits.
 # Size is configured in ranking subconfig (`ranking_config.json`) as `lru_size`.
-try:
-    _LRU_SIZE = int(config["ranking"]["lru_size"])
-except Exception:
-    _LRU_SIZE = 100
+_LRU_SIZE = int(config["ranking"]["lru_size"])
 
-_lru_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_lru_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
 
-def _cache_get(key: str) -> Optional[Dict[str, Any]]:
+def _cache_get(key: str) -> dict[str, Any] | None:
     v = _lru_cache.get(key)
     if v is None:
         return None
@@ -28,7 +28,7 @@ def _cache_get(key: str) -> Optional[Dict[str, Any]]:
     return dict(v)  # return a shallow copy
 
 
-def _cache_put(key: str, value: Dict[str, Any]) -> None:
+def _cache_put(key: str, value: dict[str, Any]) -> None:
     try:
         _lru_cache[key] = dict(value)
         _lru_cache.move_to_end(key)
@@ -86,11 +86,11 @@ def add_image(
             pass
         return True
     except Exception as e:
-        print(f"Error adding image {filename}: {e}")
+        logger.error(f"Error adding image {filename}: {e}")
         return False
 
 
-def get_image(filename: str) -> Optional[Dict[str, Any]]:
+def get_image(filename: str) -> dict[str, Any] | None:
     """
     Get image metadata by filename.
 
@@ -120,7 +120,7 @@ def get_image(filename: str) -> Optional[Dict[str, Any]]:
                     pass
                 return result
     except Exception as e:
-        print(f"Error getting image {filename}: {e}")
+        logger.error(f"Error getting image {filename}: {e}")
     return None
 
 
@@ -144,12 +144,12 @@ def update_image_score(filename: str, score: float) -> bool:
             pass
         return True
     except Exception as e:
-        print(f"Error updating score for {filename}: {e}")
+        logger.error(f"Error updating score for {filename}: {e}")
         return False
 
 
 def update_image_confidence(
-    filename: str, confidence: float, comparison_count: int = None
+    filename: str, confidence: float, comparison_count: int | None = None
 ) -> bool:
     """Update image confidence and optionally comparison count."""
     try:
@@ -180,7 +180,7 @@ def update_image_confidence(
             pass
         return True
     except Exception as e:
-        print(f"Error updating confidence for {filename}: {e}")
+        logger.error(f"Error updating confidence for {filename}: {e}")
         return False
 
 
@@ -206,22 +206,22 @@ def update_image_score_confidence(
             pass
         return True
     except Exception as e:
-        print(f"Error updating score/confidence for {filename}: {e}")
+        logger.error(f"Error updating score/confidence for {filename}: {e}")
         return False
 
 
-def get_all_images() -> List[Dict[str, Any]]:
+def get_all_images() -> list[dict[str, Any]]:
     """Get all images from database."""
     try:
         with get_db_connection() as conn:
             rows = conn.execute("SELECT * FROM images").fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        print(f"Error getting all images: {e}")
+        logger.error(f"Error getting all images: {e}")
         return []
 
 
-def get_images_by_tier(tier: int) -> List[Dict[str, Any]]:
+def get_images_by_tier(tier: int) -> list[dict[str, Any]]:
     """
     Get all images in a specific tier.
     Tier is calculated from score: tier = int(score * 10)
@@ -237,7 +237,7 @@ def get_images_by_tier(tier: int) -> List[Dict[str, Any]]:
             ).fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        print(f"Error getting images for tier {tier}: {e}")
+        logger.error(f"Error getting images for tier {tier}: {e}")
         return []
 
 
@@ -248,13 +248,13 @@ def get_image_count() -> int:
             row = conn.execute("SELECT COUNT(*) as cnt FROM images").fetchone()
             return row["cnt"] if row else 0
     except Exception as e:
-        print(f"Error getting image count: {e}")
+        logger.error(f"Error getting image count: {e}")
         return 0
 
 
 def get_scored_images(
     limit: int = 100, offset: int = 0
-) -> tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     """
     Get paginated scored images.
 
@@ -274,7 +274,7 @@ def get_scored_images(
             ).fetchall()
             return [dict(row) for row in rows], total
     except Exception as e:
-        print(f"Error getting scored images: {e}")
+        logger.error(f"Error getting scored images: {e}")
         return [], 0
 
 
@@ -291,6 +291,6 @@ def delete_image(filename: str) -> bool:
         _cache_invalidate(filename)
         return cur.rowcount > 0
     except Exception as e:
-        print(f"Error deleting image {filename}: {e}")
+        logger.error(f"Error deleting image {filename}: {e}")
         return False
 

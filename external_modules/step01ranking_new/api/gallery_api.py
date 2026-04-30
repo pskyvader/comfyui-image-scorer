@@ -1,6 +1,8 @@
 """Gallery API - endpoints for viewing and filtering ranked images."""
 
 import sys
+import json
+import logging
 from pathlib import Path
 
 # Set up path for shared imports BEFORE any other imports
@@ -8,10 +10,8 @@ _root = Path(__file__).parent.parent.parent  # comfyui-image-scorer
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-import json
 from flask import Blueprint, request, jsonify
-from pathlib import Path
-from file_management.path_handler import get_ranked_root, find_image_path
+from file_management.path_handler import find_image_path
 from database.images_table import (
     get_all_images,
     get_image,
@@ -19,6 +19,7 @@ from database.images_table import (
 
 
 gallery_bp = Blueprint("gallery_v2", __name__, url_prefix="/api/v2/gallery")
+logger = logging.getLogger(__name__)
 
 
 @gallery_bp.route("/images", methods=["GET"])
@@ -29,11 +30,13 @@ def list_images():
     Query parameters:
     - page: Page number (1-based)
     - per_page: Items per page
-    - tier_min: Minimum tier (0-9)
-    - tier_max: Maximum tier (0-9)
+    - score_min: Minimum score (0.0-1.0)
+    - score_max: Maximum score (0.0-1.0)
     - confidence_min: Minimum confidence (0.0-1.0)
     - confidence_max: Maximum confidence (0.0-1.0)
-    - sort: Sort order (score_desc, score_asc, confidence_desc, confidence_asc, newest)
+    - comparisons_min: Minimum comparison count
+    - comparisons_max: Maximum comparison count
+    - sort: Sort order (score_desc, score_asc, confidence_desc, confidence_asc, comparisons_desc, comparisons_asc, newest)
 
     Returns JSON with paginated images and total count.
     """
@@ -45,21 +48,23 @@ def list_images():
         if per_page < 1 or per_page > 100:
             per_page = 20
 
-        # Use database as the source of truth for gallery
         scored = get_all_images()
 
-        # Apply filters
-        tier_min = request.args.get("tier_min", 0, type=int)
-        tier_max = request.args.get("tier_max", 9, type=int)
+        score_min = request.args.get("score_min", 0.0, type=float)
+        score_max = request.args.get("score_max", 1.0, type=float)
         confidence_min = request.args.get("confidence_min", 0.0, type=float)
         confidence_max = request.args.get("confidence_max", 1.0, type=float)
+        comparisons_min = request.args.get("comparisons_min", 0, type=int)
+        comparisons_max = request.args.get("comparisons_max", 999999, type=int)
 
         filtered = []
         for img in scored:
-            tier = int(img["score"] * 10)
-            if not (tier_min <= tier <= tier_max):
+            if not (score_min <= img["score"] <= score_max):
                 continue
             if not (confidence_min <= img["confidence"] <= confidence_max):
+                continue
+            comp_count = img.get("comparison_count", 0)
+            if not (comparisons_min <= comp_count <= comparisons_max):
                 continue
             filtered.append(img)
 
@@ -89,7 +94,6 @@ def list_images():
             {
                 "filename": img["filename"],
                 "score": round(img["score"], 3),
-                # Provide a compact client token (filename with optional score query)
                 "file": f"{img['filename']}?score={round(img['score'],3)}",
                 "confidence": round(img["confidence"], 3),
                 "comparison_count": img["comparison_count"],
@@ -107,7 +111,7 @@ def list_images():
             }
         )
     except Exception as e:
-        print(f"Error listing images: {e}")
+        logger.error(f"Error listing images: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -122,30 +126,10 @@ def get_tier_images(tier: int):
         if tier < 0 or tier > 9:
             return jsonify({"error": "Tier must be 0-9"}), 400
 
-        # Build from files on disk to ensure we only return images actually present
-        ranked_root = get_ranked_root()
-        image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
-
-        files = [
-            p
-            for p in ranked_root.rglob("*")
-            if p.is_file() and p.suffix.lower() in image_exts
-        ]
+        all_images = get_all_images()
 
         result = []
-        for p in files:
-            fn = p.name
-            db_entry = get_image(fn)
-            if db_entry:
-                img = db_entry
-            else:
-                img = {
-                    "filename": fn,
-                    "score": 0.5,
-                    "confidence": 0.0,
-                    "comparison_count": 0,
-                }
-
+        for img in all_images:
             img_tier = int(img["score"] * 10)
             if img_tier != tier:
                 continue
@@ -162,7 +146,7 @@ def get_tier_images(tier: int):
 
         return jsonify({"tier": tier, "images": result, "count": len(result)})
     except Exception as e:
-        print(f"Error getting tier {tier}: {e}")
+        logger.error(f"Error getting tier {tier}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -213,7 +197,7 @@ def search_images():
 
         return jsonify({"results": results, "count": len(results)})
     except Exception as e:
-        print(f"Error searching images: {e}")
+        logger.error(f"Error searching images: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -235,7 +219,7 @@ def get_image_history(filename: str):
         history = data.get("comparison_history", [])
         return jsonify({"filename": filename, "history": history})
     except Exception as e:
-        print(f"Error getting history for {filename}: {e}")
+        logger.error(f"Error getting history for {filename}: {e}")
         return jsonify({"error": str(e)}), 500
 
 

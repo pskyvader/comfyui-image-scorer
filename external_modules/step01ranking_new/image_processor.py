@@ -5,8 +5,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Dict, Tuple, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 from threading import Lock
 import logging
 import sys
@@ -19,7 +18,6 @@ if str(_root) not in sys.path:
 
 
 # Setup logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Import database functions
@@ -34,10 +32,42 @@ from shared.paths import (
 )
 
 
+def _history_entry_to_comparison_row(
+    filename: str,
+    entry: dict,
+) -> dict[str, Any] | None:
+    """Convert a history entry to a comparison row format."""
+    winner_side = entry.get("winner", False)
+    other = entry.get("other")
+    if not other:
+        return None
+
+    if winner_side:
+        winner, loser = filename, other
+    else:
+        winner, loser = other, filename
+
+    return {
+        "winner": winner,
+        "loser": loser,
+        "comparison_id": entry.get("comparison_id"),
+        "timestamp": entry.get("timestamp"),
+        "weight": entry.get("weight", 1.0),
+    }
+
+
+def _comparison_row_key(row: dict) -> tuple:
+    """Generate a unique key for a comparison row for deduplication purposes."""
+    return (
+        tuple(sorted([row["winner"], row["loser"]])),
+        row.get("comparison_id"),
+    )
+
+
 class ImageProcessor:
     """Process uninitialized images with parallel workers."""
 
-    def __init__(self, max_workers: int = None):
+    def __init__(self, max_workers: int | None = None):
         # Load performance settings from config (strict no-default policy)
         ranking_conf = config.get("ranking")
         self.max_workers = max_workers or int(ranking_conf["max_workers"])
@@ -45,7 +75,7 @@ class ImageProcessor:
         self.default_score = float(ranking_conf["default_score"])
         self.default_confidence = float(ranking_conf["default_confidence"])
         self.reserve_count = int(ranking_conf["reserve_count"])
-        
+
         self.processed_lock = Lock()
         self.processed_images = set()
         self.image_extensions = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
@@ -54,6 +84,7 @@ class ImageProcessor:
 
         # Server-side LRU for recently shown images
         from collections import deque
+
         self.lru_size = int(ranking_conf["lru_size"])
         self.recent_images = deque(maxlen=self.lru_size)
         self.recent_lock = Lock()
@@ -86,10 +117,10 @@ class ImageProcessor:
 
     def clean_json_metadata(
         self,
-        json_data: Optional[Dict],
-        default_score: float = None,
-        filename: Optional[str] = None,
-    ) -> Dict:
+        json_data: dict[str, Any] | None,
+        default_score: float | None = None,
+        filename: str | None = None,
+    ) -> dict[str, Any]:
         if default_score is None:
             default_score = self.default_score
 
@@ -143,7 +174,6 @@ class ImageProcessor:
         base.setdefault("comparison_count", 0)
         base.setdefault("comparison_history", [])
 
-
         # Include filename when available
         if filename:
             base.setdefault("filename", filename)
@@ -152,7 +182,7 @@ class ImageProcessor:
 
     def process_image_file(
         self, image_path: Path
-    ) -> Tuple[bool, str, Optional[float], Optional[str], bool]:
+    ) -> tuple[bool, str, float | None, str | None, bool]:
         """
         Process a single image file: convert score, clean JSON, move to tier folder.
 
@@ -165,7 +195,7 @@ class ImageProcessor:
             json_path = image_path.with_suffix(".json")
 
             if not json_path.exists():
-                # Add to processed_images for this session so we don't get stuck in an infinite loop 
+                # Add to processed_images for this session so we don't get stuck in an infinite loop
                 # on the same first 1000 broken files. User can restart server to retry.
                 with self.processed_lock:
                     self.processed_images.add(filename)
@@ -179,7 +209,6 @@ class ImageProcessor:
 
             # Default score from config
             new_score = self.default_score
-
 
             # Try to read JSON metadata
             json_data = None
@@ -228,10 +257,7 @@ class ImageProcessor:
             # If a database record already exists for this filename, prefer
             # the DB score and do not overwrite it. This preserves historical
             # scores when files are removed/re-added.
-            try:
-                db_entry = db_get_image(filename)
-            except Exception:
-                db_entry = None
+            db_entry = db_get_image(filename)
 
             if db_entry:
                 # Use DB score as authoritative and sync JSON to it
@@ -248,18 +274,12 @@ class ImageProcessor:
             # Write cleaned JSON back to the source BEFORE moving files so metadata
             # is preserved even if the move fails. Use an atomic replace where
             # possible to avoid partial writes.
-            try:
-                # Ensure we only write if the file actually existed
-                if json_path.exists():
-                    tmp_json = json_path.parent / (json_path.name + ".tmp")
-                    with open(tmp_json, "w", encoding="utf-8") as f:
-                        json.dump(cleaned_json, f, indent=2, ensure_ascii=False)
-                    os.replace(str(tmp_json), str(json_path))
-                    #logger.info(f"Wrote/updated source JSON before move: {json_path.name}")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to write cleaned JSON to source {json_path}: {e}"
-                )
+            # Ensure we only write if the file actually existed
+            if json_path.exists():
+                tmp_json = json_path.parent / (json_path.name + ".tmp")
+                with open(tmp_json, "w", encoding="utf-8") as f:
+                    json.dump(cleaned_json, f, indent=2, ensure_ascii=False)
+                os.replace(str(tmp_json), str(json_path))
 
             # Compute destination path using authoritative chosen_score
             dest_image = compute_path_from_filename(filename, float(chosen_score))
@@ -271,33 +291,31 @@ class ImageProcessor:
             def safe_move(
                 src: Path, dst: Path, retries: int = 3, delay: float = 0.1
             ) -> bool:
-                try:
-                    for attempt in range(1, retries + 1):
-                        try:
-                            if not src.exists():
-                                return dst.exists()
-                            dst.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.move(str(src), str(dst))
+                for attempt in range(1, retries + 1):
+                    if not src.exists():
+                        return dst.exists()
+                    try:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(src), str(dst))
+                        return True
+                    except FileNotFoundError:
+                        if dst.exists():
                             return True
-                        except FileNotFoundError:
-                            if dst.exists():
-                                return True
-                            if attempt < retries:
-                                time.sleep(delay)
-                                continue
-                            return False
-                        except PermissionError:
-                            if attempt < retries:
-                                time.sleep(delay)
-                                continue
-                            return False
-                        except Exception:
-                            if attempt < retries:
-                                time.sleep(delay)
-                                continue
-                            return False
-                except Exception:
-                    return False
+                        if attempt < retries:
+                            time.sleep(delay)
+                            continue
+                        return False
+                    except PermissionError:
+                        if attempt < retries:
+                            time.sleep(delay)
+                            continue
+                        return False
+                    except Exception:
+                        if attempt < retries:
+                            time.sleep(delay)
+                            continue
+                        return False
+                return False
 
             # If destination exists, check if identical by size (high-speed check)
             if dest_image.exists():
@@ -390,7 +408,7 @@ class ImageProcessor:
                         return False, f"JSON move failed", None, None, False
                     moved_json = True
 
-                #logger.info(f"Moved image+json: {filename} -> {dest_dir}")
+                # logger.info(f"Moved image+json: {filename} -> {dest_dir}")
             except Exception as e:
                 logger.error(f"Failed to move image/json {filename}: {e}")
                 # Attempt rollback
@@ -426,12 +444,15 @@ class ImageProcessor:
         """Load all filenames currently in the database into the processed set."""
         try:
             from database.images_table import get_all_images
+
             all_imgs = get_all_images()
             with self.processed_lock:
                 self.processed_images.clear()
                 for img in all_imgs:
                     self.processed_images.add(img["filename"])
-            logger.info(f"Synchronized {len(self.processed_images)} processed images from database.")
+            logger.info(
+                f"Synchronized {len(self.processed_images)} processed images from database."
+            )
         except Exception as e:
             logger.error(f"Failed to sync processed images from DB: {e}")
 
@@ -458,9 +479,10 @@ class ImageProcessor:
         """Fastest way to get total count of image files by skipping excluded roots."""
         source_path = Path(source_dir).resolve()
         count = 0
-        
+
         # Get exclude roots to skip
         from file_management.path_handler import get_ranked_root
+
         try:
             exclude_roots = {get_ranked_root().resolve(), Path(output_dir).resolve()}
         except Exception:
@@ -468,75 +490,82 @@ class ImageProcessor:
 
         for root, dirs, files in os.walk(source_path):
             root_path = Path(root).resolve()
-            
+
             # Prune directories we want to skip
             if root_path in exclude_roots:
-                dirs[:] = [] # Clear dirs to prevent recursion into this branch
+                dirs[:] = []  # Clear dirs to prevent recursion into this branch
                 continue
-                
+
             for f in files:
                 if any(f.lower().endswith(ext) for ext in self.image_extensions):
                     count += 1
-                    
+
         self.total_discovered = count
         return count
 
-    def process_next_batch(self, source_dir: Optional[str] = None, batch_size: int = None) -> Dict:
+    def process_next_batch(
+        self, source_dir: str | None = None, batch_size: int | None = None
+    ) -> dict[str, Any]:
         """Processes the next batch of unprocessed images."""
         if self.is_processing:
             return {"status": "skipped", "message": "Already processing"}
-        
+
         self.is_processing = True
         try:
             from database.images_table import get_image as db_get_image, get_image_count
-            
+
             # Get current DB count for global progress reporting
             db_count = get_image_count()
             total_goal = getattr(self, "total_discovered", 0)
 
             if not source_dir:
                 source_dir = image_root
-            
+
             # Use provided batch_size or fall back to config
             if batch_size is None:
                 batch_size = self.batch_size
-            
+
             source_path = Path(source_dir).resolve()
-            
+
             # Step 1: Fast count if not done yet
             if self.total_discovered == 0:
-                print(f"[SCANNER] Running initial fast discovery...", flush=True)
+                logger.info("[SCANNER] Running initial fast discovery...")
                 self.get_fast_total_count(source_dir)
-                print(f"[SCANNER] Total images discovered: {self.total_discovered}", flush=True)
+                logger.info(
+                    f"[SCANNER] Total images discovered: {self.total_discovered}"
+                )
 
             # Step 2: Find the next batch of files not in memory
             # Get exclude roots
             exclude_roots = []
             try:
                 exclude_roots.append(Path(image_root_processed).resolve())
-            except Exception: pass
+            except Exception:
+                pass
             try:
                 from file_management.path_handler import get_ranked_root
+
                 exclude_roots.append(get_ranked_root().resolve())
-            except Exception: pass
+            except Exception:
+                pass
             try:
                 exclude_roots.append(Path(output_dir).resolve())
-            except Exception: pass
-
+            except Exception:
+                pass
 
             # Step 2: Find all files not in memory and pick the oldest ones
             candidates = []
-            print(f"[SCANNER] Searching for new images...", flush=True)
-            
+            logger.info("[SCANNER] Searching for new images...")
+
             # Optimized search using os.walk with directory pruning
             for root, dirs, files in os.walk(source_path):
                 root_path = Path(root).resolve()
-                
+
                 # PRUNE: skip ranked/output folders completely at the dir level
                 if root_path in exclude_roots:
                     dirs[:] = []
                     continue
-                
+
                 for f in files:
                     if f in self.processed_images:
                         continue
@@ -544,15 +573,18 @@ class ImageProcessor:
                         candidates.append(root_path / f)
 
             if not candidates:
-                print(f"[SCANNER] No more new images to process.", flush=True)
+                logger.info("[SCANNER] No more new images to process.")
                 return {"status": "complete", "added": 0}
 
             # Sort candidates by modification time (newest first) so we can preserve the most recent ones
             try:
+
                 def get_mtime(p):
-                    try: return os.path.getmtime(p)
-                    except OSError: return 0
-                
+                    try:
+                        return os.path.getmtime(p)
+                    except OSError:
+                        return 0
+
                 candidates.sort(key=get_mtime, reverse=True)
             except Exception as e:
                 logger.warning(f"Failed to sort candidates by mtime: {e}")
@@ -560,41 +592,55 @@ class ImageProcessor:
             # Reserve newest images to help ComfyUI keep its numbering sequence
             reserve_count = self.reserve_count
             if len(candidates) <= reserve_count:
-                print(f"[SCANNER] Reserved {len(candidates)} recent images (below threshold of {reserve_count}).", flush=True)
+                logger.info(
+                    f"[SCANNER] Reserved {len(candidates)} recent images (below threshold of {reserve_count})."
+                )
                 return {"status": "complete", "added": 0, "message": "Images reserved"}
 
             # Take the oldest ones after skipping the newest images
             batch_files = candidates[reserve_count : reserve_count + batch_size]
-            print(f"[SCANNER] Processing {len(batch_files)} images (skipping {reserve_count} newest).", flush=True)
+            logger.info(
+                f"[SCANNER] Processing {len(batch_files)} images (skipping {reserve_count} newest)."
+            )
 
             # Step 3: Process the batch
             stats = {"processed": 0, "added": 0, "errors": 0, "failed": []}
             from concurrent.futures import ThreadPoolExecutor, as_completed
-            
+
             # We use a combined description for tqdm to show progress
             # Global progress starts at current DB count
             current_global = db_count
             system_total = db_count + total_goal
-            
-            with tqdm(total=len(batch_files), desc="[SCANNER] Initializing...", unit="img", leave=False) as pbar:
+
+            with tqdm(
+                total=len(batch_files),
+                desc="[SCANNER] Initializing...",
+                unit="img",
+                leave=False,
+            ) as pbar:
+
                 def update_desc():
-                    pbar.set_description(f"[SCANNER] Global: {current_global}/{system_total}")
+                    pbar.set_description(
+                        f"[SCANNER] Global: {current_global}/{system_total}"
+                    )
 
                 update_desc()
-                
+
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_file = {
                         executor.submit(self.process_image_file, img_path): img_path
                         for img_path in batch_files
                     }
-                    
+
                     for future in as_completed(future_to_file):
                         img_path = future_to_file[future]
                         filename = img_path.name
-                        
+
                         try:
-                            success, message, score, dest_name, db_entry_exists = future.result()
-                            
+                            success, message, score, dest_name, db_entry_exists = (
+                                future.result()
+                            )
+
                             if success:
                                 with self.processed_lock:
                                     stats["processed"] += 1
@@ -613,23 +659,29 @@ class ImageProcessor:
                                         stats["failed"].append(f"{filename}: {message}")
                                         # Log the first few errors to avoid spam but give info
                                         if stats["errors"] < 5:
-                                            logger.warning(f"Failed to process {filename}: {message}")
+                                            logger.warning(
+                                                f"Failed to process {filename}: {message}"
+                                            )
                                         elif stats["errors"] == 5:
-                                            logger.warning("Further batch errors suppressed...")
-                            
+                                            logger.warning(
+                                                "Further batch errors suppressed..."
+                                            )
+
                             pbar.update(1)
                             pbar.set_postfix(file=filename[:15], added=stats["added"])
                         except Exception as e:
                             logger.error(f"Worker error for {filename}: {e}")
                             pbar.update(1)
 
-            print(f"[SCANNER] Batch complete. Added: {stats['added']}, Errors: {stats['errors']}", flush=True)
+            logger.info(
+                f"[SCANNER] Batch complete. Added: {stats['added']}, Errors: {stats['errors']}"
+            )
             return stats
 
         finally:
             self.is_processing = False
 
-    def rebuild_database_from_ranked(self) -> Dict:
+    def rebuild_database_from_ranked(self) -> dict[str, Any]:
         """
         Rebuild database from existing ranked images.
 
@@ -669,40 +721,80 @@ class ImageProcessor:
         stats = {"recovered": 0, "skipped": 0, "synced_history": 0, "errors": 0}
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        
+
         # Phase 1: Recover/Sync Images (Metadata only)
-        with tqdm(total=len(image_files), desc="[DATABASE] Phase 1/2: Recovering Images", unit="img", leave=False) as pbar:
+        with tqdm(
+            total=len(image_files),
+            desc="[DATABASE] Phase 1/2: Recovering Images",
+            unit="img",
+            leave=False,
+        ) as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {executor.submit(self._rebuild_single_image, img_path, phase=1): img_path for img_path in image_files}
+                futures = {
+                    executor.submit(
+                        self._rebuild_single_image, img_path, phase=1
+                    ): img_path
+                    for img_path in image_files
+                }
                 for future in as_completed(futures):
                     res = future.result()
-                    if res: stats[res] = stats.get(res, 0) + 1
+                    if res:
+                        stats[res] = stats.get(res, 0) + 1
                     pbar.update(1)
                     pbar.set_postfix(rec=stats["recovered"], skip=stats["skipped"])
 
         # Phase 2: Sync Comparison History (Relationships)
         # Done after Phase 1 to ensure all images exist in DB to satisfy Foreign Key constraints
-        with tqdm(total=len(image_files), desc="[DATABASE] Phase 2/2: Syncing History", unit="img", leave=False) as pbar:
+        with tqdm(
+            total=len(image_files),
+            desc="[DATABASE] Phase 2/2: Syncing History",
+            unit="img",
+            leave=False,
+        ) as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {executor.submit(self._rebuild_single_image, img_path, phase=2): img_path for img_path in image_files}
+                futures = {
+                    executor.submit(
+                        self._rebuild_single_image, img_path, phase=2
+                    ): img_path
+                    for img_path in image_files
+                }
                 for future in as_completed(futures):
                     res = future.result()
-                    if res == "synced_history": stats["synced_history"] += 1
-                    elif res == "errors": stats["errors"] += 1
+                    if res == "synced_history":
+                        stats["synced_history"] += 1
+                    elif res == "errors":
+                        stats["errors"] += 1
                     pbar.update(1)
                     pbar.set_postfix(sync=stats["synced_history"], err=stats["errors"])
+
+        # Phase 3: Deduplicate comparisons (relaxed matching by pair+winner, not exact timestamp)
+        logger.info("[DATABASE] Phase 3: Deduplicating comparison history...")
+        try:
+            from database.comparisons_table import deduplicate_comparisons
+
+            dedup_count = deduplicate_comparisons()
+            stats["deduplicated"] = dedup_count
+            logger.info(f"[DATABASE] Removed {dedup_count} duplicate comparisons")
+        except Exception as e:
+            logger.debug(f"Deduplication failed: {e}")
 
         logger.info(
             f"Database rebuild complete: recovered={stats['recovered']}, "
             f"skipped={stats['skipped']}, synced_history={stats['synced_history']}, "
             f"errors={stats['errors']}"
         )
+        # Sync processed images set so the scanner doesn't pick up recovered images
+        self.sync_processed_images_from_db()
         return stats
 
-    def _rebuild_single_image(self, image_path: Path, phase: int = 1) -> Optional[str]:
+    def _rebuild_single_image(self, image_path: Path, phase: int = 1) -> str | None:
         """Worker for rebuilding a single image entry. Returns stats key to increment."""
-        from database.images_table import get_image as db_get_image, update_image_score_confidence
+        from database.images_table import (
+            get_image as db_get_image,
+            update_image_score_confidence,
+        )
         from database.comparisons_table import add_historical_comparison
+
         filename = image_path.name
         try:
             # 1. Read metadata from JSON
@@ -721,8 +813,11 @@ class ImageProcessor:
             confidence = float(metadata.get("confidence", self.default_confidence))
             comparison_count = int(metadata.get("comparison_count", 0))
             comparison_history = metadata.get("comparison_history", [])
-            
-            if isinstance(comparison_history, list) and len(comparison_history) > comparison_count:
+
+            if (
+                isinstance(comparison_history, list)
+                and len(comparison_history) > comparison_count
+            ):
                 comparison_count = len(comparison_history)
 
             if phase == 1:
@@ -733,85 +828,93 @@ class ImageProcessor:
                     # This prevents old JSONs from overwriting a fresh database state.
                     if comparison_count > existing_data.get("comparison_count", 0):
                         try:
-                            update_image_score_confidence(filename, score, confidence, comparison_count)
+                            update_image_score_confidence(
+                                filename, score, confidence, comparison_count
+                            )
                             return "synced_history"
-                        except Exception: pass
+                        except Exception:
+                            pass
                     return "skipped"
                 else:
-                    if self.add_to_database(filename, score, confidence, comparison_count):
+                    if self.add_to_database(
+                        filename, score, confidence, comparison_count
+                    ):
                         return "recovered"
                     return "errors"
-            
+
             elif phase == 2:
                 # PHASE 2: Handle comparisons history
                 if comparison_history:
                     for comp in comparison_history:
                         other = comp.get("other")
                         timestamp = comp.get("timestamp")
-                        if not other or not timestamp: continue
+                        if not other or not timestamp:
+                            continue
                         is_winner_flag = comp.get("winner")
                         winner_file = filename if is_winner_flag else other
                         try:
                             add_historical_comparison(
-                                filename_a=filename, filename_b=other, winner=winner_file,
-                                timestamp=timestamp, weight=float(comp.get("weight", 1.0)),
-                                transitive_depth=int(comp.get("transitive_depth", 0))
+                                filename_a=filename,
+                                filename_b=other,
+                                winner=winner_file,
+                                timestamp=timestamp,
+                                weight=float(comp.get("weight", 1.0)),
+                                transitive_depth=int(comp.get("transitive_depth", 0)),
                             )
-                        except Exception: pass
+                        except Exception:
+                            pass
                     return "synced_history"
                 return None
 
         except Exception:
             return "errors"
 
-            logger.info(
-                f"Database rebuild complete: recovered={stats['recovered']}, "
-                f"skipped={stats['skipped']}, synced_history={stats['synced_history']}, "
-                f"errors={stats['errors']}"
-            )
-            return stats
-
-        except Exception as e:
-            logger.error(f"Rebuild error for {filename}: {e}")
-            return "errors"
-
-    def scan_for_new_images(self, source_dir: str) -> int:
-        """Scan and process any new images found."""
-        stats = self.process_directory(source_dir)
-        return stats.get("added", 0)
-
     def reorganize_folder_structure(self):
         """
         Cleanup the ranked folder by moving 'loose' files in tier folders
         into their respective precision subfolders if those subfolders exist.
         """
-        from file_management.path_handler import get_ranked_root, compute_path_from_filename
+        from file_management.path_handler import (
+            get_ranked_root,
+            compute_path_from_filename,
+        )
         import shutil
+
         ranked_root = get_ranked_root()
-        if not ranked_root.exists(): return
-        
+        if not ranked_root.exists():
+            return
+
         logger.info("[SCANNER] Checking folder structure for loose files...")
         moved_count = 0
-        
+
         # Iterate through base tier folders (scored_0.0 to scored_1.0)
         try:
             for tier_folder in ranked_root.glob("scored_*"):
-                if not tier_folder.is_dir(): continue
-                
+                if not tier_folder.is_dir():
+                    continue
+
                 # Check if this folder has any high-precision subfolders
                 # Use os.listdir for speed
                 try:
                     items = os.listdir(tier_folder)
-                except Exception: continue
-                
-                has_subfolders = any(item.startswith("scored_") and (tier_folder / item).is_dir() for item in items)
-                if not has_subfolders: continue
-                
-                # This folder has subfolders! Any files at the root of this folder 
+                except Exception:
+                    continue
+
+                has_subfolders = any(
+                    item.startswith("scored_") and (tier_folder / item).is_dir()
+                    for item in items
+                )
+                if not has_subfolders:
+                    continue
+
+                # This folder has subfolders! Any files at the root of this folder
                 # should be moved into their correct subfolder.
                 for item in items:
                     loose_file = tier_folder / item
-                    if loose_file.is_file() and loose_file.suffix.lower() in self.image_extensions:
+                    if (
+                        loose_file.is_file()
+                        and loose_file.suffix.lower() in self.image_extensions
+                    ):
                         # We need the score to know which subfolder to move it to
                         json_path = loose_file.with_suffix(".json")
                         score = self.default_score
@@ -820,22 +923,30 @@ class ImageProcessor:
                                 with open(json_path, "r", encoding="utf-8") as f:
                                     meta = json.load(f)
                                     score = float(meta.get("score", self.default_score))
-                            except Exception: pass
-                        
+                            except Exception:
+                                pass
+
                         # Compute correct target path (now with precision enforced)
                         target_path = compute_path_from_filename(loose_file.name, score)
-                        
+
                         if target_path != loose_file:
                             target_path.parent.mkdir(parents=True, exist_ok=True)
                             try:
                                 shutil.move(str(loose_file), str(target_path))
                                 if json_path.exists():
-                                    shutil.move(str(json_path), str(target_path.with_suffix(".json")))
+                                    shutil.move(
+                                        str(json_path),
+                                        str(target_path.with_suffix(".json")),
+                                    )
                                 moved_count += 1
                             except Exception as e:
-                                logger.error(f"Failed to reorganize {loose_file.name}: {e}")
+                                logger.error(
+                                    f"Failed to reorganize {loose_file.name}: {e}"
+                                )
         except Exception as e:
             logger.error(f"Folder reorganization failed: {e}")
-                            
+
         if moved_count:
-            logger.info(f"[SCANNER] Reorganized {moved_count} loose files into subfolders.")
+            logger.info(
+                f"[SCANNER] Reorganized {moved_count} loose files into subfolders."
+            )

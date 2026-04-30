@@ -21,6 +21,7 @@ vectors_file: str = os.path.join(vectors_dir, config["vectors_file"])
 scores_file: str = os.path.join(vectors_dir, config["scores_file"])
 index_file: str = os.path.join(vectors_dir, config["index_file"])
 text_data_file: str = os.path.join(vectors_dir, config["text_data_file"])
+error_log_file: str = os.path.join(vectors_dir, "error_log.json")
 
 
 models_dir: str = os.path.join(output_dir, "models")

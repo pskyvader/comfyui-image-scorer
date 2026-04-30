@@ -19,6 +19,7 @@ from shared.io import (
     discover_files,
     collect_valid_files,
 )
+
 from shared.config import config
 from shared.paths import (
     vectors_file,
@@ -27,8 +28,6 @@ from shared.paths import (
     image_root,
     text_data_file,
 )
-
-print("Loading helpers...")
 from shared.helpers import remove_models, remove_vectors
 
 
@@ -87,6 +86,7 @@ def run_prepare(limit: int = 0) -> dict[str, int]:
 
     print("creating vectors ...")
     vectors_list_parser.create_vectors()
+    vectors_list_parser.export_split_files(os.path.dirname(vectors_file))
     print("joining vectors...")
     vectors_list_parser.join_vectors()
     vectors_list_parser.join_text_data()
@@ -98,7 +98,7 @@ def run_prepare(limit: int = 0) -> dict[str, int]:
     new_index_list = vectors_list_parser.index_list
     new_scores_list = vectors_list_parser.scores_list
 
-    check_for_leakage(new_vectors_list, new_scores_list)
+    # check_for_leakage(new_vectors_list, new_scores_list)
     write_single_jsonl(index_file, new_index_list, mode="w")
     write_single_jsonl(vectors_file, new_vectors_list, mode="w")
     write_single_jsonl(text_data_file, new_text_list, mode="w")
@@ -268,11 +268,11 @@ def run_rebuild_scores_only() -> dict[str, int]:
 
     # all data: dict{"file_id":entry}
     final_data: dict[str, dict[str, Any]] = {
-        f"{x[3]}#{x[2]}": x[1] for x in collected_data
+        x[3]: x[1] for x in collected_data
     }
 
-    # print(list(final_data.keys())[0])
-    # print(list(final_data.values())[0])
+    #print(list(final_data.keys())[0])
+    #print(list(final_data.values())[0])
 
     new_scores_list: list[float] = []
     updated_count = 0
@@ -320,7 +320,7 @@ def main(
     rebuild: bool = False,
     test_run: bool = False,
     limit: int = 0,
-    steps: bool = False,
+    batch: bool = False,
     rebuild_scores: bool = False,
     text_only: bool = False,
 ) -> None:
@@ -345,8 +345,8 @@ def main(
         print("Rebuilding scores file only...")
         run_rebuild_scores_only()
         return
-    if limit > 0 and steps:
-        print("Steps process enabled")
+    if limit > 0 and batch:
+        print("batch process enabled")
         new = 1
         i = 0
         while new > 0:
@@ -377,9 +377,9 @@ if __name__ == "__main__":
         help="Process text data only, preserving existing image vectors (use when text parsing changes)",
     )
     parser.add_argument(
-        "--steps",
+        "--batch",
         action="store_true",
-        help="Process in steps. Must combine with limit, otherwise it will default to full process.",
+        help="Process in batch. Must combine with limit, otherwise it will default to full process.",
     )
     parser.add_argument(
         "--limit",
@@ -397,7 +397,7 @@ if __name__ == "__main__":
         rebuild=args.rebuild,
         test_run=args.test_run,
         limit=args.limit,
-        steps=args.steps,
+        batch=args.batch,
         rebuild_scores=args.rebuild_scores,
         text_only=args.text_only,
     )

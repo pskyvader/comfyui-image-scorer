@@ -66,8 +66,7 @@ class AestheticScoreNode:
 
         batch_size = 10
 
-        if len(image) < 1:
-            raise ValueError("'image' must contain at least one image.")
+        assert len(image) >= 1, "'image' must contain at least one image."
         if not positive.strip():
             raise ValueError("The 'positive' prompt must be a non-empty string.")
         if not negative.strip():
@@ -138,10 +137,10 @@ class AestheticScoreNode:
         final_vectors = vector_list.join_vectors()
         matrix = np.array(final_vectors, dtype=np.float32)
 
-        filtered_vectors = data_transformer.apply_feature_filter(matrix)
+        filtered_vectors = data_transformer.apply_feature_filter([matrix])
         # interaction_vectors=data_transformer.apply_interaction_features(filtered_vectors)
 
-        model = training_loader.load_training_model()
+        model = training_loader.load_training_model()  # type: ignore[union-attr]
         all_scores = model.predict(filtered_vectors)
         print(f"all_scores: {all_scores}")
 
