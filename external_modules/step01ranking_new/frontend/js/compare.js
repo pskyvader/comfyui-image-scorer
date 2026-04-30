@@ -55,15 +55,18 @@ const compareMode = {
         this.loader.classList.remove("hidden");
         this.loader.querySelector(".loader-text").innerText = "Finding pair to compare…";
 
-        try {
-            const score = this.manualScoreInput ? this.manualScoreInput.value : "0";
-            const params = new URLSearchParams({ score });
+        // Clear previous state BEFORE fetching to prevent stale data showing on error
+        this.compareLeftImage = null;
+        this.compareRightImage = null;
+        this.compareLeftData = null;
+        this.compareRightData = null;
 
-            const res = await fetch(`/compare/next/?${params.toString()}`);
+        try {
+            const res = await fetch(`/api/v2/ranking/next-pair`);
 
             // Check for empty response (no pairs available)
             const text = await res.text();
-            if (!text || text === "{}") {
+            if (!text || text === "{}" || res.status === 204) {
                 this.loader.querySelector(".loader-text").innerText = "No more pairs to compare!";
                 resumePolling();
                 this.fetching = false;
@@ -71,8 +74,18 @@ const compareMode = {
             }
 
             const data = JSON.parse(text);
-            this.compareLeftImage = data.left.image;
-            this.compareRightImage = data.right.image;
+            if (data.error) {
+                this.loader.querySelector(".loader-text").innerText = data.message || data.error;
+                resumePolling();
+                this.fetching = false;
+                return;
+            }
+
+            // Debug log
+            console.log("[NEXT-PAIR] Got pair:", data.left.filename, "vs", data.right.filename);
+
+            this.compareLeftImage = data.left.filename;
+            this.compareRightImage = data.right.filename;
             this.compareLeftData = data.left;
             this.compareRightData = data.right;
 
@@ -93,21 +106,34 @@ const compareMode = {
         const leftImg = this.container.querySelector("#compare-left");
         const rightImg = this.container.querySelector("#compare-right");
 
-        leftImg.src = "/image/" + encodeURIComponent(this.compareLeftImage.replace(/\\/g, "/"));
-        rightImg.src = "/image/" + encodeURIComponent(this.compareRightImage.replace(/\\/g, "/"));
+        // Add timestamp to force fresh fetch (cache buster)
+        const ts = Date.now();
+        const leftUrl = "/output/ranked/" + encodeURIComponent(this.compareLeftImage.replace(/\\/g, "/")) + "?t=" + ts;
+        const rightUrl = "/output/ranked/" + encodeURIComponent(this.compareRightImage.replace(/\\/g, "/")) + "?t=" + ts;
+
+        // Debug log
+        console.log("[RENDER] Setting images:", leftUrl, rightUrl);
+
+        // Force reload by setting src after clearing
+        leftImg.src = "";
+        leftImg.src = leftUrl;
+
+        rightImg.src = "";
+        rightImg.src = rightUrl;
 
         this.container.querySelector("#left_file_id").innerText = this.compareLeftImage;
         this.container.querySelector("#right_file_id").innerText = this.compareRightImage;
 
-        this.container.querySelector("#compare-left-score").innerText = this.compareLeftData.score;
-        this.container.querySelector("#compare-left-modifier").innerText = this.compareLeftData.score_modifier;
-        this.container.querySelector("#compare-left-count").innerText = this.compareLeftData.comparison_count;
-        this.container.querySelector("#compare-left-volatility").innerText = this.compareLeftData.volatility;
+        // Handle both v2 API (score, confidence, comparison_count) and old API (score, etc)
+        this.container.querySelector("#compare-left-score").innerText = this.compareLeftData.score ?? "0.5";
+        this.container.querySelector("#compare-left-modifier").innerText = this.compareLeftData.confidence ?? "-";
+        this.container.querySelector("#compare-left-count").innerText = this.compareLeftData.comparison_count ?? 0;
+        this.container.querySelector("#compare-left-volatility").innerText = "-";
 
-        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score;
-        this.container.querySelector("#compare-right-modifier").innerText = this.compareRightData.score_modifier;
-        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count;
-        this.container.querySelector("#compare-right-volatility").innerText = this.compareRightData.volatility;
+        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score ?? "0.5";
+        this.container.querySelector("#compare-right-modifier").innerText = this.compareRightData.confidence ?? "-";
+        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count ?? 0;
+        this.container.querySelector("#compare-right-volatility").innerText = "-";
 
 
         // Show comparison buttons
@@ -131,29 +157,58 @@ const compareMode = {
 
         try {
             const body = JSON.stringify({
-                winner_image: winnerImage,
-                loser_image: loserImage,
-                winner_data: winnerData,
-                loser_data: loserData,
+                filename_a: this.compareLeftImage,
+                filename_b: this.compareRightImage,
+                winner: winnerImage,
             });
+
+            // SUBMIT FIRST, then fetch next pair
+            console.log("[SUBMIT] Sending:", this.compareLeftImage, "vs", this.compareRightImage, "winner:", winnerImage);
             await this.fetchNextComparePair();
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay to ensure UI updates before next fetch
-            const res = await fetch("/compare/submit", {
+
+            const res = await fetch("/api/v2/ranking/submit-comparison", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: body,
             });
 
-            this.loader.querySelector(".loader-text").innerText = "Updating…";
-
             const result = await res.json();
-            if (!result.ok) {
+            if (result.error) {
+                console.error("[SUBMIT] Error:", result.error);
                 this.loader.querySelector(".loader-text").innerText = `Error: ${result.error}`;
                 buttons.forEach(btn => btn.classList.remove("hidden"));
+                // Clear the pair since submission failed
+                this.compareLeftImage = null;
+                this.compareRightImage = null;
                 return;
             }
 
+            console.log("[SUBMIT] Success, fetching next...");
 
+            // Update local data with returned scores/confidence
+            if (result.images) {
+                this.compareLeftData = result.images[this.compareLeftImage] || this.compareLeftData;
+                this.compareRightData = result.images[this.compareRightImage] || this.compareRightData;
+            }
+
+            // Only fetch next pair after successful submission
+            this.loader.querySelector(".loader-text").innerText = "Loading next pair…";
+            // await this.fetchNextComparePair();
+
+            // Wait for images to actually load before hiding loader
+            // await new Promise(resolve => {
+            //     const leftImg = this.container.querySelector("#compare-left");
+            //     const rightImg = this.container.querySelector("#compare-right");
+            //     let loaded = 0;
+            //     const onLoad = () => {
+            //         loaded++;
+            //         if (loaded >= 2) resolve();
+            //     };
+            //     leftImg.onload = onLoad;
+            //     rightImg.onload = onLoad;
+            //     // Fallback timeout in case onload doesn't fire
+            //     setTimeout(resolve, 500);
+            // });
 
         } catch (e) {
             console.error("Error submitting comparison:", e);

@@ -381,18 +381,18 @@ class ModelTrainer:
             # F1-scores (better for imbalanced datasets)
             try:
                 macro_f1 = float(
-                    f1_score(y_test, predictions, average="macro", zero_division=0)
+                    f1_score(y_test, predictions, average="macro", zero_division="0")
                 )
                 weighted_f1 = float(
-                    f1_score(y_test, predictions, average="weighted", zero_division=0)
+                    f1_score(y_test, predictions, average="weighted", zero_division="0")
                 )
                 macro_precision = float(
                     precision_score(
-                        y_test, predictions, average="macro", zero_division=0
+                        y_test, predictions, average="macro", zero_division="0"
                     )
                 )
                 macro_recall = float(
-                    recall_score(y_test, predictions, average="macro", zero_division=0)
+                    recall_score(y_test, predictions, average="macro", zero_division="0")
                 )
                 self.result_metrics["macro_f1"] = macro_f1
                 self.result_metrics["weighted_f1"] = weighted_f1
@@ -496,6 +496,9 @@ class ModelTrainer:
                 "callbacks": self.callbacks,
             }
 
+            if self.training_model is None:
+                raise RuntimeError("Training model was not created")
+
             if isinstance(self.training_model, lgb.LGBMRanker):
                 self.training_model.fit(
                     **parameters,
@@ -504,6 +507,9 @@ class ModelTrainer:
                 )
             else:
                 self.training_model.fit(**parameters)
+
+            if self.training_model is None:
+                raise RuntimeError("Training failed")
 
             if self.user_verbosity >= 0:
                 progress_bar.close()
@@ -524,7 +530,7 @@ class ModelTrainer:
         # print(f"y_test: {y_test[100:]}")
         # print(f"y_pred: {y_pred[100:]}")
 
-        self.create_metrics(y_test, y_pred, training_time)
+        self.create_metrics(y_test, np.asarray(y_pred), training_time)
 
         return self.training_model, self.result_metrics
 

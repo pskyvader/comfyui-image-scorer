@@ -53,7 +53,7 @@ class VectorList:
             image_path, entry, timestamp, file_id = data
             self.entries.append(entry)
             if not self.read_only:
-                unique_id = f"{file_id}#{timestamp}"
+                unique_id = file_id
                 self.unique_ids.append(unique_id)
                 current_score = entry["score"]
                 score_modifier = entry.get("score_modifier", 0)
@@ -65,51 +65,25 @@ class VectorList:
         self.final_text_data: list[dict[str, Any]] = []
 
     def configure_sorted_vectors(self) -> None:
-        image_type: list[dict[str, Any]] = []
-        map_type: list[dict[str, Any]] = []
-        int_type: list[dict[str, Any]] = []
-        float_type: list[dict[str, Any]] = []
-        embedding_type: list[dict[str, Any]] = []
-
-        for c in self.vector_config:
-            if c["type"] == self._IMAGE:
-                image_type.append(c)
-            elif c["type"] == self._INT:
-                int_type.append(c)
-            elif c["type"] == self._FLOAT:
-                float_type.append(c)
-            elif c["type"] == self._MAP:
-                map_type.append(c)
-            elif c["type"] == self._EMBEDDING:
-                embedding_type.append(c)
-
-        for current_type in map_type:
-            self.sorted_vectors[current_type["name"]] = {
-                "vector": MapVector(current_type["name"]),
-                **current_type,
-            }
-        for current_type in int_type:
-            self.sorted_vectors[current_type["name"]] = {
-                "vector": IntVector(
-                    current_type["name"], current_type["max_normalization"]
-                ),
-                **current_type,
-            }
-        for current_type in float_type:
-            self.sorted_vectors[current_type["name"]] = {
-                "vector": FloatVector(
-                    current_type["name"], current_type["max_normalization"]
-                ),
-                **current_type,
-            }
-        for current_type in embedding_type:
-            self.sorted_vectors[current_type["name"]] = {
-                "vector": EmbeddingVector(current_type["name"]),
-                **current_type,
-            }
-        for current_type in image_type:
-            self.sorted_vectors[current_type["name"]] = {
-                "vector": ImageVector(current_type["name"]),
+        for current_type in self.vector_config:
+            v_type = current_type["type"]
+            name = current_type["name"]
+            
+            if v_type == self._MAP:
+                vec = MapVector(name)
+            elif v_type == self._INT:
+                vec = IntVector(name, current_type.get("max_normalization"))
+            elif v_type == self._FLOAT:
+                vec = FloatVector(name, current_type.get("max_normalization"))
+            elif v_type == self._EMBEDDING:
+                vec = EmbeddingVector(name)
+            elif v_type == self._IMAGE:
+                vec = ImageVector(name)
+            else:
+                raise ValueError(f"Unknown vector type: {v_type}")
+                
+            self.sorted_vectors[name] = {
+                "vector": vec,
                 **current_type,
             }
 
@@ -326,3 +300,41 @@ class VectorList:
         for (v, _), segment in zip(self.sorted_vectors.items(), segments):
             converted_vector = segment.tolist()
             self.sorted_vectors[v]["vector"].vector_list = converted_vector
+
+    def export_split_files(self, base_dir: str) -> None:
+        import os
+        import jsonlines
+        
+        print("Exporting split data files...")
+        
+        for v in self.sorted_vectors:
+            c = self.sorted_vectors[v]
+            name = c["name"]
+            v_type = c["type"]
+            current_vector = c["vector"]
+            
+            if v_type in [self._MAP, self._INT, self._FLOAT]:
+                raw_values = current_vector.value_list
+            elif v_type == self._EMBEDDING:
+                raw_values = current_vector.text_list
+            elif v_type == self._IMAGE:
+                raw_values = getattr(current_vector, "path_list", [""] * len(self.unique_ids))
+            else:
+                raw_values = [""] * len(self.unique_ids)
+
+            vector_values = current_vector.vector_list
+
+            out_dir = os.path.join(base_dir, "split", v_type)
+            os.makedirs(out_dir, exist_ok=True)
+            
+            out_file = os.path.join(out_dir, f"{name}.jsonl")
+            
+            with jsonlines.open(out_file, mode="a") as writer:
+                for idx, uid in enumerate(self.unique_ids):
+                    raw_val = raw_values[idx] if idx < len(raw_values) else None
+                    vec_val = vector_values[idx] if idx < len(vector_values) else None
+                    writer.write({
+                        "id": uid,
+                        "raw": raw_val,
+                        "vector": vec_val
+                    })

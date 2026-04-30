@@ -32,7 +32,7 @@ def get_json_path(img_path: str) -> str:
 def load_metadata(image_path: str) -> dict[str, Any] | None:
     metadata_path = get_json_path(image_path)
     payload, ts, err = load_single_entry_mapping(metadata_path)
-    if err:
+    if err or ts is None:
         return None
     return {ts: payload}
 
@@ -197,7 +197,7 @@ def move_to_slot(
     source_list: ImageSlot = image_buckets[current_slot]
     num_to_move: int = len(source_list) - target_size
 
-    image_buckets[target_slot].sort(key=lambda x: int(x["comparison_count"]))
+    image_buckets[target_slot].sort(key=lambda x: int(x["comparison_count"] or 0))
 
     if num_to_move > 0:
         image_buckets[target_slot].extend(source_list[:num_to_move])

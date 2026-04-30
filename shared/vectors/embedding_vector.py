@@ -11,7 +11,7 @@ class EmbeddingVector:
         self.name = name
         self.value_list: list[str] = []
         self.vector_list: list[list[float]] = []
-        self.text_list: list[list[tuple[str, float]]] = []
+        self.text_list: list[str] = []
 
     def parse_value_list(
         self, entries: list[dict[str, Any]], alias: list[str] | None = None
@@ -58,13 +58,10 @@ class EmbeddingVector:
 
         return self.vector_list
 
-    def create_text_batch(self, batch: list[str]) -> list[list[tuple[str, float]]]:
-        text_list: list[list[tuple[str, float]]] = []
-        for text in batch:
-            text_list.append(extract_terms(text))
-        return text_list
+    def create_text_batch(self, batch: list[str]) -> list[str]:
+        return batch
 
-    def create_text_list(self, batch_size: int = 4) -> list[list[tuple[str, float]]]:
+    def create_text_list(self, batch_size: int = 4) -> list[str]:
         total = len(self.value_list)
         with tqdm(total=total, desc="Mapped", unit=" " + self.name) as pbar:
             for i in range(0, total, batch_size):

@@ -8,9 +8,9 @@ from sentence_transformers import SentenceTransformer
 
 class ModelLoader:
     def __init__(self):
-        self.embedding_model: Optional[tuple[SentenceTransformer, int]] = None
-        self.vision_model: Optional[tuple[nn.Module, int, int]] = None
-        self.cnn_model: Optional[Any] = None
+        self.embedding_model: tuple[SentenceTransformer, int] | None = None
+        self.vision_model: tuple[nn.Module, int, int] | None = None
+        self.cnn_model: Any | None = None
         self.prepare_config = config["prepare"]
 
     def load_vision_model(self) -> tuple[nn.Module, int, int]:
@@ -41,13 +41,13 @@ class ModelLoader:
         # elif hasattr(model, "fc"):
         #     model.fc = nn.Identity()
 
-        model = model.eval()
-        model.to(device)
+        model = model.eval()  # type: ignore[union-attr]
+        model.to(device)  # type: ignore[union-attr]
 
         print(f"Vision model loaded on device: {device} ")
 
         # No processor for ConvNeXt
-        props = torch.cuda.get_device_properties(device)
+        props = torch.cuda.get_device_properties(device)  # type: ignore[union-attr]
         total_memory = int(props.total_memory)
 
         self.vision_model = (model, output_dim, total_memory)

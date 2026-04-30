@@ -18,9 +18,16 @@ class GalleryApp {
     }
 
     cacheElements() {
-        this.tierFilter = document.getElementById("tier-filter");
+        this.scoreMin = document.getElementById("score-min");
+        this.scoreMax = document.getElementById("score-max");
+        this.confidenceMin = document.getElementById("confidence-min");
+        this.confidenceMax = document.getElementById("confidence-max");
+        this.comparisonsMin = document.getElementById("comparisons-min");
+        this.comparisonsMax = document.getElementById("comparisons-max");
+        this.scoreDisplay = document.getElementById("score-display");
+        this.confidenceDisplay = document.getElementById("confidence-display");
+        this.comparisonsDisplay = document.getElementById("comparisons-display");
         this.sortFilter = document.getElementById("sort-filter");
-        this.searchQuery = document.getElementById("search-query");
         this.galleryStatus = document.getElementById("gallery-status");
         this.galleryGrid = document.getElementById("gallery-grid");
         this.statusBadge = document.getElementById("status-indicator");
@@ -42,12 +49,34 @@ class GalleryApp {
     }
 
     attachEventListeners() {
-        // Use debounce for inputs
+        const updateRanges = () => {
+            // Ensure min <= max for each range
+            if (parseFloat(this.scoreMin.value) > parseFloat(this.scoreMax.value)) {
+                this.scoreMin.value = this.scoreMax.value;
+            }
+            if (parseFloat(this.confidenceMin.value) > parseFloat(this.confidenceMax.value)) {
+                this.confidenceMin.value = this.confidenceMax.value;
+            }
+            if (parseInt(this.comparisonsMin.value) > parseInt(this.comparisonsMax.value)) {
+                this.comparisonsMin.value = this.comparisonsMax.value;
+            }
+            
+            // Update display values
+            this.scoreDisplay.textContent = `${parseFloat(this.scoreMin.value).toFixed(2)} - ${parseFloat(this.scoreMax.value).toFixed(2)}`;
+            this.confidenceDisplay.textContent = `${parseFloat(this.confidenceMin.value).toFixed(2)} - ${parseFloat(this.confidenceMax.value).toFixed(2)}`;
+            const compMax = parseInt(this.comparisonsMax.value);
+            this.comparisonsDisplay.textContent = `${this.comparisonsMin.value} - ${compMax >= 1000 ? '1000+' : compMax}`;
+        };
+
         const debouncedSearch = Utils.debounce(() => this.search(), 300);
         
-        this.tierFilter.addEventListener("change", () => this.search());
+        this.scoreMin.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+        this.scoreMax.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+        this.confidenceMin.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+        this.confidenceMax.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+        this.comparisonsMin.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+        this.comparisonsMax.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
         this.sortFilter.addEventListener("change", () => this.search());
-        this.searchQuery.addEventListener("input", debouncedSearch);
     }
 
     setupModal() {
@@ -266,33 +295,18 @@ class GalleryApp {
             if (renderStatus) this.scrollSentinel.classList.remove("opacity-0");
 
             const filters = {
-                tierMin: this.tierFilter.value ? parseInt(this.tierFilter.value) : 0,
-                tierMax: this.tierFilter.value ? parseInt(this.tierFilter.value) : 9,
+                scoreMin: parseFloat(this.scoreMin.value),
+                scoreMax: parseFloat(this.scoreMax.value),
+                confidenceMin: parseFloat(this.confidenceMin.value),
+                confidenceMax: parseFloat(this.confidenceMax.value),
+                comparisonsMin: parseInt(this.comparisonsMin.value),
+                comparisonsMax: parseInt(this.comparisonsMax.value),
                 sort: this.sortFilter.value,
-                query: this.searchQuery.value.trim()
             };
 
-            let result;
-            if (filters.query) {
-                // Search endpoint doesn't paginate well, fetch once
-                if (this.currentPage > 1) {
-                    this.hasMore = false;
-                    result = { results: [] };
-                } else {
-                    const searchRes = await api.searchImages(filters.query, filters.tierMin/10, (filters.tierMax+1)/10);
-                    const imgs = searchRes.results || [];
-                    if (filters.sort === "score_desc") imgs.sort((a,b) => b.score - a.score);
-                    if (filters.sort === "score_asc") imgs.sort((a,b) => a.score - b.score);
-                    if (filters.sort === "comparisons_desc") imgs.sort((a,b) => b.comparison_count - a.comparison_count);
-                    if (filters.sort === "comparisons_asc") imgs.sort((a,b) => a.comparison_count - b.comparison_count);
-                    result = { images: imgs, total: imgs.length };
-                    this.hasMore = false;
-                }
-            } else {
-                result = await api.getGalleryImages(this.currentPage, this.perPage, filters);
-                if (this.currentPage * this.perPage >= result.total) {
-                    this.hasMore = false;
-                }
+            const result = await api.getGalleryImages(this.currentPage, this.perPage, filters);
+            if (this.currentPage * this.perPage >= result.total) {
+                this.hasMore = false;
             }
 
             if (result.images && result.images.length > 0) {

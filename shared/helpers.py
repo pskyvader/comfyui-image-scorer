@@ -2,8 +2,9 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 import shutil
-from .paths import models_dir, vectors_dir
+import torch
 from torch import Tensor
+from .paths import models_dir, vectors_dir
 
 
 def remove_directory(directory_path: Path) -> None:
@@ -28,22 +29,14 @@ def remove_models() -> None:
 def export_image_batch(pil_images: list[Image.Image]) -> Tensor:
     import torch
     if not pil_images:
-        return torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+        return torch.zeros((1, 1, 1, 3), dtype=torch.float32)  # type: ignore[union-attr]
 
     tensors: list[Tensor] = []
 
     for img in pil_images:
-        # 1. Ensure RGB and convert to NumPy array (Shape: H, W, C)
-        # ComfyUI requires HWC format, which is the default for PIL -> NumPy
         np_img = np.array(img.convert("RGB"))
-
-        # 2. Normalize and convert to float32
-        # ComfyUI expects values between 0.0 and 1.0
         np_img = np_img.astype(np.float32) / 255.0
-
-        # 3. Convert to Torch Tensor and add batch dimension [1, H, W, C]
-        t = torch.from_numpy(np_img).unsqueeze(0)
+        t = torch.from_numpy(np_img).unsqueeze(0)  # type: ignore[union-attr]
         tensors.append(t)
 
-    # 4. Concatenate into a single batch [B, H, W, C]
-    return torch.cat(tensors, dim=0)
+    return torch.cat(tensors, dim=0)  # type: ignore[union-attr]

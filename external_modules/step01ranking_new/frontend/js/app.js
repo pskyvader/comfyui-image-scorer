@@ -6,7 +6,7 @@ class RankingApp {
         this.nextPair = null;
         this.isLoading = false;
         this.imageCache = {};
-        
+
         this.cacheElements();
         this.attachEventListeners();
         this.initialize();
@@ -30,13 +30,14 @@ class RankingApp {
         this.statsTotal = document.getElementById("stat-total");
         this.statsRanked = document.getElementById("stat-ranked");
         this.statsComparisons = document.getElementById("stat-comparisons");
+        this.statsSkipped = document.getElementById("stat-skipped");
         this.statusBadge = document.getElementById("status-indicator");
         this.errorBox = document.getElementById("error-box");
         this.errorTitle = document.getElementById("error-title");
         this.errorMessage = document.getElementById("error-message");
         this.cardsContainer = document.getElementById("cards-container");
         this.loadingOverlay = document.getElementById("loading-overlay");
-        
+
         // Debug & Backup
         this.backupBtn = document.getElementById("backup-button");
         this.debugBtn = document.getElementById("toggle-debug");
@@ -47,10 +48,10 @@ class RankingApp {
     attachEventListeners() {
         this.leftButton.addEventListener("click", () => this.submitVote("left"));
         this.rightButton.addEventListener("click", () => this.submitVote("right"));
-        
+
         const leftCard = document.querySelector(".left-card");
         const rightCard = document.querySelector(".right-card");
-        
+
         if (leftCard) {
             leftCard.addEventListener("click", (e) => {
                 if (e.target !== this.leftButton) this.submitVote("left");
@@ -61,7 +62,7 @@ class RankingApp {
                 if (e.target !== this.rightButton) this.submitVote("right");
             });
         }
-        
+
         if (this.skipButton) {
             this.skipButton.addEventListener("click", () => this.loadPair());
         }
@@ -201,7 +202,7 @@ class RankingApp {
         if (this.debugContent && rationale) {
             this.debugContent.innerHTML = `
                 <div>
-                    <p class="text-purple-400">Selection Lead (Seed)</p>
+                    <p class="text-purple-400">Selection Lead</p>
                     <p class="text-white truncate">${rationale.seed}</p>
                     <p class="mt-1 text-purple-400">Strategy</p>
                     <p class="text-white">${rationale.strategy}</p>
@@ -209,8 +210,8 @@ class RankingApp {
                 <div>
                     <p class="text-purple-400">Score Distance</p>
                     <p class="text-white font-bold">${rationale.score_diff}</p>
-                    <p class="mt-1 text-purple-400">Allowed Range</p>
-                    <p class="text-white font-bold">${rationale.allowed_range}</p>
+                    <p class="mt-1 text-purple-400">Confidence Ceiling</p>
+                    <p class="text-white font-bold">${rationale.common_confidence ?? rationale.allowed_range}</p>
                 </div>
             `;
         }
@@ -288,6 +289,7 @@ class RankingApp {
             this.statsTotal.textContent = status.total_images;
             this.statsRanked.textContent = status.ranked_images;
             this.statsComparisons.textContent = status.total_comparisons;
+            this.statsSkipped.textContent = status.skipped_comparisons ?? 0;
 
             const progress = status.total_images > 0 ? status.ranked_images / status.total_images : 0;
             if (progress > 0.8) {

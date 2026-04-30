@@ -11,6 +11,15 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from sklearn.preprocessing import MinMaxScaler
+
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    print("Warning: scikit-learn not available - normalization will be basic")
+    SKLEARN_AVAILABLE = False
+    MinMaxScaler = None  # type: ignore[misc]
+
+try:
     import matplotlib.pyplot as plt
     import matplotlib
 
@@ -21,14 +30,7 @@ try:
 except ImportError:
     print("Warning: matplotlib not available - analysis will be limited")
     MATPLOTLIB_AVAILABLE = False
-
-try:
-    from sklearn.preprocessing import MinMaxScaler
-
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    print("Warning: scikit-learn not available - normalization will be basic")
-    SKLEARN_AVAILABLE = False
+    plt = None  # type: ignore[misc]
 
 
 class ParameterAnalyzer:
@@ -253,14 +255,14 @@ class ParameterAnalyzer:
         normalize: bool = False,
     ) -> None:
         """Create 1D scatter plot with color mapping."""
-        if not MATPLOTLIB_AVAILABLE:
+        if not MATPLOTLIB_AVAILABLE or plt is None:
             return
 
         try:
             fig, ax = plt.subplots(figsize=(10, 8))
 
             # Normalize x if requested
-            if normalize and SKLEARN_AVAILABLE:
+            if normalize and SKLEARN_AVAILABLE and MinMaxScaler is not None:
                 scaler = MinMaxScaler()
                 x_plot = scaler.fit_transform(x.reshape(-1, 1)).flatten()
             else:
@@ -296,7 +298,7 @@ class ParameterAnalyzer:
         zlabel: str,
     ) -> None:
         """Create 2D scatter plot with color coding for Z dimension."""
-        if not MATPLOTLIB_AVAILABLE:
+        if not MATPLOTLIB_AVAILABLE or plt is None:
             return
 
         try:

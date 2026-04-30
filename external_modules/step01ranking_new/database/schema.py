@@ -2,7 +2,6 @@
 
 import sqlite3
 from pathlib import Path
-from typing import Optional
 from shared.paths import cache_file
 
 
@@ -88,7 +87,7 @@ def init_database() -> None:
             """
         )
 
-        # Indexes for comparison queries
+        # Index for comparison queries
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_comparisons_timestamp ON comparisons(timestamp)
@@ -97,6 +96,11 @@ def init_database() -> None:
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_comparisons_winner ON comparisons(winner)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_comparisons_pair ON comparisons(filename_a, filename_b, winner)
             """
         )
 
@@ -117,7 +121,7 @@ def _set_meta_value(key: str, value: str) -> None:
         conn.commit()
 
 
-def get_meta_value(key: str) -> Optional[str]:
+def get_meta_value(key: str) -> str | None:
     """Retrieve metadata value."""
     with get_db_connection() as conn:
         row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

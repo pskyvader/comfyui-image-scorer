@@ -11,7 +11,6 @@ from tqdm import tqdm
 import ast
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import os
 
 
 def load_single_jsonl(filename: str) -> list[Any]:
@@ -27,8 +26,12 @@ def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
     file_path = Path(filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with jsonlines.open(file_path, mode=mode) as writer:
-        writer.write_all(data)
+    if mode.startswith("r"):
+        return  # Read-only mode, nothing to write
+    
+    with jsonlines.open(file_path, mode="w") as writer:
+        for item in data:
+            writer.write(item)
 
 
 def discover_files(root: str) -> Iterator[tuple[str, str]]:
@@ -54,19 +57,33 @@ def collect_single_file(
 ) -> tuple[str, dict[str, Any], str, str] | None:
     img_path, meta_path = file
 
-    file_id = os.path.relpath(img_path, root).replace("\\", "/")
+    file_id = os.path.basename(img_path)
     if file_id in processed_files or img_path in processed_files:
         return None
 
     entry, err = load_json(meta_path, expect=dict, default=None)
+    if err == "not_found" or entry is None:
+        return None
     if err:
-        raise FileNotFoundError(f"Error while loading {file_id}: {err}")
-    if entry is None:
-        raise FileNotFoundError(f"File {file_id} not found or invalid")
+        print(f"Warning: Error while loading {file_id}: {err}")
+        return None
 
-    timestamp = next(iter(entry.keys()))
-
-    entry = entry[timestamp] if timestamp in entry else entry
+    # Only drill down if 'score' is not at the root and there's a likely timestamp key
+    if "score" not in entry:
+        keys = list(entry.keys())
+        if keys:
+            first_key = keys[0]
+            # Heuristic: if first key is a dict and root has few keys, it might be the old timestamp format
+            if isinstance(entry.get(first_key), dict) and len(keys) < 5:
+                timestamp = first_key
+                entry = entry[first_key]
+            else:
+                timestamp = "unknown"
+        else:
+            timestamp = "unknown"
+    else:
+        # If 'score' is at root, use the first key as timestamp if it looks like one, or default
+        timestamp = next(iter(entry.keys())) if entry.keys() else "unknown"
 
     # temppral fox
     if "comparison_count" in entry and entry["comparison_count"] > 5:
@@ -184,11 +201,10 @@ def load_json(
     try:
         with path_obj.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-            data = _recursive_parse_json(data, path_obj)
-    except Exception:
-        print(f"error parsing json file:{path_obj}, {fh}")
-        raise
-        # return None, "invalid_json"
+            data = _recursive_parse_json(data, str(path_obj))
+    except Exception as e:
+        print(f"error parsing json file:{path_obj}, {e}")
+        return default, "parse_error"
 
     if expect is not None and not isinstance(data, expect):
         return default, "invalid_type"

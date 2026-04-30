@@ -3,7 +3,8 @@ import numpy.typing as npt
 from tqdm import tqdm
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 from skimage.feature import local_binary_pattern
 
 from .vectors.image_vector import ImageVector
@@ -60,10 +61,8 @@ class ImageAnalysis(ImageVector):
         return entry
 
     def _contrast(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
-        rgb: npt.NDArray[np.float32] = np.asarray(img, dtype=np.float32) / 255.0
-        lum: npt.NDArray[np.float32] = (
-            0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
-        )
+        rgb = np.asarray(img).astype(np.float64) / 255.0
+        lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
         entry["contrast"] = float(np.std(lum)) / 0.5
         return entry
 

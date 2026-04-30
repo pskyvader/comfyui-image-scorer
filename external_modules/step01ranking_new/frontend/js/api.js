@@ -42,10 +42,12 @@ class RankingAPI {
         const params = new URLSearchParams({
             page,
             per_page: perPage,
-            tier_min: filters.tierMin || 0,
-            tier_max: filters.tierMax || 9,
+            score_min: filters.scoreMin || 0.0,
+            score_max: filters.scoreMax || 1.0,
             confidence_min: filters.confidenceMin || 0.0,
             confidence_max: filters.confidenceMax || 1.0,
+            comparisons_min: filters.comparisonsMin || 0,
+            comparisons_max: filters.comparisonsMax || 999999,
             sort: filters.sort || "score_desc",
         });
         const response = await fetch(`${this.apiBase}/gallery/images?${params}`);
@@ -60,12 +62,14 @@ class RankingAPI {
         return await response.json();
     }
 
-    async searchImages(query, scoreMin = 0.0, scoreMax = 1.0) {
+    async searchImages(query, scoreMin = 0.0, scoreMax = 1.0, confidenceMin = 0.0, confidenceMax = 1.0) {
         // Search images
         const params = new URLSearchParams({
             query,
             score_min: scoreMin,
             score_max: scoreMax,
+            confidence_min: confidenceMin,
+            confidence_max: confidenceMax,
         });
         const response = await fetch(`${this.apiBase}/gallery/search?${params}`);
         if (!response.ok) throw new Error("Failed to search images");

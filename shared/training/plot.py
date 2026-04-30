@@ -477,7 +477,7 @@ class PlotManager:
         plt.figure(figsize=(14, 8))
 
         # Color logic: Green for good, Red for bad based on sorting intent
-        cmap = plt.cm.RdYlGn if not ascending else plt.cm.RdYlGn_r
+        cmap = plt.cm.get_cmap("RdYlGn") if not ascending else plt.cm.get_cmap("RdYlGn_r")
         colors = cmap([0.1 + (0.8 * (i / len(means))) for i in range(len(means))])
 
         bars = plt.bar(
@@ -538,6 +538,7 @@ class PlotManager:
         fig, axes = plt.subplots(rows, cols, figsize=(cols * 5, rows * 4))
         axes = np.array(axes).flatten()
 
+        i = 0
         for i, key in enumerate(keys):
             ax = axes[i]
             x_raw = np.array([p[0] for p in active_metrics[key]])
@@ -649,7 +650,7 @@ class PlotManager:
             plt.figure(figsize=(12, 6))
 
             # Use a distinctive color for the bars
-            colors = plt.cm.plasma(np.linspace(0.2, 0.6, len(labels)))
+            colors = plt.cm.get_cmap("plasma")(np.linspace(0.2, 0.6, len(labels)))
 
             bars = plt.bar(
                 labels,
@@ -716,10 +717,13 @@ class LivePlotCallback:
             self.history[data_name][eval_name].append(result)
         time_now = time.time()
         if time_now - self.last_plot_time > self.frequency:
-            with self.status_bar:
-                self.status_bar.set_description("Plotting final results...")
+            if self.status_bar is not None:
+                with self.status_bar:
+                    self.status_bar.set_description("Plotting final results...")
+                    self.plot_final_results()
+            else:
                 self.plot_final_results()
-                self.last_plot_time = time_now
+            self.last_plot_time = time_now
 
     def plot_final_results(self) -> None:
         """Plot the final training results once, after training ends."""
