@@ -35,16 +35,34 @@ def get_status():
 
     Returns JSON with:
     - total_images: Total images in system
-    - ranked_images: Images with scores
-    - unranked_images: Images without scores
+    - ranked_images: Images that have reached the next comparison level
+    - unranked_images: Images at the minimum comparison level
     - total_comparisons: Total comparisons made
     - average_confidence: Average confidence across images
+    - current_target: The comparison count we are currently working towards
     """
     all_images = get_all_images()
     total = len(all_images)
-    ranked = len([img for img in all_images if img["comparison_count"] > 0])
-    unranked = total - ranked
+    
+    if total == 0:
+        return jsonify({
+            "total_images": 0,
+            "ranked_images": 0,
+            "unranked_images": 0,
+            "total_comparisons": 0,
+            "skipped_comparisons": 0,
+            "average_confidence": 0.0,
+            "min_images": int(config["ranking"]["lru_size"]),
+            "current_target": 1
+        })
 
+    comp_counts = [img["comparison_count"] for img in all_images]
+    min_comps = min(comp_counts)
+    
+    # Ranked is now defined as images that have moved past the current baseline
+    ranked = len([img for img in all_images if img["comparison_count"] > min_comps])
+    
+    unranked = total - ranked
     total_comps = get_total_comparisons()
 
     avg_conf = (
@@ -64,6 +82,8 @@ def get_status():
             "skipped_comparisons": skipped_count,
             "average_confidence": round(avg_conf, 3),
             "min_images": min_images,
+            "current_target": min_comps + 1,
+            "baseline_comparisons": min_comps
         }
     )
 
@@ -217,6 +237,52 @@ def submit_comparison():
             },
         }
     )
+
+
+@ranking_bp.route("/graph-data", methods=["GET"])
+def get_graph_data():
+    """
+    Get current comparison graph data for visualization.
+    """
+    try:
+        from shared.graph import get_current_connections
+        logger.info("Generating graph data...")
+        
+        # Get connections without transitive edges for a cleaner map
+        connections = get_current_connections(include_transitive=False)
+        logger.info(f"Found {len(connections.graph_nodes)} nodes and {len(connections.graph_comparisons)} comparisons")
+        
+        # Build a lookup for image metadata to avoid N queries
+        img_metadata = {img["filename"]: img for img in connections.all_images}
+        
+        # Prepare simplified nodes and edges for frontend visualization
+        nodes = []
+        for filename in connections.graph_nodes:
+            img_data = img_metadata.get(filename)
+            nodes.append({
+                "id": filename,
+                "score": round(img_data["score"], 4) if img_data and img_data.get("score") is not None else 0.5,
+                "confidence": round(img_data["confidence"], 4) if img_data and img_data.get("confidence") is not None else 0.0,
+                "component": connections.component_by_filename.get(filename, -1)
+            })
+            
+        edges = []
+        for comp in connections.graph_comparisons:
+            edges.append({
+                "source": comp["winner"],
+                "target": comp["filename_b"] if comp["winner"] == comp["filename_a"] else comp["filename_a"],
+                "weight": float(comp.get("weight", 1.0) or 1.0)
+            })
+            
+        logger.info(f"Serialization complete. Returning {len(nodes)} nodes and {len(edges)} edges.")
+        return jsonify({
+            "nodes": nodes,
+            "edges": edges,
+            "components": connections.chain_members_by_component
+        })
+    except Exception as e:
+        logger.error(f"Error in get_graph_data: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 
 def register_ranking_routes(app) -> None:

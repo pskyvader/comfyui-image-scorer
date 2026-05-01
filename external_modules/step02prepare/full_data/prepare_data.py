@@ -1,8 +1,11 @@
 import argparse
+import jsonlines
 import sys
 import os
 from pathlib import Path
 from typing import Any, Literal
+from tqdm import tqdm
+import logging
 
 # Ensure package imports resolve when running this file as a script per the project instructions
 
@@ -36,42 +39,45 @@ from .data.processing import (
 )
 import traceback
 
+# Initialize logger
+logger = logging.getLogger(__name__)
+
 
 def run_prepare(limit: int = 0) -> dict[str, int]:
-    print("Loading vector libraries...")
+    logger.info("Loading vector libraries...")
 
-    print("Starting image processing...")
+    logger.info("Starting image processing...")
 
     if not os.path.isdir(image_root):
         raise FileNotFoundError(
             f"Configured image_root does not exist or is not a directory: {image_root}"
         )
 
-    print("loading index...")
+    logger.info("loading index...")
     index_list = load_single_jsonl(index_file)
 
     processed_files = {s.split("#", 1)[0] for s in index_list}
 
-    print(f"collecting files in {image_root}...")
+    logger.info(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
     collected_data = collect_valid_files(
         files, processed_files, image_root, limit, max_workers=100, scored_only=True
     )
 
     if len(collected_data) == 0:
-        print("No new valid files found. Exiting.")
+        logger.info("No new valid files found. Exiting.")
         return {"total": len(index_list), "new": 0}
 
     if limit > 0 and len(collected_data) > limit:
-        print(
+        logger.info(
             f"Collected {len(collected_data)} items. Limiting to {limit} as requested."
         )
         collected_data = collected_data[:limit]
 
-    print("analyzing images ...")
+    logger.info("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
     processed_data = image_analysis.analyze_images_from_paths()
-    print("loading existing data...")
+    logger.info("loading existing data...")
     vectors_list = load_single_jsonl(vectors_file)
     text_list = load_single_jsonl(text_data_file)
     scores_list = load_single_jsonl(scores_file)
@@ -85,10 +91,10 @@ def run_prepare(limit: int = 0) -> dict[str, int]:
         merge_lists=True,
     )
 
-    print("creating vectors ...")
+    logger.info("creating vectors ...")
     vectors_list_parser.create_vectors()
     vectors_list_parser.export_split_files(os.path.dirname(vectors_file))
-    print("joining vectors...")
+    logger.info("joining vectors...")
     vectors_list_parser.join_vectors()
     vectors_list_parser.join_text_data()
 
@@ -99,7 +105,7 @@ def run_prepare(limit: int = 0) -> dict[str, int]:
     new_index_list = vectors_list_parser.index_list
     new_scores_list = vectors_list_parser.scores_list
 
-    # check_for_leakage(new_vectors_list, new_scores_list)
+    check_for_leakage(new_vectors_list, new_scores_list)
     write_single_jsonl(index_file, new_index_list, mode="w")
     write_single_jsonl(vectors_file, new_vectors_list, mode="w")
     write_single_jsonl(text_data_file, new_text_list, mode="w")
@@ -112,11 +118,11 @@ def run_prepare(limit: int = 0) -> dict[str, int]:
 
     # Invalidate training cache if data changed
     if summary["new"] > 0:
-        print("Dataset updated. Cleaning trained models...")
+        logger.info("Dataset updated. Cleaning trained models...")
         remove_models()
 
-    print("=== DONE ===")
-    print(f"Total: {summary['total']}, New: {summary['new']}")
+    logger.info("=== DONE ===")
+    logger.info(f"Total: {summary['total']}, New: {summary['new']}")
     return summary
 
 
@@ -125,7 +131,7 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
     Process text data only while preserving existing image vectors.
     Useful when text parsing logic changes but images don't need re-analysis.
     """
-    print("TEXT-ONLY MODE: Processing text parsing only...")
+    logger.info("TEXT-ONLY MODE: Processing text parsing only...")
 
     if not os.path.isdir(image_root):
         raise FileNotFoundError(
@@ -133,12 +139,12 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         )
 
     # Load existing data
-    print("loading existing data...")
+    logger.info("loading existing data...")
     index_list = load_single_jsonl(index_file)
     index_size = len(index_list)
     # In text-only mode, we reprocess ALL existing scored images to update their text extraction
     # Build processed_data for VectorList (same format as run_prepare)
-    print(f"collecting files in {image_root}...")
+    logger.info(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
 
     # Get all files that are already scored (match index_list)
@@ -147,7 +153,7 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         files, set(), image_root, limit=0, max_workers=100, scored_only=True
     )
     if len(all_collected) == 0:
-        print("No scored files found. Exiting.")
+        logger.info("No scored files found. Exiting.")
         return {"total": len(index_list), "new": 0, "text_processed": 0}
 
     all_collected_dict = {}
@@ -163,26 +169,26 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         if item in all_collected_dict:
             last_processed = all_collected_dict[item]
         else:
-            print(
-                f"WARNING: file not found during text-only process: {item}, using last found as placeholder"
+            logger.warning(
+                f"file not found during text-only process: {item}, using last found as placeholder"
             )
             last_processed[1]["score"] = -1  # mark as not found
 
         collected_data.append(last_processed)
 
     if limit > 0 and len(collected_data) > limit:
-        print(
+        logger.info(
             f"Collected {len(collected_data)} items. Limiting to {limit} as requested."
         )
         collected_data = collected_data[:limit]
 
     if len(collected_data) == 0:
-        print("No scored files found. Exiting.")
+        logger.info("No scored files found. Exiting.")
         return {"total": len(index_list), "new": 0, "text_processed": 0}
 
-    print(f"Found {len(collected_data)} scored files for text reprocessing")
-    # print(f"collected data sample: {collected_data[0]}")
-    print(f"index list size: {len(index_list)} items")
+    logger.info(f"Found {len(collected_data)} scored files for text reprocessing")
+    # logger.debug(f"collected data sample: {collected_data[0]}")
+    logger.info(f"index list size: {len(index_list)} items")
 
     # Create VectorList in text-only mode: only processes text data, not images
     vectors_list_parser = VectorList(
@@ -196,12 +202,12 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
         read_only=False,
         process_images=False,  # CRITICAL: Skip image processing
     )
-    print(f"index list size: {len(index_list)} items")
+    logger.info(f"index list size: {len(index_list)} items")
 
-    print("processing text data only (no image analysis)...")
+    logger.info("processing text data only (no image analysis)...")
     try:
         vectors_list_parser.create_vectors()  # This will only process text when process_images=False
-        print("joining text data...")
+        logger.info("joining text data...")
         vectors_list_parser.join_text_data()
         vectors_list_parser.update_lists()
 
@@ -214,9 +220,8 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
             raise RuntimeError(
                 f"list mismatched lengths: text {len(new_text_list)}, scores {len(new_score_list)}, index {len(index_list)}"
             )
-
         # Write only text data (preserve vectors)
-        print("writing text data...")
+        logger.info("writing text data...")
         write_single_jsonl(text_data_file, new_text_list, mode="w")
         write_single_jsonl(scores_file, new_score_list, mode="w")
 
@@ -226,12 +231,14 @@ def run_text_only(limit: int = 0) -> dict[str, int]:
             "text_processed": len([x for x in new_text_list if x is not None]),
         }
 
-        print(f"TEXT-ONLY PROCESSING COMPLETE")
-        print(f"Total: {summary['total']}, Text Processed: {summary['text_processed']}")
+        logger.info(f"TEXT-ONLY PROCESSING COMPLETE")
+        logger.info(
+            f"Total: {summary['total']}, Text Processed: {summary['text_processed']}"
+        )
         return summary
 
     except Exception as e:
-        print(f"ERROR during text processing: {e}")
+        logger.error(f"ERROR during text processing: {e}")
 
         traceback.print_exc()
         raise
@@ -243,7 +250,7 @@ def run_rebuild_scores_only() -> dict[str, int]:
     For files that still exist, recalculate their scores.
     For files that no longer exist, use the previous cached score.
     """
-    print("Starting scores rebuild...")
+    logger.info("Starting scores rebuild...")
 
     # image_root = config["image_root"]
     if not os.path.isdir(image_root):
@@ -251,27 +258,25 @@ def run_rebuild_scores_only() -> dict[str, int]:
             f"Configured image_root does not exist or is not a directory: {image_root}"
         )
 
-    print("Loading existing data...")
+    logger.info("Loading existing data...")
     index_list = load_single_jsonl(index_file)
     old_scores_list = load_single_jsonl(scores_file)
 
     if not index_list:
-        print("No index file found. Cannot rebuild scores.")
+        logger.info("No index file found. Cannot rebuild scores.")
         return {"total": 0, "updated": 0, "missing": 0}
 
-    print(f"Collecting files in {image_root}...")
+    logger.info(f"Collecting files in {image_root}...")
     all_files = list(discover_files(image_root))
     collected_data: list[tuple[str, dict[str, Any], str, str]] = collect_valid_files(
         all_files, set([]), image_root, max_workers=40, scored_only=True
     )
 
     # all data: dict{"file_id":entry}
-    final_data: dict[str, dict[str, Any]] = {
-        x[3]: x[1] for x in collected_data
-    }
+    final_data: dict[str, dict[str, Any]] = {x[3]: x[1] for x in collected_data}
 
-    #print(list(final_data.keys())[0])
-    #print(list(final_data.values())[0])
+    # logger.debug(list(final_data.keys())[0])
+    # logger.debug(list(final_data.values())[0])
 
     new_scores_list: list[float] = []
     updated_count = 0
@@ -294,7 +299,7 @@ def run_rebuild_scores_only() -> dict[str, int]:
             )
             new_scores_list.append(old_score)
             missing_count += 1
-            print(
+            logger.warning(
                 f"File not found for index entry: {index_entry}. Using cached score: {old_score}"
             )
 
@@ -305,14 +310,186 @@ def run_rebuild_scores_only() -> dict[str, int]:
         "updated": updated_count,
         "missing": missing_count,
     }
-    print("Dataset updated. Cleaning trained models...")
+    logger.info("Dataset updated. Cleaning trained models...")
     remove_models()
 
-    print("=== DONE ===")
-    print(
+    logger.info("=== DONE ===")
+    logger.info(
         f"Total: {summary['total']}, Updated: {summary['updated']}, Missing: {summary['missing']}"
     )
     return summary
+
+
+def run_rebuild_scores_from_db() -> dict[str, int]:
+    """
+    Rebuild the scores file using the data from the SQLite database
+    instead of the local .json metadata files.
+    """
+    logger.info("Starting scores rebuild from database...")
+
+    try:
+        from external_modules.step01ranking_new.database.images_table import (
+            get_all_images,
+        )
+    except ImportError:
+        logger.error(
+            "Could not import database module. Make sure external_modules.step01ranking_new is accessible."
+        )
+        return {"total": 0, "updated": 0, "missing": 0}
+
+    logger.info("Loading existing data...")
+    index_list = load_single_jsonl(index_file)
+    old_scores_list = load_single_jsonl(scores_file)
+
+    if not index_list:
+        logger.info("No index file found. Cannot rebuild scores.")
+        return {"total": 0, "updated": 0, "missing": 0}
+
+    logger.info("Fetching all scores from database...")
+    db_images = get_all_images()
+    # Create mapping filename -> score
+    db_score_map = {img["filename"]: img["score"] for img in db_images}
+
+    new_scores_list: list[float] = []
+    updated_count = 0
+    missing_count = 0
+
+    for idx, index_entry in enumerate(index_list):
+        # index_entry is usually the filename (file_id)
+        db_score = db_score_map.get(index_entry)
+
+        if db_score is not None:
+            new_scores_list.append(float(db_score))
+            updated_count += 1
+        else:
+            # Fallback to old score if not in DB
+            old_score = (
+                old_scores_list[idx] if idx < len(old_scores_list) else 3.0
+            )
+            new_scores_list.append(old_score)
+            missing_count += 1
+            logger.debug(
+                f"File not found in DB for index entry: {index_entry}. Using cached score: {old_score}"
+            )
+
+    write_single_jsonl(scores_file, new_scores_list, mode="w")
+
+    summary = {
+        "total": len(index_list),
+        "updated": updated_count,
+        "missing": missing_count,
+    }
+    logger.info("Dataset updated. Cleaning trained models...")
+    remove_models()
+
+    logger.info("=== DONE ===")
+    logger.info(
+        f"Total: {summary['total']}, Updated: {summary['updated']}, Missing: {summary['missing']}"
+    )
+    return summary
+
+
+def run_rebuild_from_splits() -> dict[str, int]:
+    """
+    Rebuild the main vectors.jsonl and text_data.jsonl files using the small
+    split files in the 'split' directory. This is useful if the main files
+    were corrupted or incomplete.
+    """
+    logger.info("Starting rebuild from splits...")
+
+    # Load index file to get the master list of IDs in the correct order
+    index_list = load_single_jsonl(index_file)
+    if not index_list:
+        logger.info("No index file found. Cannot rebuild.")
+        return {"total": 0, "processed": 0}
+
+    logger.info(f"Index has {len(index_list)} entries.")
+
+    # Get vector config to know which fields to expect
+    vector_config = config["vector"]["vectors"]
+    vectors_dir_local = os.path.dirname(vectors_file)
+
+    # Data structures to hold loaded split data
+    # mapping: field_name -> {id: {"raw": ..., "vector": ...}}
+    split_data_map = {}
+
+    for current_type in vector_config:
+        v_type = current_type["type"]
+        name = current_type["name"]
+
+        split_file = os.path.join(vectors_dir_local, "split", v_type, f"{name}.jsonl")
+        if not os.path.exists(split_file):
+            print(f"Warning: Split file not found for {name}: {split_file}")
+            split_data_map[name] = {}
+            continue
+
+        print(f"Loading split file: {split_file}")
+        field_data = {}
+        # We use jsonlines directly to avoid loading everything at once if we can,
+        # though we still store it in field_data dict which will take memory.
+        # But this is necessary to reorder according to index_list.
+        with jsonlines.open(split_file, mode="r") as reader:
+            for obj in reader:
+                field_data[obj["id"]] = obj
+        split_data_map[name] = field_data
+
+    final_vectors = []
+    final_text_data = []
+
+    with tqdm(total=len(index_list), desc="Assembling", unit=" entries") as pbar:
+        for uid in index_list:
+            row_vector = []
+            row_text = {}
+
+            for current_type in vector_config:
+                name = current_type["name"]
+                v_type = current_type["type"]
+                slot_size = current_type["slot_size"]
+
+                entry = split_data_map[name].get(uid)
+
+                if entry:
+                    vec = entry.get("vector")
+                    raw = entry.get("raw")
+                else:
+                    vec = None
+                    raw = None
+
+                # Handle missing vector (padding with zeros)
+                if vec is None:
+                    vec = [0.0] * slot_size
+                elif len(vec) != slot_size:
+                    if len(vec) < slot_size:
+                        vec = vec + [0.0] * (slot_size - len(vec))
+                    else:
+                        vec = vec[:slot_size]
+
+                # Handle missing raw metadata
+                if raw is None:
+                    if v_type == "embedding":
+                        raw = {}
+                    else:
+                        raw = ""
+
+                row_vector.extend(vec)
+                row_text[name] = raw
+
+            final_vectors.append(row_vector)
+            final_text_data.append(row_text)
+            pbar.update(1)
+
+    logger.info(
+        f"Assembled {len(final_vectors)} vectors and {len(final_text_data)} text entries."
+    )
+
+    # Write files
+    logger.info(f"Writing {vectors_file}...")
+    write_single_jsonl(vectors_file, final_vectors, mode="w")
+    logger.info(f"Writing {text_data_file}...")
+    write_single_jsonl(text_data_file, final_text_data, mode="w")
+
+    logger.info("=== REBUILD COMPLETE ===")
+    return {"total": len(index_list), "processed": len(final_vectors)}
 
 
 def main(
@@ -322,35 +499,55 @@ def main(
     batch: bool = False,
     rebuild_scores: bool = False,
     text_only: bool = False,
+    rebuild_from_splits: bool = False,
+    debug: bool = False,
+    rebuild_scores_from_db: bool = False,
 ) -> None:
-    print("Starting data prepare...")
+    # Configure global logging based on debug flag
+    log_level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,  # Ensure we override any existing configuration
+    )
+
+    logger.info("Starting data prepare...")
     if test_run:
-        print("Verifying prepare configuration...")
-        print(f"Image root configured as: {config['image_root']}")
-        print(f"Vectors file: {config['vectors_file']}")
-        print(f"Scores file: {config['scores_file']}")
-        print("Test-run finished (no side-effects).")
+        logger.info("Verifying prepare configuration...")
+        logger.info(f"Image root configured as: {config['image_root']}")
+        logger.info(f"Vectors file: {config['vectors_file']}")
+        logger.info(f"Scores file: {config['scores_file']}")
+        logger.info("Test-run finished (no side-effects).")
         return
 
     if text_only:
-        print("TEXT-ONLY MODE: Processing text data only...")
+        logger.info("TEXT-ONLY MODE: Processing text data only...")
         run_text_only(limit=limit)
         return
 
     if rebuild:
-        print("Rebuild requested: removing existing outputs...")
+        logger.info("Rebuild requested: removing existing outputs...")
         remove_vectors()
     if rebuild_scores:
-        print("Rebuilding scores file only...")
+        logger.info("Rebuilding scores file only...")
         run_rebuild_scores_only()
         return
+    if rebuild_from_splits:
+        logger.info("Rebuilding large files from split shards...")
+        run_rebuild_from_splits()
+        return
+    if rebuild_scores_from_db:
+        logger.info("Rebuilding scores from database...")
+        run_rebuild_scores_from_db()
+        return
     if limit > 0 and batch:
-        print("batch process enabled")
+        logger.info("batch process enabled")
         new = 1
         i = 0
         while new > 0:
-            print(f"step: {i}")
-            print("-" * 100)
+            logger.info(f"step: {i}")
+            logger.info("-" * 100)
             summary = run_prepare(limit=limit)
             new = int(summary["new"])
             i += 1
@@ -371,9 +568,19 @@ if __name__ == "__main__":
         help="Rebuild only the scores file, preserving the index order and reanalyzing files",
     )
     parser.add_argument(
+        "--rebuild-scores-from-db",
+        action="store_true",
+        help="Rebuild only the scores file using the SQLite database data",
+    )
+    parser.add_argument(
         "--text-only",
         action="store_true",
         help="Process text data only, preserving existing image vectors (use when text parsing changes)",
+    )
+    parser.add_argument(
+        "--rebuild-from-splits",
+        action="store_true",
+        help="Rebuild large vectors.jsonl and text_data.jsonl from small split files",
     )
     parser.add_argument(
         "--batch",
@@ -391,6 +598,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Validate configuration and exit without performing processing",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (verbose output)",
+    )
     args = parser.parse_args()
     main(
         rebuild=args.rebuild,
@@ -399,4 +611,7 @@ if __name__ == "__main__":
         batch=args.batch,
         rebuild_scores=args.rebuild_scores,
         text_only=args.text_only,
+        rebuild_from_splits=args.rebuild_from_splits,
+        debug=args.debug,
+        rebuild_scores_from_db=args.rebuild_scores_from_db,
     )

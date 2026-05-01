@@ -95,7 +95,32 @@ class RankingApp {
     async initialize() {
         try {
             this.updateStatus("Initializing...");
-            await this.loadPair();
+
+            // Check for manual comparison request from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const leftFile = urlParams.get('left');
+            const rightFile = urlParams.get('right');
+
+            if (leftFile && rightFile) {
+                this.updateStatus("Loading requested pair...");
+                const [leftData, rightData] = await Promise.all([
+                    api.getImage(leftFile),
+                    api.getImage(rightFile)
+                ]);
+                this.currentPair = {
+                    left: leftData,
+                    right: rightData,
+                    rationale: {
+                        strategy: "Manual Selection (Chain Map)",
+                        score_diff: Math.abs(leftData.score - rightData.score).toFixed(4),
+                        seed: leftFile
+                    }
+                };
+                await this.renderPair();
+            } else {
+                await this.loadPair();
+            }
+
             this.preloadNextPair();
             await this.updateStats();
             this.updateStatus("Ready");
@@ -208,8 +233,8 @@ class RankingApp {
                     <p class="text-white">${rationale.strategy}</p>
                 </div>
                 <div>
-                    <p class="text-purple-400">Score Distance</p>
-                    <p class="text-white font-bold">${rationale.score_diff}</p>
+                    <p class="text-purple-400">Score Distance / Limit</p>
+                    <p class="text-white font-bold">${rationale.score_diff} / <span class="text-pink-400">${rationale.allowed_range}</span></p>
                     <p class="mt-1 text-purple-400">Confidence Ceiling</p>
                     <p class="text-white font-bold">${rationale.common_confidence ?? rationale.allowed_range}</p>
                 </div>
@@ -239,7 +264,7 @@ class RankingApp {
     }
 
     getImageUrl(filename) {
-        return `/output/ranked/${encodeURIComponent(filename)}`;
+        return `/images/${encodeURIComponent(filename)}`;
     }
 
     async submitVote(winner) {
@@ -287,6 +312,22 @@ class RankingApp {
         try {
             const status = await api.getStatus();
             this.statsTotal.textContent = status.total_images;
+            
+            // Dynamic label for "Ranked" showing the target comparison count
+            const rankedLabel = document.querySelector('label[for="stat-ranked"]') || 
+                               Array.from(document.querySelectorAll('.text-gray-400 span')).find(el => el.textContent.includes('Ranked')) ||
+                               { textContent: 'Ranked' };
+            
+            // Check if we can find the text node or parent to update the label
+            const statsContainer = this.statsRanked.parentElement;
+            if (statsContainer) {
+                const textNodes = Array.from(statsContainer.childNodes).filter(n => n.nodeType === Node.TEXT_NODE);
+                const rankedTextNode = textNodes.find(n => n.textContent.includes('Ranked'));
+                if (rankedTextNode) {
+                    rankedTextNode.textContent = rankedTextNode.textContent.replace(/Ranked(\s*\(.*?\))?/, `Ranked (>=${status.current_target})`);
+                }
+            }
+
             this.statsRanked.textContent = status.ranked_images;
             this.statsComparisons.textContent = status.total_comparisons;
             this.statsSkipped.textContent = status.skipped_comparisons ?? 0;

@@ -25,7 +25,8 @@ def calculate_confidence(
         target_comparisons = 5
 
     # Compute the expected sum of weights for exactly `target_comparisons` direct comparisons
-    target_divisor = sum(0.5 ** (i / 9.0) for i in range(target_comparisons))
+    # We use a slower decay constant (20.0) to make early confidence growth more linear (~0.2 per comp if target is 5)
+    target_divisor = sum(0.5 ** (i / 20.0) for i in range(target_comparisons))
 
     effective_count = 0.0
     if filename:
@@ -33,7 +34,7 @@ def calculate_confidence(
 
     if effective_count <= 0 and comparison_count > 0:
         # Fallback if DB query fails: assume they were all direct comparisons recently
-        effective_count = sum(0.5 ** (i / 9.0) for i in range(comparison_count))
+        effective_count = sum(0.5 ** (i / 20.0) for i in range(comparison_count))
 
     confidence = min(1.0, effective_count / target_divisor)
     return max(0.0, min(1.0, confidence))

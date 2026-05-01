@@ -115,6 +115,29 @@ def list_images():
         return jsonify({"error": str(e)}), 500
 
 
+@gallery_bp.route("/image/<path:filename>", methods=["GET"])
+def get_image_info(filename: str):
+    """
+    Get metadata for a single image.
+    """
+    try:
+        img = get_image(filename)
+        if not img:
+            return jsonify({"error": "Image not found"}), 404
+
+        return jsonify({
+            "filename": img["filename"],
+            "score": round(img["score"], 4),
+            "confidence": round(img["confidence"], 4),
+            "comparison_count": img["comparison_count"],
+            "last_compared_at": img.get("last_compared_at"),
+            "tier": int(img["score"] * 10)
+        })
+    except Exception as e:
+        logger.error(f"Error getting image {filename}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @gallery_bp.route("/tier/<int:tier>", methods=["GET"])
 def get_tier_images(tier: int):
     """

@@ -331,7 +331,8 @@ def get_effective_comparison_count(filename: str) -> float:
             effective_count = 0.0
             for i, row in enumerate(rows):
                 weight = float(row["weight"]) if row["weight"] is not None else 1.0
-                decay = 0.5 ** (i / 9.0)
+                # Match the decay constant used in confidence_tracker.py (20.0)
+                decay = 0.5 ** (i / 20.0)
                 effective_count += weight * decay
             return effective_count
     except Exception as e:

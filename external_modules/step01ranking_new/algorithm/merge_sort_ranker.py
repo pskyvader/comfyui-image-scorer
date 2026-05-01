@@ -138,8 +138,7 @@ def _iter_chain_end_pairs(score_sorted_images: list[dict[str, Any]]):
     if len(score_sorted_images) < 2:
         return
 
-    # # sort by score
-    # score_sorted_images.sort(key=lambda x: float(x["score"]))
+    # We expect score_sorted_images to be sorted by score.
 
     last_idx = len(score_sorted_images) - 1
     heap: list[tuple[float, int, int]] = [
@@ -198,6 +197,7 @@ def _search_pairs_by_score_gap(
 ) -> tuple[str, str] | None:
     current_diff: float = -1
     explicit_candidates: list[tuple[str, str]] = []
+    transitive_record_count = 0
 
     for img_low, img_high in _iter_chain_end_pairs(score_sorted_images):
         filename_a = img_low["filename"]
@@ -238,20 +238,18 @@ def _search_pairs_by_score_gap(
                 transitive_depth=transitive_depth,
             ):
                 compared_pairs.add(pair_key)
+                transitive_record_count += 1
+                if transitive_record_count >= 10:
+                    logger.debug("[SEARCH_PAIRS] Reached transitive recording limit (10)")
+                    continue
                 continue
             raise RuntimeError(
                 f"Failed to record comparison for {filename_a} vs {filename_b}"
             )
 
-        if explicit_candidates and len(explicit_candidates) > 10:
-            chosen_a, chosen_b = random.choice(explicit_candidates)
-            return _randomize_pair_order(chosen_a, chosen_b)
-
-        explicit_candidates.append((filename_a, filename_b))
-
-    if explicit_candidates:
-        chosen_a, chosen_b = random.choice(explicit_candidates)
-        return _randomize_pair_order(chosen_a, chosen_b)
+        # Greedily pick the first valid candidate (which has the largest diff due to heap sorting)
+        logger.debug(f"[SEARCH_PAIRS] Greedily picked largest diff: {filename_a} vs {filename_b} (diff: {score_diff})")
+        return _randomize_pair_order(filename_a, filename_b)
 
     return None
 
@@ -348,6 +346,8 @@ def _search_confidence_pool(
                         if option_diffs[option_idx] != score_diff:
                             continue
 
+                    for option_idx, (low_end, high_end) in enumerate(pair_options):
+                        score_diff = option_diffs[option_idx]
                         filename_a = low_end["filename"]
                         filename_b = high_end["filename"]
                         pair_key = tuple(sorted((filename_a, filename_b)))
@@ -366,23 +366,14 @@ def _search_confidence_pool(
                             raise RuntimeError(
                                 "Link found when comparing different chains. Chain creation algorithm failing."
                             )
-                            # if record_comparison(
-                            #     filename_a,
-                            #     filename_b,
-                            #     winner,
-                            #     impact_factor=impact_factor,
-                            #     transitive_depth=transitive_depth,
-                            # ):
-                            #     compared_pairs.add(pair_key)
-                            #     continue
-                            # return _randomize_pair_order(filename_a, filename_b)
-                        if explicit_candidates and len(explicit_candidates) > 10:
-                            chosen_a, chosen_b = random.choice(explicit_candidates)
-                            return _randomize_pair_order(chosen_a, chosen_b)
-                        explicit_candidates.append((filename_a, filename_b))
+                        
+                        explicit_candidates.append((score_diff, filename_a, filename_b))
 
-            if explicit_candidates and len(explicit_candidates) > 10:
-                chosen_a, chosen_b = random.choice(explicit_candidates)
+            if explicit_candidates:
+                # Sort by score difference descending and pick the best
+                explicit_candidates.sort(key=lambda x: x[0], reverse=True)
+                _, chosen_a, chosen_b = explicit_candidates[0]
+                logger.debug(f"[SEARCH_CONFIDENCE] Picked best inter-chain pair: {chosen_a} vs {chosen_b} (diff: {explicit_candidates[0][0]})")
                 return _randomize_pair_order(chosen_a, chosen_b)
 
     return _search_pairs_by_score_gap(
@@ -487,7 +478,9 @@ def select_pair_for_comparison(
     if pair:
         return pair
 
-    pair = _find_fallback_pair(candidate_images, graph_data.compared_pairs)
+    pair = _find_fallback_pair(low_conf_images, graph_data.compared_pairs)
+    if not pair:
+         pair = _find_fallback_pair(candidate_images, graph_data.compared_pairs)
     logger.debug(
         f"[NEXT-PAIR] find_fallback_pair:{pair} time: total: {time.time() - total_time}, step: {time.time() - step_time}"
     )
@@ -539,12 +532,15 @@ def _find_lowest_confidence_images(
     if not images:
         return []
 
-    # filter by confidence
+    # filter by confidence - allow a small margin (0.05) to include images in the same tier
     confidence = min(img["confidence"] for img in images)
-    images = [img for img in images if img["confidence"] <= confidence * 1.1]
+    images = [img for img in images if img["confidence"] <= confidence + 0.05]
+    # Use a random tie-breaker for score sorting to avoid filename bias
+    # and ensure stratified sampling (ends/middle) picks from different parts of the pool.
+    random_tiebreakers = {img["filename"]: random.random() for img in images}
     sorted_by_score = sorted(
         images,
-        key=lambda img: (float(img["score"]), img["filename"]),
+        key=lambda img: (float(img["score"]), random_tiebreakers[img["filename"]]),
     )
 
     n = len(sorted_by_score)
@@ -578,10 +574,13 @@ def _find_pair_from_confidence_pool(
     if not images:
         return None
 
-    # score_sorted = sorted(
-    #     images,
-    #     key=lambda img: (float(img["score"]), img["filename"]),
-    # )
+    # We MUST sort by score here because _search_confidence_pool and _iter_chain_end_pairs
+    # expect a score-sorted list to find the "extremes" (min/max scores).
+    # Shuffling was done earlier for candidate pool diversity, but now we need order.
+    score_sorted = sorted(
+        images,
+        key=lambda img: (float(img["score"]), img["filename"]),
+    )
 
     compared_pairs: set[tuple[str, str]] = (
         set(graph_data.compared_pairs)
@@ -590,7 +589,7 @@ def _find_pair_from_confidence_pool(
     )
 
     pair = _search_confidence_pool(
-        images,
+        score_sorted,
         compared_pairs,
         graph_data.winners_by_image,
         graph_data.losers_by_image,
@@ -608,7 +607,11 @@ def _find_fallback_pair(
         return None
 
     n = len(images)
-    sorted_images = sorted(images, key=lambda img: img["filename"])
+    # Sort by confidence first, but shuffle within confidence levels to avoid filename bias.
+    # We do this by shuffling first, then performing a stable sort by confidence.
+    shuffled_images = list(images)
+    random.shuffle(shuffled_images)
+    sorted_images = sorted(shuffled_images, key=lambda img: img["confidence"])
 
     for i in range(n):
         for j in range(i + 1, n):

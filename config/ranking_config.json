@@ -8,5 +8,5 @@
     "default_score": 0.5,
     "default_confidence": 0.0,
     "reserve_count": 10,
-    "indirect_impact_decay": 0.6
+    "indirect_impact_decay": 0.4
 }

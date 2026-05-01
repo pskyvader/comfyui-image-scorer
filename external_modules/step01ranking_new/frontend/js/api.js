@@ -62,6 +62,13 @@ class RankingAPI {
         return await response.json();
     }
 
+    async getImage(filename) {
+        // Get metadata for a single image
+        const response = await fetch(`${this.apiBase}/gallery/image/${encodeURIComponent(filename)}`);
+        if (!response.ok) throw new Error("Failed to get image info");
+        return await response.json();
+    }
+
     async searchImages(query, scoreMin = 0.0, scoreMax = 1.0, confidenceMin = 0.0, confidenceMax = 1.0) {
         // Search images
         const params = new URLSearchParams({
@@ -87,6 +94,13 @@ class RankingAPI {
             method: "POST"
         });
         if (!response.ok) throw new Error("Failed to trigger sync-all");
+        return await response.json();
+    }
+
+    async getGraphData() {
+        // Get graph data for visualization
+        const response = await fetch(`${this.apiBase}/ranking/graph-data`);
+        if (!response.ok) throw new Error("Failed to get graph data");
         return await response.json();
     }
 }
