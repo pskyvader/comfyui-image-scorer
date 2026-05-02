@@ -3,15 +3,15 @@
 class ChainMapUI {
     static config = {
         visuals: {
-            nodeMinRadius: 2,
-            nodeConfidenceScale: 20,
+            nodeMinRadius: 3,
+            nodeConfidenceScale: 30,
             scoreColors: ['#ef4444', '#eab308', '#22c55e'],
             scoreDomain: [0, 0.5, 1],
             highlightColor: '#f472b6'
         },
         interaction: {
             zoomExtent: [0.001, 2],
-            interactThreshold: 0.2,
+            interactThreshold: 0.1,
             transitionDuration: 750,
             zoomToScale: 2
         },
@@ -184,7 +184,8 @@ class ChainMapUI {
         this.render({
             nodes: filteredNodes,
             edges: filteredEdges,
-            componentCount: validComponents.size
+            componentCount: validComponents.size,
+            componentList: validComponents
         });
     }
 
@@ -246,6 +247,7 @@ class ChainMapUI {
 
         const nodes = data.nodes.map(d => ({ ...d }));
         const links = data.edges.map(d => ({ ...d }));
+        const components = data.componentList;
 
         this.statNodes.textContent = nodes.length;
         this.statEdges.textContent = links.length;
@@ -261,7 +263,7 @@ class ChainMapUI {
             return;
         }
 
-        this.chainSim = new ChainSimulation(nodes, links, {
+        this.chainSim = new ChainSimulation(nodes, links, components, {
             width: this.width,
             height: this.height,
             onTick: (simNodes, simLinks) => this.updateRender(simNodes, simLinks),

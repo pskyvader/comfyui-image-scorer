@@ -2,16 +2,16 @@ class ChainSimulation {
     static defaults = {
         // BUOYANCY: Increased significantly. 
         // 1.0 score floats UP, 0.0 score sinks DOWN.
-        gravityStrength: 2.5,
+        gravityStrength: 1,
 
         // REPULSION: Only force moving nodes horizontally.
-        chargeStrength: -100,
-        chargeDistanceMax: 300,
+        chargeStrength: -10,
+        chargeDistanceMax: 1000,
 
         // TETHERS: Links have a natural length and a hard "rope" limit.
-        linkDistance: 10,
+        linkDistance: 67,
         maxLinkDistance: 150,
-        linkStrength: 0.1,
+        linkStrength: 0,
 
         // PHYSICS: 
         // Lower velocityDecay (0.1 - 0.2) makes them feel more fluid/slippery.
@@ -23,9 +23,10 @@ class ChainSimulation {
         simHeight: 5000
     };
 
-    constructor(nodes, links, options = {}) {
+    constructor(nodes, links, components, options = {}) {
         this.nodes = nodes;
         this.links = links;
+        this.components = components;
         this.config = { ...ChainSimulation.defaults, ...options };
 
         this.simulation = null;
@@ -33,7 +34,10 @@ class ChainSimulation {
         this.onEnd = options.onEnd || null;
         this.nodeDegree = {};
         this.isPaused = false;
+
     }
+
+    //make a list of 
 
     initialize() {
         this.calculateNodeDegree();
@@ -86,13 +90,16 @@ class ChainSimulation {
             const s = link.source;
             const t = link.target;
 
+            const confidence = Math.max(s.confidence, t.confidence);
+            const maxRelative = maxDist + (maxDist * confidence * 0.5);
+
             if (typeof s === 'object' && typeof t === 'object') {
                 const dx = t.x - s.x;
                 const dy = t.y - s.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance > maxDist) {
-                    const diff = (distance - maxDist) / distance;
+                if (distance > maxRelative) {
+                    const diff = (distance - maxRelative) / distance;
                     const offsetX = dx * diff * 0.5;
                     const offsetY = dy * diff * 0.5;
 
@@ -106,17 +113,41 @@ class ChainSimulation {
     }
 
     setupSimulation() {
-        // Randomize positions across the whole universe
-        this.nodes.forEach(n => {
-            if (n.x === undefined) n.x = Math.random() * this.config.simWidth;
-            if (n.y === undefined) n.y = Math.random() * this.config.simHeight;
+        // 1. Map component strings to pre-defined coordinates
+        const componentCoords = {};
+        let i = 0;
+        const totalComponents = this.components.size;
+
+        this.components.forEach((comp) => {
+            const cid = String(comp);
+            componentCoords[cid] = {
+                x: Math.floor(Math.random() * this.config.simWidth / 2) + this.config.simWidth / 4,
+                y: Math.floor(Math.random() * this.config.simHeight / 2) + this.config.simHeight / 4
+                //y: Math.floor((i / totalComponents) * this.config.simHeight)
+            };
+            i++;
         });
+
+        // 2. Single pass through nodes to assign positions and reset velocity
+        this.nodes.forEach((n) => {
+            const coords = componentCoords[String(n.component)];
+            if (coords) {
+                n.x = coords.x + Math.random() * 100;
+                n.y = coords.y + Math.random() * 100;
+                n.vx = 0;
+                n.vy = 0;
+                // console.log(n)
+            }
+        });
+
+
+
 
         this.simulation = d3.forceSimulation(this.nodes)
             .force('link', d3.forceLink(this.links)
                 .id(d => d.id)
                 .distance(this.config.linkDistance)
-                .strength(this.config.linkStrength))
+                .strength(() => this.config.linkStrength))
             .force('charge', d3.forceManyBody()
                 .strength(this.config.chargeStrength)
                 .distanceMax(this.config.chargeDistanceMax))
@@ -124,9 +155,9 @@ class ChainSimulation {
             .velocityDecay(this.config.velocityDecay)
             .alphaDecay(this.config.alphaDecay);
 
-        if (this.nodes.length < 2500) {
-            this.simulation.force('collide', d3.forceCollide(this.config.collisionRadius).iterations(2));
-        }
+        // if (this.nodes.length < 2500) {
+        //     this.simulation.force('collide', d3.forceCollide(this.config.collisionRadius).iterations(2));
+        // }
 
         this.simulation.on('tick', () => {
             // Apply tether constraints before finalizing coordinates
@@ -161,6 +192,7 @@ class ChainSimulation {
 
     play() {
         if (this.simulation) {
+            this.nodes.forEach(n => { n.vx = 0; n.vy = 0; });
             this.simulation.alpha(0.3).restart(); this.isPaused = false;
         }
     }
