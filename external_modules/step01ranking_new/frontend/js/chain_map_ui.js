@@ -76,9 +76,9 @@ class ChainMapUI {
         this.svg.call(this.zoom);
 
         this.defs = this.svg.append('defs');
-        this.setupMarker('arrowhead-mid', '#999', 5, 0.8);
-        this.setupMarker('arrowhead-legend', '#666', 6, 1);
-
+        this.setupMarker('arrowhead-mid', '#999', 10, 0.8);
+        this.setupMarker('arrowhead-legend', '#666', 12, 1);
+        this.resetView();
         this.init();
     }
 
@@ -99,7 +99,7 @@ class ChainMapUI {
 
     async init() {
         this.refreshBtn.addEventListener('click', () => this.loadData());
-        this.resetViewBtn.addEventListener('click', () => this.resetView());
+        this.resetViewBtn.addEventListener('click', () => this.resetView(true));
 
         const savedMinLen = localStorage.getItem('chainMap_minLen');
         if (savedMinLen) {
@@ -188,11 +188,22 @@ class ChainMapUI {
         });
     }
 
-    resetView() {
-        this.svg.transition().duration(ChainMapUI.config.interaction.transitionDuration).call(
-            this.zoom.transform,
-            d3.zoomIdentity
-        );
+    resetView(animate = false) {
+        const targetScale = 0.5;
+        const centerX = -ChainSimulation.defaults.simWidth / 2;
+        const centerY = -ChainSimulation.defaults.simHeight / 2;
+        const animation = animate ? ChainMapUI.config.interaction.transitionDuration : 0;
+
+        this.svg.transition()
+            .duration(animation)
+            .call(
+                this.zoom.transform,
+                d3.zoomIdentity
+                    //.translate(centerX, centerY) // 1. Move to center of container
+                    .scale(targetScale)           // 2. Scale
+                    .translate(centerX, centerY)            // 3. Optional: point in map to center on
+            );
+
         this.nodeDetails.classList.add('hidden');
     }
 
@@ -294,7 +305,7 @@ class ChainMapUI {
             .on('mouseout', () => this.tooltip.classList.add('hidden'))
             .on('click', (event, d) => this.handleNodeClick(event, d));
 
-        if (nodes.length < 500) {
+        if (nodes.length < 1000) {
             node.append('text')
                 .attr('x', 12)
                 .attr('y', 4)
