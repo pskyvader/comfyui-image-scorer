@@ -1,8 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare - Image Ranker</title>
+    <link rel="stylesheet" href="/css/compare.css">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Main</a>
+        
 <!-- Compare Mode Content -->
-<div class="compare-container">
+<div id="compare-container" class="compare-container">
     <div class="manual_score">
         <span>Manual Score:</span>
         <input type="number" name="score" id="manual_score" value="0" min="0" max="5" step="1">
+    </div>
+
+    <!-- Collapsible Graph Indicator -->
+    <div id="graph-indicator" class="graph-indicator hidden">
+        <details>
+            <summary class="graph-indicator-summary">
+                <span class="graph-icon">🔗</span>
+                <span>Same Graph Detected (Component <span class="graph-component-id">0</span>)</span>
+                <span class="graph-count"></span>
+            </summary>
+            <div class="graph-indicator-details">
+                <p>Both images belong to the same comparison graph/component.</p>
+            </div>
+        </details>
     </div>
 
     <div class="compare-pair">
@@ -37,4 +63,25 @@
     <div class="compare-controls">
         <button class="btn btn-gray" onclick="compareMode.skipComparison()">Skip Pair</button>
     </div>
+    
+    <!-- Loader (hidden by default) -->
+    <div id="loader" class="hidden">
+        <div class="loader-text"></div>
+        <div class="spinner"></div>
+    </div>
 </div>
+
+<script src="/js/client.js"></script>
+<script src="/js/compare.js"></script>
+<script>
+// Initialize compare mode when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof compareMode !== 'undefined') {
+        compareMode.init();
+    }
+});
+</script>
+
+</div><!-- /.container -->
+</body>
+</html>

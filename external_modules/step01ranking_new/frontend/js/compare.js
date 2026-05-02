@@ -8,18 +8,21 @@ const compareMode = {
     compareRightImage: null,
     compareLeftData: null,
     compareRightData: null,
+    sameComponent: null,
     fetching: false,
 
     // DOM elements (cached on init)
     container: null,
     loader: null,
     manualScoreInput: null,
+    graphIndicator: null,
 
     // Initialize the mode
     async init() {
         this.container = document.getElementById("compare-container");
         this.loader = document.getElementById("loader");
         this.manualScoreInput = this.container.querySelector("#manual_score");
+        this.graphIndicator = document.getElementById("graph-indicator");
 
         // Load first comparison pair
         this.fetchNextComparePair();
@@ -88,6 +91,7 @@ const compareMode = {
             this.compareRightImage = data.right.filename;
             this.compareLeftData = data.left;
             this.compareRightData = data.right;
+            this.sameComponent = data.same_component || null;
 
             this.renderComparePair();
             this.loader.classList.add("hidden");
@@ -135,10 +139,29 @@ const compareMode = {
         this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count ?? 0;
         this.container.querySelector("#compare-right-volatility").innerText = "-";
 
+        // Update graph indicator
+        this.updateGraphIndicator();
 
         // Show comparison buttons
         const buttons = this.container.querySelectorAll(".btn-compare");
         buttons.forEach(btn => btn.classList.remove("hidden"));
+    },
+
+    // Update graph indicator based on component information
+    updateGraphIndicator() {
+        const indicator = this.graphIndicator;
+        console.log("indicator", indicator);
+        if (!indicator) return;
+
+        const sameComp = this.sameComponent;
+
+        if (sameComp && sameComp.id !== null && sameComp.id !== undefined) {
+            indicator.classList.remove("hidden");
+            indicator.querySelector(".graph-component-id").innerText = sameComp.id;
+            indicator.querySelector(".graph-count").innerText = `(${sameComp.size} images)`;
+        } else {
+            indicator.classList.add("hidden");
+        }
     },
 
     // Submit comparison result

@@ -19,6 +19,20 @@
         }
     </script>
     <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .collapsible-card {
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important;
+        }
+        .collapsible-card button {
+            background: linear-gradient(to right, #3b82f6, #2563eb) !important;
+        }
+        .collapsible-vs {
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 25px rgba(96, 165, 250, 0.5) !important;
+            color: #60a5fa !important;
+        }
+    </style>
 </head>
 
 <body class="min-h-screen custom-scrollbar font-sans antialiased flex flex-col">
@@ -138,6 +152,20 @@
                 </div>
             </div>
 
+            <!-- Graph Indicator (shown when both images are in same component) -->
+            <div id="graph-indicator" class="hidden max-w-2xl mx-auto mb-4">
+                <details class="bg-blue-500/10 border border-blue-500/30 rounded-xl overflow-hidden">
+                    <summary class="px-4 py-3 cursor-pointer flex items-center gap-2 text-blue-400 hover:bg-blue-500/20 transition">
+                        <span>🔗</span>
+                        <span class="font-medium">Same Graph Detected (Component <span id="graph-component-id" class="font-bold">0</span>)</span>
+                        <span id="graph-count" class="ml-auto text-sm text-gray-400"></span>
+                    </summary>
+                    <div class="px-4 py-3 border-t border-blue-500/20 text-sm text-gray-400">
+                        Both images belong to the same comparison graph/component.
+                    </div>
+                </details>
+            </div>
+            
             <div class="mt-8 pt-6 border-t border-white/10 flex flex-col items-center">
                 <div class="text-gray-400 text-sm mb-4">
                     Total: <span id="stat-total" class="text-white font-bold">0</span> &bull;

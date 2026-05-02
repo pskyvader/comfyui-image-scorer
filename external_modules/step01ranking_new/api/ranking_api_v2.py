@@ -15,8 +15,9 @@ from flask import Blueprint, request, jsonify, current_app
 from database.images_table import get_all_images, get_image_count, get_image as get_img_data
 from shared.config import config
 from database.comparisons_table import get_total_comparisons, get_skipped_comparison_count
-from algorithm.merge_sort_ranker import select_pair_for_comparison, record_comparison
+from algorithm import merge_sort_ranker
 from file_management.path_handler import sync_image_metadata_to_json
+from shared.graph import crystal_graph
 
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
@@ -118,7 +119,7 @@ def get_next_pair():
     logger.debug(f"[NEXT-PAIR] Excluded set: {len(excluded_files_set)} images")
 
     for attempt in range(max_retries):
-        pair = select_pair_for_comparison(exclude_set=excluded_files_set)
+        pair = merge_sort_ranker.select_pair_for_comparison(exclude_set=excluded_files_set)
         if not pair:
             logger.debug(f"[NEXT-PAIR] No pair found after {attempt+1} attempts")
             return "", 204
@@ -158,6 +159,7 @@ def get_next_pair():
                     "confidence": round(data_b["confidence"], 4),
                     "comparison_count": data_b["comparison_count"],
                 },
+                "collapsable": merge_sort_ranker.is_collapsable_pair(filename_a, filename_b),
                 "rationale": {
                     "seed": data_a["filename"],
                     "partner": data_b["filename"],
@@ -205,7 +207,7 @@ def submit_comparison():
     if winner not in [filename_a, filename_b]:
         return jsonify({"error": "Winner must be one of the images"}), 400
 
-    success = record_comparison(filename_a, filename_b, winner)
+    success = merge_sort_ranker.record_comparison(filename_a, filename_b, winner)
 
     if not success:
         return jsonify({"error": "Failed to record comparison"}), 500
@@ -245,32 +247,42 @@ def get_graph_data():
     Get current comparison graph data for visualization.
     """
     try:
-        from shared.graph import get_current_connections
+        from shared.graph import crystal_graph
+        from database.images_table import get_all_images
+        from database.comparisons_table import get_all_comparisons
         logger.info("Generating graph data...")
         
-        # Get connections without transitive edges for a cleaner map
-        connections = get_current_connections(include_transitive=False)
-        logger.info(f"Found {len(connections.graph_nodes)} nodes and {len(connections.graph_comparisons)} comparisons")
+        # Check database directly
+        raw_images = get_all_images()
+        raw_comparisons = get_all_comparisons()
+        logger.info(f"DB check: {len(raw_images)} raw images, {len(raw_comparisons)} raw comparisons")
         
-        # Build a lookup for image metadata to avoid N queries
-        img_metadata = {img["filename"]: img for img in connections.all_images}
+        # Use the global crystal_graph instance
+        crystal_graph.build_from_database()
+        
+        logger.info(f"Graph built: {len(crystal_graph.images)} nodes and {len(crystal_graph.comparisons)} comparisons")
+        logger.info(f"Components: {crystal_graph.chain_members_by_component}")
         
         # Prepare simplified nodes and edges for frontend visualization
         nodes = []
-        for filename in connections.graph_nodes:
-            img_data = img_metadata.get(filename)
+        for filename, img_data in crystal_graph.images.items():
             nodes.append({
                 "id": filename,
                 "score": round(img_data["score"], 4) if img_data and img_data.get("score") is not None else 0.5,
                 "confidence": round(img_data["confidence"], 4) if img_data and img_data.get("confidence") is not None else 0.0,
-                "component": connections.component_by_filename.get(filename, -1)
+                "height": crystal_graph.height.get(filename, 0),
+                "component": crystal_graph.component_by_filename.get(filename)
             })
             
         edges = []
-        for comp in connections.graph_comparisons:
+        for comp in crystal_graph.comparisons:
+            winner = comp["winner"]
+            filename_a = comp["filename_a"]
+            filename_b = comp["filename_b"]
+            loser = filename_b if winner == filename_a else filename_a
             edges.append({
-                "source": comp["winner"],
-                "target": comp["filename_b"] if comp["winner"] == comp["filename_a"] else comp["filename_a"],
+                "source": winner,
+                "target": loser,
                 "weight": float(comp.get("weight", 1.0) or 1.0)
             })
             
@@ -278,7 +290,7 @@ def get_graph_data():
         return jsonify({
             "nodes": nodes,
             "edges": edges,
-            "components": connections.chain_members_by_component
+            "components": crystal_graph.chain_members_by_component
         })
     except Exception as e:
         logger.error(f"Error in get_graph_data: {e}", exc_info=True)

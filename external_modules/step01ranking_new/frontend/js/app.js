@@ -37,6 +37,13 @@ class RankingApp {
         this.errorMessage = document.getElementById("error-message");
         this.cardsContainer = document.getElementById("cards-container");
         this.loadingOverlay = document.getElementById("loading-overlay");
+        this.leftCard = document.querySelector(".left-card");
+        this.rightCard = document.querySelector(".right-card");
+
+        // Graph Indicator
+        this.graphIndicator = document.getElementById("graph-indicator");
+        this.graphComponentId = document.getElementById("graph-component-id");
+        this.graphCount = document.getElementById("graph-count");
 
         // Debug & Backup
         this.backupBtn = document.getElementById("backup-button");
@@ -202,6 +209,8 @@ class RankingApp {
         const left = this.currentPair.left;
         const right = this.currentPair.right;
         const rationale = this.currentPair.rationale;
+        const sameComponent = this.currentPair.same_component;
+        const isCollapsable = this.currentPair.collapsable;
 
         if (left.filename === right.filename) {
             this.loadPair();
@@ -222,6 +231,27 @@ class RankingApp {
         this.rightConfidence.textContent = Utils.formatScore(right.confidence);
         this.leftCount.textContent = left.comparison_count;
         this.rightCount.textContent = right.comparison_count;
+
+        // Update graph indicator and card borders
+        this.updateGraphIndicator(sameComponent, isCollapsable);
+        
+        // Update card borders for collapsible pairs
+        if (isCollapsable) {
+            this.leftCard.classList.add("collapsible-card");
+            this.rightCard.classList.add("collapsible-card");
+            // Add glow to VS indicator
+            const vsIndicator = this.cardsContainer.querySelector('.absolute');
+            if (vsIndicator) {
+                vsIndicator.classList.add('collapsible-vs');
+            }
+        } else {
+            this.leftCard.classList.remove("collapsible-card");
+            this.rightCard.classList.remove("collapsible-card");
+            const vsIndicator = this.cardsContainer.querySelector('.absolute');
+            if (vsIndicator) {
+                vsIndicator.classList.remove('collapsible-vs');
+            }
+        }
 
         // Render Debug Info
         if (this.debugContent && rationale) {
@@ -261,6 +291,25 @@ class RankingApp {
         this.leftImg.classList.add("opacity-100");
         this.rightImg.classList.add("opacity-100");
         this.showLoading(false);
+    }
+
+    updateGraphIndicator(sameComponent, isCollapsable) {
+        if (!this.graphIndicator) return;
+
+        // Show indicator if pair is collapsable
+        if (isCollapsable) {
+            this.graphIndicator.classList.remove("hidden");
+            // Update text to reflect collapsable pair
+            const summary = this.graphIndicator.querySelector("summary");
+            if (summary) {
+                const spans = summary.querySelectorAll("span");
+                if (spans.length >= 2) {
+                    spans[1].textContent = "Collapsable Pair Detected";
+                }
+            }
+        } else {
+            this.graphIndicator.classList.add("hidden");
+        }
     }
 
     getImageUrl(filename) {
@@ -312,12 +361,12 @@ class RankingApp {
         try {
             const status = await api.getStatus();
             this.statsTotal.textContent = status.total_images;
-            
+
             // Dynamic label for "Ranked" showing the target comparison count
-            const rankedLabel = document.querySelector('label[for="stat-ranked"]') || 
-                               Array.from(document.querySelectorAll('.text-gray-400 span')).find(el => el.textContent.includes('Ranked')) ||
-                               { textContent: 'Ranked' };
-            
+            const rankedLabel = document.querySelector('label[for="stat-ranked"]') ||
+                Array.from(document.querySelectorAll('.text-gray-400 span')).find(el => el.textContent.includes('Ranked')) ||
+                { textContent: 'Ranked' };
+
             // Check if we can find the text node or parent to update the label
             const statsContainer = this.statsRanked.parentElement;
             if (statsContainer) {

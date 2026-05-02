@@ -15,7 +15,17 @@ from file_management.path_handler import (
     append_comparison_history_to_json,
 )
 from shared.config import config
-from shared.graph import get_current_connections, ComparisonConnections
+from shared.graph import crystal_graph
+from datetime import datetime, timezone
+import heapq
+import math
+import random
+import time
+from file_management.path_handler import (
+    append_comparison_history_to_json,
+)
+from shared.config import config
+from shared.graph import crystal_graph
 from datetime import datetime, timezone
 import heapq
 import math
@@ -25,8 +35,6 @@ from collections import defaultdict, deque
 import logging
 
 logger = logging.getLogger(__name__)
-_graph_cache: dict[str, Any] = {"data": None, "timestamp": 0.0}
-_GRAPH_CACHE_TTL = 30.5  # Cache graph for 5 seconds to reduce DB load
 
 _images_cache: dict[str, Any] = {"data": None, "timestamp": 0.0}
 _IMAGES_CACHE_TTL = 5.5  # Cache all_images for 2 seconds
@@ -63,383 +71,46 @@ def _is_better_path(
     )
 
 
-def _collect_directional_paths(
-    start: str, adjacency: defaultdict, max_edges: int
-) -> dict[str, tuple[int, float]]:
-    queue = deque([(start, 1.0, 0)])
-    best_paths: dict[str, tuple[int, float]] = {start: (0, 1.0)}
-
-    while queue:
-        current, impact, edges = queue.popleft()
-        if edges >= max_edges:
-            continue
-
-        for neighbor, edge_impact in adjacency.get(current, []):
-            next_edges = edges + 1
-            next_impact = impact * float(edge_impact)
-            existing = best_paths.get(neighbor)
-            if _is_better_path(next_edges, next_impact, existing):
-                best_paths[neighbor] = (next_edges, next_impact)
-                queue.append((neighbor, next_impact, next_edges))
-
-    return best_paths
-
-
-def _resolve_directional_indirect(
-    winner: str,
-    loser: str,
-    winners_by_image: defaultdict,
-    losers_by_image: defaultdict,
-    max_edges: int,
-    decay_factor: float,
-) -> tuple[float, int] | None:
-    winner_paths = _collect_directional_paths(winner, winners_by_image, max_edges)
-    loser_paths = _collect_directional_paths(loser, losers_by_image, max_edges)
-
-    best_match: tuple[int, float] | None = None
-
-    for middle, (winner_edges, winner_impact) in winner_paths.items():
-        if winner_edges == 0:
-            continue
-
-        loser_path = loser_paths.get(middle)
-        if loser_path is None:
-            continue
-
-        loser_edges, loser_impact = loser_path
-        if loser_edges == 0:
-            continue
-
-        total_edges = winner_edges + loser_edges
-        if total_edges < 2 or total_edges > max_edges:
-            continue
-
-        transitive_depth = total_edges - 1
-        impact_factor = winner_impact * loser_impact * (decay_factor**transitive_depth)
-
-        if best_match is None:
-            best_match = (transitive_depth, impact_factor)
-            continue
-
-        best_depth, best_impact = best_match
-        if transitive_depth < best_depth or (
-            transitive_depth == best_depth and impact_factor > best_impact
-        ):
-            best_match = (transitive_depth, impact_factor)
-
-    if best_match is None:
-        return None
-
-    transitive_depth, impact_factor = best_match
-    return impact_factor, transitive_depth
-
-
-def _iter_chain_end_pairs(score_sorted_images: list[dict[str, Any]]):
-    if len(score_sorted_images) < 2:
-        return
-
-    # We expect score_sorted_images to be sorted by score.
-
-    last_idx = len(score_sorted_images) - 1
-    heap: list[tuple[float, int, int]] = [
-        (
-            -abs(
-                float(score_sorted_images[last_idx]["score"])
-                - float(score_sorted_images[0]["score"])
-            ),
-            0,
-            last_idx,
-        )
-    ]
-    seen: set[tuple[int, int]] = {(0, last_idx)}
-
-    while heap:
-        _, left, right = heapq.heappop(heap)
-        if left >= right:
-            continue
-
-        yield score_sorted_images[left], score_sorted_images[right]
-
-        for next_left, next_right in ((left + 1, right), (left, right - 1)):
-            if next_left >= next_right or (next_left, next_right) in seen:
-                continue
-
-            seen.add((next_left, next_right))
-            diff = abs(
-                float(score_sorted_images[next_right]["score"])
-                - float(score_sorted_images[next_left]["score"])
-            )
-            heapq.heappush(heap, (-diff, next_left, next_right))
-
-
-def _randomize_pair_order(filename_a: str, filename_b: str) -> tuple[str, str]:
-    if random.random() < 0.5:
-        return filename_a, filename_b
-    return filename_b, filename_a
-
-
-def _get_allowed_diff_for_image(image: dict) -> float:
-    return max(0.05, 1.0 * math.exp(-0.3 * int(image["comparison_count"])))
-
-
-def _get_allowed_diff_for_pair(image_a: dict, image_b: dict) -> float:
-    return max(
-        _get_allowed_diff_for_image(image_a),
-        _get_allowed_diff_for_image(image_b),
-    )
-
-
-def _search_pairs_by_score_gap(
-    score_sorted_images: list[dict[str, Any]],
-    compared_pairs: set[tuple[str, str]],
-    winners_by_image: defaultdict,
-    losers_by_image: defaultdict,
-) -> tuple[str, str] | None:
-    current_diff: float = -1
-    explicit_candidates: list[tuple[str, str]] = []
-    transitive_record_count = 0
-
-    for img_low, img_high in _iter_chain_end_pairs(score_sorted_images):
-        filename_a = img_low["filename"]
-        filename_b = img_high["filename"]
-        pair_key = tuple(sorted((filename_a, filename_b)))
-
-        if pair_key in compared_pairs:
-            logger.debug(f"[SEARCH_PAIRS] Pair {pair_key} already compared")
-            continue
-
-        score_diff = abs(float(img_high["score"]) - float(img_low["score"]))
-        allowed_diff = _get_allowed_diff_for_pair(img_low, img_high)
-
-        if score_diff > allowed_diff:
-            logger.debug(
-                f"[SEARCH_PAIRS] Pair {pair_key} has score diff {score_diff} > {allowed_diff}"
-            )
-            continue
-
-        if score_diff > current_diff:
-            current_diff = score_diff
-
-        winner, impact_factor, transitive_depth = check_indirect(
-            filename_a,
-            filename_b,
-            winners_by_image,
-            losers_by_image,
-        )
-        if winner:
-            logger.debug(
-                f"[NEXT-PAIR] Found indirect win for: {winner} ({transitive_depth})"
-            )
-            if record_comparison(
-                filename_a,
-                filename_b,
-                winner,
-                impact_factor=impact_factor,
-                transitive_depth=transitive_depth,
-            ):
-                compared_pairs.add(pair_key)
-                transitive_record_count += 1
-                if transitive_record_count >= 10:
-                    logger.debug("[SEARCH_PAIRS] Reached transitive recording limit (10)")
-                    continue
-                continue
-            raise RuntimeError(
-                f"Failed to record comparison for {filename_a} vs {filename_b}"
-            )
-
-        # Greedily pick the first valid candidate (which has the largest diff due to heap sorting)
-        logger.debug(f"[SEARCH_PAIRS] Greedily picked largest diff: {filename_a} vs {filename_b} (diff: {score_diff})")
-        return _randomize_pair_order(filename_a, filename_b)
-
-    return None
-
-
-def _search_confidence_pool(
-    score_sorted_images: list[dict[str, Any]],
-    compared_pairs: set[tuple[str, str]],
-    winners_by_image: defaultdict,
-    losers_by_image: defaultdict,
-    component_by_filename: dict[str, int],
-    chain_length_by_filename: dict[str, int],
-) -> tuple[str, str] | None:
-    active_chains: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for image in score_sorted_images:
-        active_chains[component_by_filename[image["filename"]]].append(image)
-
-    chain_groups = [
-        {
-            "component_id": component_id,
-            "members": members,
-            "chain_length": chain_length_by_filename[members[0]["filename"]],
-        }
-        for component_id, members in active_chains.items()
-    ]
-    groups_by_length: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
-    for chain_group in chain_groups:
-        groups_by_length[int(chain_group["chain_length"])].append(chain_group)
-
-    sorted_lengths = sorted(groups_by_length)
-    for idx_a, length_a in enumerate(sorted_lengths):
-        groups_a = groups_by_length[length_a]
-
-        length_pairs: list[tuple[int, int]] = []
-        if len(groups_a) >= 2:
-            length_pairs.append((length_a, length_a))
-        for length_b in sorted_lengths[idx_a + 1 :]:
-            length_pairs.append((length_a, length_b))
-
-        for pair_length_a, pair_length_b in length_pairs:
-            candidate_groups_a = groups_by_length[pair_length_a]
-            candidate_groups_b = groups_by_length[pair_length_b]
-
-            if pair_length_a == pair_length_b and all(
-                len(group["members"]) == 1 for group in candidate_groups_a
-            ):
-                logger.debug("[NEXT-PAIR] Found singletons")
-                singleton_images = sorted(
-                    (group["members"][0] for group in candidate_groups_a),
-                    key=lambda image: float(image["score"]),
-                )
-
-                # getSingleton images unordered
-                # singleton_images = list(
-                #     group["members"][0] for group in candidate_groups_a
-                # )
-                # random.shuffle(singleton_images)
-
-                pair = _search_pairs_by_score_gap(
-                    singleton_images,
-                    compared_pairs,
-                    winners_by_image,
-                    losers_by_image,
-                )
-                if pair:
-                    return pair
-                continue
-
-            current_diff: float = -1.0
-            explicit_candidates: list[tuple[str, str]] = []
-
-            for group_idx_a, chain_a in enumerate(candidate_groups_a):
-                start_b = group_idx_a + 1 if pair_length_a == pair_length_b else 0
-                for group_idx_b in range(start_b, len(candidate_groups_b)):
-                    chain_b = candidate_groups_b[group_idx_b]
-
-                    pair_options = [
-                        # opposite extremes: a_high vs b_low
-                        (chain_a["members"][0], chain_b["members"][-1]),
-                        (chain_a["members"][-1], chain_b["members"][0]),
-                        # same extremes:  a_high vs b_high
-                        (chain_a["members"][0], chain_b["members"][0]),
-                        (chain_a["members"][-1], chain_b["members"][-1]),
-                    ]
-                    option_diffs = [
-                        abs(float(high_end["score"]) - float(low_end["score"]))
-                        for low_end, high_end in pair_options
-                    ]
-                    score_diff = max(option_diffs)
-
-                    if score_diff > current_diff:
-                        current_diff = score_diff
-
-                    for option_idx, (low_end, high_end) in enumerate(pair_options):
-                        if option_diffs[option_idx] != score_diff:
-                            continue
-
-                    for option_idx, (low_end, high_end) in enumerate(pair_options):
-                        score_diff = option_diffs[option_idx]
-                        filename_a = low_end["filename"]
-                        filename_b = high_end["filename"]
-                        pair_key = tuple(sorted((filename_a, filename_b)))
-                        allowed_diff = _get_allowed_diff_for_pair(low_end, high_end)
-
-                        if pair_key in compared_pairs or score_diff > allowed_diff:
-                            continue
-
-                        winner, impact_factor, transitive_depth = check_indirect(
-                            filename_a,
-                            filename_b,
-                            winners_by_image,
-                            losers_by_image,
-                        )
-                        if winner:
-                            raise RuntimeError(
-                                "Link found when comparing different chains. Chain creation algorithm failing."
-                            )
-                        
-                        explicit_candidates.append((score_diff, filename_a, filename_b))
-
-            if explicit_candidates:
-                # Sort by score difference descending and pick the best
-                explicit_candidates.sort(key=lambda x: x[0], reverse=True)
-                _, chosen_a, chosen_b = explicit_candidates[0]
-                logger.debug(f"[SEARCH_CONFIDENCE] Picked best inter-chain pair: {chosen_a} vs {chosen_b} (diff: {explicit_candidates[0][0]})")
-                return _randomize_pair_order(chosen_a, chosen_b)
-
-    return _search_pairs_by_score_gap(
-        score_sorted_images,
-        compared_pairs,
-        winners_by_image,
-        losers_by_image,
-    )
-
-
-def check_indirect(
-    a: str,
-    b: str,
-    winners_by_image: defaultdict,
-    losers_by_image: defaultdict,
-) -> tuple[str | None, float, int]:
-    if a in losers_by_image and b in losers_by_image[a]:
-        return a, 1.0, 0
-    if b in losers_by_image and a in losers_by_image[b]:
-        return b, 1.0, 0
-
-    ranking_config = config.get("ranking")
-    max_edges = int(ranking_config.get("transitive_depth"))
-    decay_factor = float(ranking_config.get("indirect_impact_decay"))
-
-    result_a = _resolve_directional_indirect(
-        a,
-        b,
-        winners_by_image,
-        losers_by_image,
-        max_edges,
-        decay_factor,
-    )
-    if result_a is not None:
-        impact_factor, transitive_depth = result_a
-        return a, impact_factor, transitive_depth
-
-    result_b = _resolve_directional_indirect(
-        b,
-        a,
-        winners_by_image,
-        losers_by_image,
-        max_edges,
-        decay_factor,
-    )
-    if result_b is not None:
-        impact_factor, transitive_depth = result_b
-        return b, impact_factor, transitive_depth
-    return None, 0.0, 0
+def is_collapsable_pair(filename_a: str, filename_b: str) -> bool:
+    """Check if a pair is collapsible (both top or both bottom nodes at same height)."""
+    if filename_a not in crystal_graph.images or filename_b not in crystal_graph.images:
+        return False
+    
+    # Get heights
+    height_a = crystal_graph.height.get(filename_a)
+    height_b = crystal_graph.height.get(filename_b)
+    
+    # Must be at same height
+    if height_a != height_b:
+        return False
+    
+    # Check if both are top nodes (no better connections)
+    both_top = (len(crystal_graph.better.get(filename_a, [])) == 0 and 
+                  len(crystal_graph.better.get(filename_b, [])) == 0)
+    
+    # Check if both are bottom nodes (no worse connections)
+    both_bottom = (len(crystal_graph.worse.get(filename_a, [])) == 0 and 
+                     len(crystal_graph.worse.get(filename_b, [])) == 0)
+    
+    return both_top or both_bottom
 
 
 def select_pair_for_comparison(
     exclude_set: set[str] | None = None,
 ) -> tuple[str, str] | None:
     """
-    Select the next pair of images to compare.
+    Select the next pair of images to compare using crystal graph priorities.
 
-    Linear pipeline:
-    1. Get all images from database (cached)
-    2. Filter out recently shown images (exclude_set)
-    3. Get comparison graph data (cached)
-    4. Find lowest confidence images
-    5. Try chain-end pairs, then transitive resolution, then fallback
+    Priority order:
+    1. Shortest chains (lowest height)
+    2. Among those, chains with multiple top/bottom nodes (collapsible pairs)
+    3. Pairs from unconnected chains (using are_in_same_path)
+    4. If nothing at current height, go up one level and repeat
+    5. Final fallback: compare lowest confidence images from different chains
     """
     total_time = time.time()
     step_time = time.time()
+
     all_images = _get_cached_all_images()
     logger.debug(
         f"[NEXT-PAIR] all images: {len(all_images)},  time: total: {time.time() - total_time}, step: {time.time() - step_time}"
@@ -458,31 +129,50 @@ def select_pair_for_comparison(
     if len(candidate_images) < 2:
         return None
 
-    graph_data = _get_comparison_graph(all_images)
+    # Refresh crystal_graph if stale
+    if crystal_graph.is_cache_stale():
+        crystal_graph.build_from_database(images=all_images)
     logger.debug(
-        f"[NEXT-PAIR] get_comparison_graph:{len(graph_data.all_filenames)} time: total: {time.time() - total_time}, step: {time.time() - step_time}"
+        f"[NEXT-PAIR] crystal_graph built, max_height: {crystal_graph.get_max_height()}, time: total: {time.time() - total_time}, step: {time.time() - step_time}"
     )
     step_time = time.time()
 
+    # Get candidate filenames for quick lookup
+    candidate_filenames = {img["filename"] for img in candidate_images}
+
+    # Priority 1 & 2: Start from lowest height (shortest chains)
+    all_heights = sorted(crystal_graph.nodes_by_height.keys())
+
+    for height in all_heights:
+        nodes_at_height = [
+            n for n in crystal_graph.get_images_by_height(height)
+            if n in candidate_filenames
+        ]
+
+        if len(nodes_at_height) < 2:
+            continue
+
+        # Priority 2: Check for collapsable pairs (multiple top/bottom nodes)
+        pair = _find_collapsable_pair_at_height(nodes_at_height, height)
+        if pair:
+            logger.debug(
+                f"[NEXT-PAIR] collapsable pair at height {height}: {pair}, time: total: {time.time() - total_time}"
+            )
+            return pair
+
+        # Priority 3: Find pairs from unconnected chains
+        pair = _find_unconnected_pair(nodes_at_height)
+        if pair:
+            logger.debug(
+                f"[NEXT-PAIR] unconnected pair at height {height}: {pair}, time: total: {time.time() - total_time}"
+            )
+            return pair
+
+    # Priority 5: Final fallback - lowest confidence images from different chains
     low_conf_images = _find_lowest_confidence_images(candidate_images)
+    pair = _find_fallback_cross_chain(low_conf_images)
     logger.debug(
-        f"[NEXT-PAIR] find_lowest_confidence_images:{len(low_conf_images)} time: total: {time.time() - total_time}, step: {time.time() - step_time}"
-    )
-    step_time = time.time()
-
-    pair = _find_pair_from_confidence_pool(low_conf_images, graph_data)
-    logger.debug(
-        f"[NEXT-PAIR] find_pair_from_confidence_pool:{pair} time: total: {time.time() - total_time}, step: {time.time() - step_time}"
-    )
-    step_time = time.time()
-    if pair:
-        return pair
-
-    pair = _find_fallback_pair(low_conf_images, graph_data.compared_pairs)
-    if not pair:
-         pair = _find_fallback_pair(candidate_images, graph_data.compared_pairs)
-    logger.debug(
-        f"[NEXT-PAIR] find_fallback_pair:{pair} time: total: {time.time() - total_time}, step: {time.time() - step_time}"
+        f"[NEXT-PAIR] fallback cross-chain pair:{pair} time: total: {time.time() - total_time}"
     )
     return pair
 
@@ -503,23 +193,11 @@ def _filter_excluded_images(
     return [img for img in images if img["filename"] not in safe_exclude]
 
 
-def _get_comparison_graph(all_images: list[dict[str, Any]]) -> ComparisonConnections:
-    """Step 3: Get comparison graph data needed for filtering. Uses caching."""
-    global _graph_cache
-
-    t0 = time.time()
-    if (
-        _graph_cache["data"] is not None
-        and (t0 - _graph_cache["timestamp"]) < _GRAPH_CACHE_TTL
-    ):
-        return _graph_cache["data"]
-
-    result = get_current_connections(
-        all_images=all_images,
-        include_transitive=False,
-    )
-    _graph_cache = {"data": result, "timestamp": t0}
-    return result
+def _get_comparison_graph(all_images: list[dict[str, Any]]) -> "CrystalGraph":
+    """Step 3: Get comparison graph data needed for filtering. Uses the global crystal_graph instance."""
+    if crystal_graph.is_cache_stale():
+        crystal_graph.build_from_database(images=all_images, include_transitive=False)
+    return crystal_graph
 
 
 def _find_lowest_confidence_images(
@@ -567,59 +245,61 @@ def _find_lowest_confidence_images(
     return unique_candidates[:_MAX_PAIR_CANDIDATES]
 
 
-def _find_pair_from_confidence_pool(
-    images: list[dict[str, Any]], graph_data: Any
+def _find_collapsable_pair_at_height(
+    nodes_at_height: list[str], height: int
 ) -> tuple[str, str] | None:
-    """Step 5a: Try confidence-based pair selection."""
-    if not images:
+    """Find collapsable pairs at a given height (multiple top/bottom nodes)."""
+    top_nodes = [n for n in nodes_at_height if not crystal_graph.better[n]]
+    bottom_nodes = [n for n in nodes_at_height if not crystal_graph.worse[n]]
+
+    random.shuffle(top_nodes)
+    random.shuffle(bottom_nodes)
+
+    if len(top_nodes) >= 2:
+        for i in range(len(top_nodes)):
+            for j in range(i + 1, len(top_nodes)):
+                a, b = top_nodes[i], top_nodes[j]
+                if not crystal_graph.are_in_same_path(a, b):
+                    return (a, b)
+
+    if len(bottom_nodes) >= 2:
+        for i in range(len(bottom_nodes)):
+            for j in range(i + 1, len(bottom_nodes)):
+                a, b = bottom_nodes[i], bottom_nodes[j]
+                if not crystal_graph.are_in_same_path(a, b):
+                    return (a, b)
+
+    return None
+
+
+def _find_unconnected_pair(nodes_at_height: list[str]) -> tuple[str, str] | None:
+    """Find a pair of nodes that are not in the same path."""
+    n = len(nodes_at_height)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = nodes_at_height[i], nodes_at_height[j]
+            if not crystal_graph.are_in_same_path(a, b):
+                return (a, b)
+    return None
+
+
+def _find_fallback_cross_chain(
+    images: list[dict[str, Any]]
+) -> tuple[str, str] | None:
+    """Fallback: find pair from different chains (not in same path)."""
+    if len(images) < 2:
         return None
 
-    # We MUST sort by score here because _search_confidence_pool and _iter_chain_end_pairs
-    # expect a score-sorted list to find the "extremes" (min/max scores).
-    # Shuffling was done earlier for candidate pool diversity, but now we need order.
-    score_sorted = sorted(
-        images,
-        key=lambda img: (float(img["score"]), img["filename"]),
-    )
+    # Sort by confidence (lowest first)
+    sorted_images = sorted(images, key=lambda img: img["confidence"])
 
-    compared_pairs: set[tuple[str, str]] = (
-        set(graph_data.compared_pairs)
-        if hasattr(graph_data, "compared_pairs")
-        else set()
-    )
-
-    pair = _search_confidence_pool(
-        score_sorted,
-        compared_pairs,
-        graph_data.winners_by_image,
-        graph_data.losers_by_image,
-        graph_data.component_by_filename,
-        graph_data.chain_length_by_filename,
-    )
-    return pair
-
-
-def _find_fallback_pair(
-    images: list[dict[str, Any]], compared_pairs: set[tuple[str, str]]
-) -> tuple[str, str] | None:
-    """Step 5b: Fallback - return first uncompared pair."""
-    if not images:
-        return None
-
-    n = len(images)
-    # Sort by confidence first, but shuffle within confidence levels to avoid filename bias.
-    # We do this by shuffling first, then performing a stable sort by confidence.
-    shuffled_images = list(images)
-    random.shuffle(shuffled_images)
-    sorted_images = sorted(shuffled_images, key=lambda img: img["confidence"])
-
+    n = len(sorted_images)
     for i in range(n):
         for j in range(i + 1, n):
             a = sorted_images[i]["filename"]
             b = sorted_images[j]["filename"]
-            if tuple(sorted((a, b))) in compared_pairs:
-                continue
-            return (a, b)
+            if not crystal_graph.are_in_same_path(a, b):
+                return (a, b)
     return None
 
 
@@ -749,8 +429,7 @@ def record_comparison(
             f"{winner_filename}<->{loser_filename}: winner_saved={winner_json_saved}, loser_saved={loser_json_saved}"
         )
 
-    # Invalidate caches after recording
-    _graph_cache["data"] = None
-    _images_cache["data"] = None
+    # Invalidate crystal_graph cache after recording
+    crystal_graph._built_at = None
 
     return True

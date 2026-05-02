@@ -5,21 +5,22 @@ class ChainMap {
         simulation: {
             linkDistance: 100,       // Base distance between connected nodes
             linkDistanceMin: 50,      // Line length for nodes with few connections
-            linkDistanceMax: 200,     // Line length for nodes with many connections
+            linkDistanceMax: 2000,     // Line length for nodes with many connections
             useDynamicDistance: true, // If true, lines are LONGER for hubs and SHORTER for isolated pairs
             linkStrength: 0.1,        // Base stiffness of the lines
             scoreSimilarityStrength: 0.9, // Extra attraction between connected nodes with similar scores (0 to 1)
             chargeStrength: -300,     // Base repulsion for all nodes
             disconnectedChargeMultiplier: 2.0, // Multiplier for repulsion on nodes with no connections
             chargeDistanceMax: 1000,  // Maximum distance over which nodes repel each other
-            componentRepulsion: 0.7,  // Extra force to push separate chains away from each other (0 to 1)
+            componentRepulsion: 0.3,  // Extra force to push separate chains away from each other (0 to 1)
             collisionRadius: 25,      // Minimum gap between node centers to prevent overlap
-            forceXStrength: 0.03,     // Gravity toward the horizontal center
-            forceYStrength: 0.5,      // Gravity toward the vertical position (Higher scores = higher up, lower = lower down)
-            velocityDecay: 0.2,       // Friction (0 to 1). Higher = slower movement
+            scorePositionRange: 1500,   // Vertical range from center for score 0 to 1 (-1500 to +1500)
+            forceXStrength: 0,          // No horizontal movement by score
+            forceYStrength: 0.05,      // Vertical float/sink by score (high score = float up)
+            velocityDecay: 0.1,       // Friction (0 to 1). Higher = slower movement
             alphaDecay: 0.02,         // How fast the simulation cools down and stops
             yMargin: 0.01,             // Vertical padding (%) where images won't be placed
-            scoreSpread: 2.0          // Push scores toward the poles (1.0 = linear, > 1.0 = more extreme separation)
+            scoreSpread: 5.0          // Push scores toward the poles (1.0 = linear, > 1.0 = more extreme separation)
         },
         visuals: {
             nodeMinRadius: 2,         // Base size of node circles
@@ -33,6 +34,9 @@ class ChainMap {
             interactThreshold: 0.2,   // Zoom level below which dragging/tooltips are disabled
             transitionDuration: 750,  // Animation speed (ms) for view resets
             zoomToScale: 2            // Target zoom level when focusing on a node
+        },
+        filters: {
+            minLengthSliderMax: 10   // Maximum value for the min chain length slider
         }
     };
 
@@ -188,10 +192,8 @@ class ChainMap {
             console.log('Graph data received:', data);
             this.rawData = data;
 
-            // Dynamic slider max based on largest component
-            const componentSizes = Object.values(this.rawData.components).map(m => m.length);
-            const maxLen = Math.max(10, ...componentSizes);
-            this.minLengthFilter.max = maxLen;
+            // Set slider max from config
+            this.minLengthFilter.max = ChainMap.config.filters.minLengthSliderMax;
 
             this.applyFilters();
         } catch (e) {
@@ -291,6 +293,46 @@ class ChainMap {
             nodeDegree[l.target] = (nodeDegree[l.target] || 0) + 1;
         });
 
+        // Build component groups for initial positioning
+        const componentNodes = {};
+        nodes.forEach(n => {
+            const c = n.component;
+            if (!componentNodes[c]) componentNodes[c] = [];
+            componentNodes[c].push(n);
+        });
+        const components = Object.values(componentNodes);
+
+        // Calculate component average scores for float/sink positioning
+        const componentAvgScore = {};
+        components.forEach(comp => {
+            const avg = comp.reduce((sum, n) => sum + n.score, 0) / comp.length;
+            componentAvgScore[comp[0].component] = avg;
+        });
+
+        // Give each component a random position on canvas
+        const componentCenters = {};
+        const padding = 80;
+        const usableWidth = this.width - padding * 2;
+        const usableHeight = this.height - padding * 2;
+        components.forEach(compNodes => {
+            componentCenters[compNodes[0].component] = {
+                x: padding + Math.random() * usableWidth,
+                y: padding + Math.random() * usableHeight
+            };
+        });
+
+        // Set initial positions - each component at random position, nodes clustered around it
+        nodes.forEach(n => {
+            const compCenter = componentCenters[n.component] || { x: this.width / 2, y: this.height / 2 };
+            const deg = nodeDegree[n.id] || 0;
+            const clusterRadius = deg > 0 ? 200 : 300;
+            
+            n.x = compCenter.x + (Math.random() - 0.5) * clusterRadius * 2;
+            n.y = compCenter.y + (Math.random() - 0.5) * clusterRadius * 2;
+        });
+        
+        console.log('Initial positions set - first node:', nodes[0]?.x, nodes[0]?.y);
+
         this.simulation = d3.forceSimulation(nodes)
             .force('link', d3.forceLink(links)
                 .id(d => d.id)
@@ -320,30 +362,33 @@ class ChainMap {
                     const deg = nodeDegree[d.id] || 0;
                     return deg === 0 ? base * ChainMap.config.simulation.disconnectedChargeMultiplier : base;
                 })
-                .distanceMax(ChainMap.config.simulation.chargeDistanceMax))
-            .force('center', d3.forceCenter(this.width / 2, this.height / 2))
-            .force('x', d3.forceX(this.width / 2).strength(ChainMap.config.simulation.forceXStrength))
-            .force('y', d3.forceY(d => {
-                const margin = this.height * ChainMap.config.simulation.yMargin;
-                const spread = ChainMap.config.simulation.scoreSpread || 1.0;
+                .distanceMax(ChainMap.config.simulation.chargeDistanceMax));
 
-                // Stretch the score around the 0.5 center
-                let s = d.score;
-                if (spread !== 1.0) {
-                    s = 0.5 + (s - 0.5) * spread;
-                    s = Math.max(0, Math.min(1, s));
-                }
-
-                return margin + (1 - s) * (this.height - margin * 2);
-            }).strength(ChainMap.config.simulation.forceYStrength));
+        // Add custom force for vertical float/sink by component score (no horizontal movement)
+        // Use a reference to capture the nodes array from scope
+        let nodesRef = nodes;
+        const componentForce = (alpha) => {
+            const range = ChainMap.config.simulation.scorePositionRange;
+            const centerY = this.height / 2;
+            
+            nodesRef.forEach(n => {
+                const avgScore = componentAvgScore[n.component] || 0.5;
+                
+                // Vertical target: score 0 → position -range from center, score 1 → position +range from center
+                const targetY = centerY + (avgScore - 0.5) * 2 * range;
+                
+                const yStrength = ChainMap.config.simulation.forceYStrength * alpha;
+                n.vy += (targetY - n.y) * yStrength;
+            });
+        };
+        componentForce.initialize = (allNodes) => { nodesRef = allNodes; };
 
         if (nodes.length < 5000) {
             this.simulation.force('collision', d3.forceCollide().radius(ChainMap.config.simulation.collisionRadius));
             this.simulation.force('component', this.getComponentForce());
         }
 
-        // For all graphs, remove the horizontal center pull to allow clusters to spread out freely
-        this.simulation.force('x', null);
+        this.simulation.force('componentY', componentForce);
 
         this.simulation
             .velocityDecay(ChainMap.config.simulation.velocityDecay)
