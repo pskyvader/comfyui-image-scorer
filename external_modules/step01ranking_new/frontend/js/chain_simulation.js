@@ -11,16 +11,16 @@ class ChainSimulation {
         // TETHERS: Links have a natural length and a hard "rope" limit.
         linkDistance: 67,
         maxLinkDistance: 150,
-        linkStrength: 0,
+        linkStrength: 0.1,
 
         // PHYSICS: 
         // Lower velocityDecay (0.1 - 0.2) makes them feel more fluid/slippery.
         velocityDecay: 0.1,
         alphaDecay: 0.0005, // Slower decay gives them time to reach the top/bottom
-        collisionRadius: 20,
+        collisionRadius: 67,
 
-        simWidth: 5000,
-        simHeight: 5000
+        simWidth: 50000,
+        simHeight: 50000
     };
 
     constructor(nodes, links, components, options = {}) {
@@ -91,7 +91,7 @@ class ChainSimulation {
             const t = link.target;
 
             const confidence = Math.max(s.confidence, t.confidence);
-            const maxRelative = maxDist + (maxDist * confidence * 0.5);
+            const maxRelative = maxDist + (maxDist * confidence * 1);
 
             if (typeof s === 'object' && typeof t === 'object') {
                 const dx = t.x - s.x;
@@ -121,8 +121,8 @@ class ChainSimulation {
         this.components.forEach((comp) => {
             const cid = String(comp);
             componentCoords[cid] = {
-                x: Math.floor(Math.random() * this.config.simWidth / 2) + this.config.simWidth / 4,
-                y: Math.floor(Math.random() * this.config.simHeight / 2) + this.config.simHeight / 4
+                x: Math.floor(Math.random() * (this.config.simWidth / 2)) + this.config.simWidth / 4,
+                y: Math.floor(Math.random() * (this.config.simHeight / 2)) + this.config.simHeight / 4
                 //y: Math.floor((i / totalComponents) * this.config.simHeight)
             };
             i++;

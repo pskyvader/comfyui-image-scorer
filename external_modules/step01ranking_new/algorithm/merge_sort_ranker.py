@@ -75,23 +75,27 @@ def is_collapsable_pair(filename_a: str, filename_b: str) -> bool:
     """Check if a pair is collapsible (both top or both bottom nodes at same height)."""
     if filename_a not in crystal_graph.images or filename_b not in crystal_graph.images:
         return False
-    
+
     # Get heights
     height_a = crystal_graph.height.get(filename_a)
     height_b = crystal_graph.height.get(filename_b)
-    
+
     # Must be at same height
     if height_a != height_b:
         return False
-    
+
     # Check if both are top nodes (no better connections)
-    both_top = (len(crystal_graph.better.get(filename_a, [])) == 0 and 
-                  len(crystal_graph.better.get(filename_b, [])) == 0)
-    
+    both_top = (
+        len(crystal_graph.better.get(filename_a, [])) == 0
+        and len(crystal_graph.better.get(filename_b, [])) == 0
+    )
+
     # Check if both are bottom nodes (no worse connections)
-    both_bottom = (len(crystal_graph.worse.get(filename_a, [])) == 0 and 
-                     len(crystal_graph.worse.get(filename_b, [])) == 0)
-    
+    both_bottom = (
+        len(crystal_graph.worse.get(filename_a, [])) == 0
+        and len(crystal_graph.worse.get(filename_b, [])) == 0
+    )
+
     return both_top or both_bottom
 
 
@@ -145,7 +149,8 @@ def select_pair_for_comparison(
 
     for height in all_heights:
         nodes_at_height = [
-            n for n in crystal_graph.get_images_by_height(height)
+            n
+            for n in crystal_graph.get_images_by_height(height)
             if n in candidate_filenames
         ]
 
@@ -252,22 +257,27 @@ def _find_collapsable_pair_at_height(
     top_nodes = [n for n in nodes_at_height if not crystal_graph.better[n]]
     bottom_nodes = [n for n in nodes_at_height if not crystal_graph.worse[n]]
 
+    logger.debug(
+        f"[COLLAPSABLE-PAIR] Top nodes: {len(top_nodes)}, Bottom nodes: {len(bottom_nodes)}"
+    )
+
     random.shuffle(top_nodes)
     random.shuffle(bottom_nodes)
 
-    if len(top_nodes) >= 2:
-        for i in range(len(top_nodes)):
-            for j in range(i + 1, len(top_nodes)):
-                a, b = top_nodes[i], top_nodes[j]
-                if not crystal_graph.are_in_same_path(a, b):
-                    return (a, b)
+    first = bottom_nodes
+    second = top_nodes
 
-    if len(bottom_nodes) >= 2:
-        for i in range(len(bottom_nodes)):
-            for j in range(i + 1, len(bottom_nodes)):
-                a, b = bottom_nodes[i], bottom_nodes[j]
-                if not crystal_graph.are_in_same_path(a, b):
-                    return (a, b)
+    if random.random() < 0.3:
+        first = top_nodes
+        second = bottom_nodes
+
+    for group in [first, second]:
+        if len(group) >= 2:
+            for i in range(len(group)):
+                for j in range(i + 1, len(group)):
+                    a, b = group[i], group[j]
+                    if not crystal_graph.are_in_same_path(a, b):
+                        return (a, b)
 
     return None
 
@@ -283,9 +293,7 @@ def _find_unconnected_pair(nodes_at_height: list[str]) -> tuple[str, str] | None
     return None
 
 
-def _find_fallback_cross_chain(
-    images: list[dict[str, Any]]
-) -> tuple[str, str] | None:
+def _find_fallback_cross_chain(images: list[dict[str, Any]]) -> tuple[str, str] | None:
     """Fallback: find pair from different chains (not in same path)."""
     if len(images) < 2:
         return None

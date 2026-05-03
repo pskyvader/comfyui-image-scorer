@@ -72,6 +72,11 @@ class ChainMapUI {
         this.zoom = d3.zoom()
             .extent([[0, 0], [this.width, this.height]])
             .scaleExtent(ChainMapUI.config.interaction.zoomExtent)
+            .filter((event) => {
+                if (event.type === 'click' || event.type === 'dblclick') return false;
+                if (event.button === 0 && event.target.tagName === 'circle') return false;
+                return true;
+            })
             .on('zoom', (event) => this.handleZoom(event));
         this.svg.call(this.zoom);
 
@@ -190,9 +195,9 @@ class ChainMapUI {
     }
 
     resetView(animate = false) {
-        const targetScale = 0.5;
-        const centerX = -ChainSimulation.defaults.simWidth / 2;
-        const centerY = -ChainSimulation.defaults.simHeight / 2;
+        const targetScale = 0.1;
+        const centerX = -ChainSimulation.defaults.simWidth / 4;
+        const centerY = -ChainSimulation.defaults.simHeight / 4;
         const animation = animate ? ChainMapUI.config.interaction.transitionDuration : 0;
 
         this.svg.transition()
@@ -200,9 +205,10 @@ class ChainMapUI {
             .call(
                 this.zoom.transform,
                 d3.zoomIdentity
-                    //.translate(centerX, centerY) // 1. Move to center of container
+                    //.translate(0, 0) // 1. Move to center of container
                     .scale(targetScale)           // 2. Scale
                     .translate(centerX, centerY)            // 3. Optional: point in map to center on
+                //.translate(0, 0)
             );
 
         this.nodeDetails.classList.add('hidden');
@@ -400,26 +406,26 @@ class ChainMapUI {
         const imageUrl = `/images/${encodeURIComponent(filename)}?score=${d.score}`;
 
         this.nodeDetails.innerHTML = `
-            <div class="flex justify-between items-start mb-3">
-                <h3 class="text-white font-bold text-xs truncate pr-4" title="${filename}">${filename.split('/').pop()}</h3>
-                <button onclick="document.getElementById('node-details').classList.add('hidden')" class="text-gray-500 hover:text-white">&times;</button>
+            <div class="flex justify-between items-start mb-2">
+                <h3 class="text-white font-bold text-[10px] truncate pr-2" title="${filename}">${filename.split('/').pop()}</h3>
+                <button onclick="document.getElementById('node-details').classList.add('hidden')" class="text-gray-500 hover:text-white text-lg leading-none">&times;</button>
             </div>
-            <div class="aspect-square bg-black/40 rounded-lg overflow-hidden mb-3 border border-white/5">
+            <div class="aspect-square bg-black/40 rounded-lg overflow-hidden mb-2 border border-white/5">
                 <img src="${imageUrl}" class="w-full h-full object-contain" onerror="this.src='/api/v2/placeholder'"/>
             </div>
-            <div class="grid grid-cols-2 gap-2 text-[10px]">
-                <div class="bg-purple-500/10 p-2 rounded">
+            <div class="grid grid-cols-2 gap-1.5 text-[9px]">
+                <div class="bg-purple-500/10 p-1.5 rounded">
                     <div class="text-purple-400 uppercase font-bold">Score</div>
-                    <div class="text-white text-sm font-mono">${d.score.toFixed(4)}</div>
+                    <div class="text-white text-xs font-mono">${d.score.toFixed(4)}</div>
                 </div>
-                <div class="bg-blue-500/10 p-2 rounded">
+                <div class="bg-blue-500/10 p-1.5 rounded">
                     <div class="text-blue-400 uppercase font-bold">Conf</div>
-                    <div class="text-white text-sm font-mono">${d.confidence.toFixed(4)}</div>
+                    <div class="text-white text-xs font-mono">${d.confidence.toFixed(4)}</div>
                 </div>
             </div>
-            <div class="mt-3 pt-3 border-t border-white/5 flex gap-2">
-                <button onclick="window.chainMapUI.toggleNodeSelection(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1.5 bg-pink-600 hover:bg-pink-500 text-white rounded text-[10px] font-bold transition">Select</button>
-                <button onclick="window.chainMapUI.zoomToNode(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-[10px] font-bold transition">Focus</button>
+            <div class="mt-2 pt-2 border-t border-white/5 flex gap-2">
+                <button onclick="window.chainMapUI.toggleNodeSelection(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1 bg-pink-600 hover:bg-pink-500 text-white rounded text-[9px] font-bold transition">Select</button>
+                <button onclick="window.chainMapUI.zoomToNode(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-[9px] font-bold transition">Focus</button>
             </div>
         `;
     }

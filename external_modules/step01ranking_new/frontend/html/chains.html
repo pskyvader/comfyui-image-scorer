@@ -44,6 +44,17 @@
             stroke-width: 3px !important;
         }
 
+        #node-details::-webkit-scrollbar {
+            width: 4px;
+        }
+        #node-details::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #node-details::-webkit-scrollbar-thumb {
+            background: #666;
+            border-radius: 2px;
+        }
+
         #graph-container {
             width: 100%;
             height: 65vh;
@@ -192,7 +203,7 @@
                     </div>
                     <div id="tooltip" class="tooltip hidden"></div>
                     <div id="node-details"
-                        class="absolute top-4 left-4 z-30 hidden w-64 glass p-4 rounded-xl border border-white/10 shadow-2xl">
+                        class="absolute top-4 left-4 z-30 hidden w-56 glass p-3 rounded-xl border border-white/10 shadow-2xl max-h-[80%] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
                         <!-- Node details content -->
                     </div>
                 </div>
