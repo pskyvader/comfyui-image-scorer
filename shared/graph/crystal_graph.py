@@ -98,16 +98,79 @@ class CrystalGraph:
         return chains
 
     def _calculate_heights(self) -> None:
-        """Calculate height for each image as max length of chains containing it."""
-        self.height = {img: 0 for img in self.images}
-        chains = self._enumerate_all_chains()
-
-        for chain in chains:
-            chain_len = len(chain)
-            for node in chain:
-                if self.height[node] < chain_len:
-                    self.height[node] = chain_len
-
+        """Calculate height for each image as longest chain (path) in the graph containing that node.
+        
+        Height represents the number of LINKS (edges) in the longest possible chain containing the node.
+        Nodes with no comparisons get height 0.
+        Uses DP: height = longest_ending_at[node] + longest_starting_from[node]
+        """
+        # Compute longest path ending at each node (following edges in reverse)
+        # For node X, this is the number of links in the longest path ending at X
+        longest_ending_at: dict[str, int] = {}
+        
+        def dfs_ending_at(node: str, memo: dict[str, int], visiting: set[str]) -> int:
+            if node in memo:
+                return memo[node]
+            if node in visiting:
+                return 0  # Cycle detection - return 0
+            
+            visiting.add(node)
+            predecessors = self.better.get(node, [])  # Nodes that beat this node
+            if not predecessors:
+                memo[node] = 0  # Base case: no incoming links
+            else:
+                max_path = 0
+                for pred in predecessors:
+                    path_len = dfs_ending_at(pred, memo, visiting)
+                    max_path = max(max_path, path_len)
+                memo[node] = max_path + 1  # Add the link from predecessor to node
+            
+            visiting.remove(node)
+            return memo[node]
+        
+        memo_ending = {}
+        for img in self.images:
+            if img not in memo_ending:
+                dfs_ending_at(img, memo_ending, set())
+        
+        # Compute longest path starting from each node (following worse edges)
+        # This is the number of links in the longest path starting from the node
+        def dfs_starting_from(node: str, memo: dict[str, int], visiting: set[str]) -> int:
+            if node in memo:
+                return memo[node]
+            if node in visiting:
+                return 0  # Cycle detection
+            
+            visiting.add(node)
+            successors = self.worse.get(node, [])  # Nodes this node beat
+            if not successors:
+                memo[node] = 0  # Base case: no outgoing links
+            else:
+                max_path = 0
+                for succ in successors:
+                    path_len = dfs_starting_from(succ, memo, visiting)
+                    max_path = max(max_path, path_len)
+                memo[node] = max_path + 1  # Add the link from node to successor
+            
+            visiting.remove(node)
+            return memo[node]
+        
+        memo_starting = {}
+        for img in self.images:
+            if img not in memo_starting:
+                dfs_starting_from(img, memo_starting, set())
+        
+        # Combine: height = ending + starting
+        self.height = {}
+        for img in self.images:
+            has_comparisons = img in self.worse or img in self.better
+            if not has_comparisons:
+                self.height[img] = 0
+            else:
+                ending = memo_ending.get(img, 0)
+                starting = memo_starting.get(img, 0)
+                self.height[img] = ending + starting
+        
         self._build_nodes_by_height()
 
     def _build_nodes_by_height(self) -> None:
@@ -226,7 +289,7 @@ class CrystalGraph:
             "built_at": self._built_at.isoformat() if self._built_at else None,
         }
 
-    def _can_reach(self, start: str, end: str) -> bool:
+    def _can_reach(self, start: str, end: str, skip_edges: set[tuple[str, str]] | None = None) -> bool:
         """Check if end is reachable from start via worse edges (directed)."""
         if start not in self.images or end not in self.images:
             return False
@@ -239,7 +302,28 @@ class CrystalGraph:
             visited.add(current)
             for worse in self.worse.get(current, []):
                 if worse not in visited:
+                    if skip_edges and (current, worse) in skip_edges:
+                        continue
                     queue.append(worse)
+        return False
+
+    def is_redundant(self, u: str, v: str, skip_edges: set[tuple[str, str]] | None = None) -> bool:
+        """Check if directed edge u->v is redundant (longer path u->...->v exists excluding direct edge).
+
+        Uses existing _can_reach() to avoid duplicating BFS logic.
+        skip_edges: set of (src, dst) edges to skip when looking for paths.
+        """
+        if u not in self.images or v not in self.images:
+            return False
+        all_skip = set()
+        if skip_edges:
+            all_skip.update(skip_edges)
+        all_skip.add((u, v))
+        for w in self.worse.get(u, []):
+            if w == v:
+                continue
+            if self._can_reach(w, v, all_skip):
+                return True
         return False
 
     def are_in_same_path(self, img1: str, img2: str) -> bool:

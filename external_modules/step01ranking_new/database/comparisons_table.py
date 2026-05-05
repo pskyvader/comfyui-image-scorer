@@ -313,6 +313,40 @@ def delete_comparisons_for_image(filename: str) -> int:
         return 0
 
 
+def delete_comparison(filename_a: str, filename_b: str, winner: str) -> int:
+    """Delete a specific comparison where winner beat the other image.
+    
+    Args:
+        filename_a: First image filename
+        filename_b: Second image filename
+        winner: Winning image filename (must be one of the two inputs)
+        
+    Returns:
+        Number of rows deleted (0 or 1)
+    """
+    filename_a = str(filename_a)
+    filename_b = str(filename_b)
+    winner = str(winner)
+    if winner not in (filename_a, filename_b):
+        logger.error("Winner must be one of the compared images")
+        return 0
+    canon_a, canon_b = _canonicalize_pair(filename_a, filename_b)
+    try:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM comparisons
+                WHERE filename_a = ? AND filename_b = ? AND winner = ?
+                """,
+                (canon_a, canon_b, winner),
+            )
+            conn.commit()
+            return max(cur.rowcount, 0)
+    except Exception as e:
+        logger.error(f"Error deleting comparison: {e}")
+        return 0
+
+
 def get_effective_comparison_count(filename: str) -> float:
     """Get the time-decayed sum of weights (impact factors) of all comparisons for an image.
     Newest comparisons have weight * 1.0, 10th newest has weight * 0.5.

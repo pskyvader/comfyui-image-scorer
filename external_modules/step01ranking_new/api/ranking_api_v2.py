@@ -12,13 +12,19 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from flask import Blueprint, request, jsonify, current_app
-from database.images_table import get_all_images, get_image_count, get_image as get_img_data
+from database.images_table import (
+    get_all_images,
+    get_image_count,
+    get_image as get_img_data,
+)
 from shared.config import config
-from database.comparisons_table import get_total_comparisons, get_skipped_comparison_count
+from database.comparisons_table import (
+    get_total_comparisons,
+    get_skipped_comparison_count,
+)
 from algorithm import merge_sort_ranker
 from file_management.path_handler import sync_image_metadata_to_json
 from shared.graph import crystal_graph
-
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
 logger = logging.getLogger(__name__)
@@ -26,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 def _get_processor() -> Any:
     """Get the image processor from the current Flask app."""
-    return getattr(current_app, "image_processor", None) or current_app.extensions.get("image_processor")
+    return getattr(current_app, "image_processor", None) or current_app.extensions.get(
+        "image_processor"
+    )
 
 
 @ranking_bp.route("/status", methods=["GET"])
@@ -44,25 +52,27 @@ def get_status():
     """
     all_images = get_all_images()
     total = len(all_images)
-    
+
     if total == 0:
-        return jsonify({
-            "total_images": 0,
-            "ranked_images": 0,
-            "unranked_images": 0,
-            "total_comparisons": 0,
-            "skipped_comparisons": 0,
-            "average_confidence": 0.0,
-            "min_images": int(config["ranking"]["lru_size"]),
-            "current_target": 1
-        })
+        return jsonify(
+            {
+                "total_images": 0,
+                "ranked_images": 0,
+                "unranked_images": 0,
+                "total_comparisons": 0,
+                "skipped_comparisons": 0,
+                "average_confidence": 0.0,
+                "min_images": int(config["ranking"]["lru_size"]),
+                "current_target": 1,
+            }
+        )
 
     comp_counts = [img["comparison_count"] for img in all_images]
     min_comps = min(comp_counts)
-    
+
     # Ranked is now defined as images that have moved past the current baseline
     ranked = len([img for img in all_images if img["comparison_count"] > min_comps])
-    
+
     unranked = total - ranked
     total_comps = get_total_comparisons()
 
@@ -84,7 +94,7 @@ def get_status():
             "average_confidence": round(avg_conf, 3),
             "min_images": min_images,
             "current_target": min_comps + 1,
-            "baseline_comparisons": min_comps
+            "baseline_comparisons": min_comps,
         }
     )
 
@@ -119,7 +129,9 @@ def get_next_pair():
     logger.debug(f"[NEXT-PAIR] Excluded set: {len(excluded_files_set)} images")
 
     for attempt in range(max_retries):
-        pair = merge_sort_ranker.select_pair_for_comparison(exclude_set=excluded_files_set)
+        pair = merge_sort_ranker.select_pair_for_comparison(
+            exclude_set=excluded_files_set
+        )
         if not pair:
             logger.debug(f"[NEXT-PAIR] No pair found after {attempt+1} attempts")
             return "", 204
@@ -127,7 +139,9 @@ def get_next_pair():
         filename_a, filename_b = pair
 
         if filename_a in excluded_files_set or filename_b in excluded_files_set:
-            logger.debug(f"[NEXT-PAIR] Retry: {filename_a} or {filename_b} in excluded set")
+            logger.debug(
+                f"[NEXT-PAIR] Retry: {filename_a} or {filename_b} in excluded set"
+            )
             continue
 
         if filename_a == filename_b:
@@ -144,6 +158,9 @@ def get_next_pair():
             with processor.recent_lock:
                 processor.recent_images.append(filename_a)
                 processor.recent_images.append(filename_b)
+                if len(processor.recent_images) >= lru_size:
+                    for _ in range(int(len(processor.recent_images) * 0.75)):
+                        processor.recent_images.pop()
 
         return jsonify(
             {
@@ -159,13 +176,19 @@ def get_next_pair():
                     "confidence": round(data_b["confidence"], 4),
                     "comparison_count": data_b["comparison_count"],
                 },
-                "collapsable": merge_sort_ranker.is_collapsable_pair(filename_a, filename_b),
+                "collapsable": merge_sort_ranker.is_collapsable_pair(
+                    filename_a, filename_b
+                ),
                 "rationale": {
                     "seed": data_a["filename"],
                     "partner": data_b["filename"],
                     "score_diff": round(abs(data_a["score"] - data_b["score"]), 4),
-                    "common_confidence": round(max(data_a["confidence"], data_b["confidence"]), 4),
-                    "allowed_range": round(max(0.05, 1.0 * math.exp(-0.3 * data_a["comparison_count"])), 4),
+                    "common_confidence": round(
+                        max(data_a["confidence"], data_b["confidence"]), 4
+                    ),
+                    "allowed_range": round(
+                        max(0.05, 1.0 * math.exp(-0.3 * data_a["comparison_count"])), 4
+                    ),
                     "strategy": "Lowest Common Confidence + Chain Ends + Score Gap Cap",
                 },
             }
@@ -210,17 +233,26 @@ def submit_comparison():
     success = merge_sort_ranker.record_comparison(filename_a, filename_b, winner)
 
     if not success:
+        logger.error(
+            f"[SUBMIT] Failed to record comparison: {filename_a} vs {filename_b}, winner: {winner}"
+        )
         return jsonify({"error": "Failed to record comparison"}), 500
 
     # Submitted images should remain in the LRU cache to prevent immediate re-selection.
     # The cache automatically manages removal of oldest items when the limit is reached.
 
-
     data_a = get_img_data(filename_a)
     data_b = get_img_data(filename_b)
 
     if data_a is None or data_b is None:
+        logger.error(
+            f"[SUBMIT] Image not found after comparison: {filename_a} or {filename_b}"
+        )
         return jsonify({"error": "Image not found"}), 404
+
+    logger.info(
+        f"[SUBMIT] Comparison successful. A: {filename_a} (score: {data_a['score']:.3f}), B: {filename_b} (score: {data_b['score']:.3f}), Winner: {winner}"
+    )
 
     return jsonify(
         {
@@ -250,48 +282,70 @@ def get_graph_data():
         from shared.graph import crystal_graph
         from database.images_table import get_all_images
         from database.comparisons_table import get_all_comparisons
+
         logger.info("Generating graph data...")
-        
+
         # Check database directly
         raw_images = get_all_images()
         raw_comparisons = get_all_comparisons()
-        logger.info(f"DB check: {len(raw_images)} raw images, {len(raw_comparisons)} raw comparisons")
-        
+        logger.info(
+            f"DB check: {len(raw_images)} raw images, {len(raw_comparisons)} raw comparisons"
+        )
+
         # Use the global crystal_graph instance
         crystal_graph.build_from_database()
-        
-        logger.info(f"Graph built: {len(crystal_graph.images)} nodes and {len(crystal_graph.comparisons)} comparisons")
+
+        logger.info(
+            f"Graph built: {len(crystal_graph.images)} nodes and {len(crystal_graph.comparisons)} comparisons"
+        )
         logger.info(f"Components: {crystal_graph.chain_members_by_component}")
-        
+
         # Prepare simplified nodes and edges for frontend visualization
         nodes = []
         for filename, img_data in crystal_graph.images.items():
-            nodes.append({
-                "id": filename,
-                "score": round(img_data["score"], 4) if img_data and img_data.get("score") is not None else 0.5,
-                "confidence": round(img_data["confidence"], 4) if img_data and img_data.get("confidence") is not None else 0.0,
-                "height": crystal_graph.height.get(filename, 0),
-                "component": crystal_graph.component_by_filename.get(filename)
-            })
-            
+            nodes.append(
+                {
+                    "id": filename,
+                    "score": (
+                        round(img_data["score"], 4)
+                        if img_data and img_data.get("score") is not None
+                        else 0.5
+                    ),
+                    "confidence": (
+                        round(img_data["confidence"], 4)
+                        if img_data and img_data.get("confidence") is not None
+                        else 0.0
+                    ),
+                    "height": crystal_graph.height.get(filename, 0),
+                    "component": crystal_graph.component_by_filename.get(filename),
+                    "comparison_count": img_data["comparison_count"],
+                }
+            )
+
         edges = []
         for comp in crystal_graph.comparisons:
             winner = comp["winner"]
             filename_a = comp["filename_a"]
             filename_b = comp["filename_b"]
             loser = filename_b if winner == filename_a else filename_a
-            edges.append({
-                "source": winner,
-                "target": loser,
-                "weight": float(comp.get("weight", 1.0) or 1.0)
-            })
-            
-        logger.info(f"Serialization complete. Returning {len(nodes)} nodes and {len(edges)} edges.")
-        return jsonify({
-            "nodes": nodes,
-            "edges": edges,
-            "components": crystal_graph.chain_members_by_component
-        })
+            edges.append(
+                {
+                    "source": winner,
+                    "target": loser,
+                    "weight": float(comp.get("weight", 1.0) or 1.0),
+                }
+            )
+
+        logger.info(
+            f"Serialization complete. Returning {len(nodes)} nodes and {len(edges)} edges."
+        )
+        return jsonify(
+            {
+                "nodes": nodes,
+                "edges": edges,
+                "components": crystal_graph.chain_members_by_component,
+            }
+        )
     except Exception as e:
         logger.error(f"Error in get_graph_data: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -311,12 +365,18 @@ def sync_all_to_json():
         count = 0
         errors = 0
 
+        # Fetch all comparisons once for efficiency
+        from database.comparisons_table import get_all_comparisons
+
+        all_comparisons = get_all_comparisons()
+
         for img in images:
             success = sync_image_metadata_to_json(
                 img["filename"],
                 img["score"],
                 img["confidence"],
                 img["comparison_count"],
+                all_comparisons=all_comparisons,
             )
             if success:
                 count += 1

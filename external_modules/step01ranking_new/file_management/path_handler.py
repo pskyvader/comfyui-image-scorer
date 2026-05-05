@@ -88,7 +88,10 @@ def append_comparison_history_to_json(
     new_score: float | None = None,
     new_confidence: float | None = None,
 ) -> bool:
-    """Append a comparison result to the image's JSON metadata."""
+    """Sync full comparison history from DB to JSON metadata.
+    Since DB is the source of truth, we rebuild history entirely from DB.
+    This ensures deleted comparisons are permanently removed from JSON as well.
+    """
 
     img_path = find_image_path(filename)
     if not img_path:
@@ -109,19 +112,27 @@ def append_comparison_history_to_json(
         logger.exception(f"Failed to read JSON metadata for {filename}: {e}")
         return False
 
-    history = data.get("comparison_history", [])
-    if not isinstance(history, list):
-        logger.warning(
-            f"Invalid comparison_history format for {filename}; resetting to empty list."
-        )
-        history = []
+    # Rebuild comparison history entirely from database
+    # This ensures deleted comparisons stay deleted
+    from database.comparisons_table import get_all_comparisons
+    all_comparisons = get_all_comparisons()
+    history = []
+    for comp in all_comparisons:
+        if comp["filename_a"] == filename or comp["filename_b"] == filename:
+            is_winner = comp["winner"] == filename
+            other = comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+            history.append({
+                "comparison_id": comp["id"],
+                "other": other,
+                "winner": is_winner,
+                "weight": float(comp["weight"]) if comp["weight"] is not None else 1.0,
+                "transitive_depth": int(comp["transitive_depth"]) if comp["transitive_depth"] is not None else 0,
+                "timestamp": comp["timestamp"],
+            })
 
-    if "timestamp" not in comparison_data:
-        comparison_data["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-
-    history.append(comparison_data)
     data["comparison_history"] = history
     data["comparison_count"] = len(history)
+    logger.info(f"[HISTORY SYNC] Rebuilt {len(history)} comparison history entries for {filename} from database")
 
     if new_score is not None:
         data["score"] = new_score
@@ -188,10 +199,12 @@ def append_comparison_history_to_json(
 
 
 def sync_image_metadata_to_json(
-    filename: str, score: float, confidence: float, comparison_count: int
+    filename: str, score: float, confidence: float, comparison_count: int, all_comparisons: list | None = None
 ) -> bool:
-    """Updates JSON score, confidence, and comparison_count from DB.
-    Does NOT modify history list. Used for full database backups.
+    """Updates JSON metadata from DB including score, confidence, comparison_count, and full comparison history.
+    
+    Args:
+        all_comparisons: Optional pre-fetched list of all comparisons. If not provided, will fetch from DB.
     """
     img_path = find_image_path(filename)
     if not img_path:
@@ -204,9 +217,35 @@ def sync_image_metadata_to_json(
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # Update basic fields
         data["score"] = score
         data["confidence"] = confidence
         data["comparison_count"] = comparison_count
+
+        # Rebuild comparison history from database
+        if all_comparisons is None:
+            from database.comparisons_table import get_all_comparisons
+            all_comparisons = get_all_comparisons()
+        
+        history = []
+        for comp in all_comparisons:
+            # Check if this image is involved in the comparison
+            if comp["filename_a"] == filename or comp["filename_b"] == filename:
+                # Determine if this image won
+                is_winner = comp["winner"] == filename
+                # The "other" image is the one that isn't this filename
+                other = comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+                history.append({
+                    "comparison_id": comp["id"],
+                    "other": other,
+                    "winner": is_winner,
+                    "weight": float(comp["weight"]) if comp["weight"] is not None else 1.0,
+                    "transitive_depth": int(comp["transitive_depth"]) if comp["transitive_depth"] is not None else 0,
+                    "timestamp": comp["timestamp"],
+                })
+
+        data["comparison_history"] = history
+        data["comparison_count"] = len(history)
 
         # Atomic write
         tmp = json_path.parent / (json_path.name + ".tmp")

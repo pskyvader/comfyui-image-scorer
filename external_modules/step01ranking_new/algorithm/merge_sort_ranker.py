@@ -145,17 +145,20 @@ def select_pair_for_comparison(
     candidate_filenames = {img["filename"] for img in candidate_images}
 
     # Priority 1 & 2: Start from lowest height (shortest chains)
-    all_heights = sorted(crystal_graph.nodes_by_height.keys())
+    all_heights: list[int] = sorted(crystal_graph.nodes_by_height.keys())
+    logger.debug(f"[NEXT-PAIR] All heights: {all_heights}")
 
     for height in all_heights:
-        nodes_at_height = [
+        nodes_at_height: list[str] = [
             n
             for n in crystal_graph.get_images_by_height(height)
             if n in candidate_filenames
         ]
+        logger.debug(f"[NEXT-PAIR] Nodes at height {height}: {len(nodes_at_height)}")
 
         if len(nodes_at_height) < 2:
             continue
+        random.shuffle(nodes_at_height)
 
         # Priority 2: Check for collapsable pairs (multiple top/bottom nodes)
         pair = _find_collapsable_pair_at_height(nodes_at_height, height)
@@ -374,7 +377,13 @@ def record_comparison(
         timestamp=ts,
     )
     if not comp_id:
+        logger.error(
+            f"[RECORD] Failed to insert comparison into DB: {filename_a} vs {filename_b}, winner: {winner}"
+        )
         return False
+    logger.info(
+        f"[RECORD] Inserted comparison ID {comp_id}: {filename_a} vs {filename_b}, winner: {winner}, impact factor: {impact_factor}"
+    )
 
     update_image_score(winner_filename, winner_data["score"])
     update_image_confidence(
@@ -391,6 +400,9 @@ def record_comparison(
             loser_filename, loser_data["score"], loser_data["comparison_count"]
         ),
         loser_data["comparison_count"],
+    )
+    logger.debug(
+        f"[RECORD] Updated scores - Winner {winner_filename}: {winner_data['score']:.3f}, Loser {loser_filename}: {loser_data['score']:.3f}"
     )
 
     entry_winner = {
@@ -432,10 +444,16 @@ def record_comparison(
     )
 
     if not winner_json_saved or not loser_json_saved:
+        logger.error(
+            f"[RECORD] History sync failed for comparison {comp_id} (winner: {winner_filename}, loser: {loser_filename})"
+        )
         raise RuntimeError(
             f"Comparison history save incomplete for comp_id={comp_id} "
             f"{winner_filename}<->{loser_filename}: winner_saved={winner_json_saved}, loser_saved={loser_json_saved}"
         )
+    logger.info(
+        f"[RECORD] Successfully synced history to JSON for comparison {comp_id}"
+    )
 
     # Invalidate crystal_graph cache after recording
     crystal_graph._built_at = None
