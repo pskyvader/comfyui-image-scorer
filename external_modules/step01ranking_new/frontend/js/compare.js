@@ -1,272 +1,298 @@
-// ═══════════════════════════════════════════════════════════════════
-// COMPARE MODE
-// ═══════════════════════════════════════════════════════════════════
+/**
+ * Comparison Mode Logic
+ */
 
-const compareMode = {
-    // State
-    compareLeftImage: null,
-    compareRightImage: null,
-    compareLeftData: null,
-    compareRightData: null,
-    sameComponent: null,
-    fetching: false,
+class CompareMode {
+    constructor() {
+        this.currentPair = null;
+        this.nextPair = null;
+        this.isLoading = false;
+        
+        // These will be populated in init()
+        this.elements = {};
+    }
 
-    // DOM elements (cached on init)
-    container: null,
-    loader: null,
-    manualScoreInput: null,
-    graphIndicator: null,
+    cacheElements() {
+        this.elements = {
+            status: document.getElementById("comparison-status"),
+            leftImg: document.getElementById("left-image"),
+            rightImg: document.getElementById("right-image"),
+            leftFilename: document.getElementById("left-filename"),
+            rightFilename: document.getElementById("right-filename"),
+            leftScore: document.getElementById("left-score"),
+            rightScore: document.getElementById("right-score"),
+            leftChain: document.getElementById("left-chain"),
+            rightChain: document.getElementById("right-chain"),
+            leftComp: document.getElementById("left-compsize"),
+            rightComp: document.getElementById("right-compsize"),
+            leftComparisons: document.getElementById("left-comparisons"),
+            rightComparisons: document.getElementById("right-comparisons"),
+            leftButton: document.getElementById("left-button"),
+            rightButton: document.getElementById("right-button"),
+            skipButton: document.getElementById("skip-button"),
+            statsTotal: document.getElementById("stat-total"),
+            statsRanked: document.getElementById("stat-ranked"),
+            statsComparisons: document.getElementById("stat-comparisons"),
+            statsSkipped: document.getElementById("stat-skipped"),
+            loadingOverlay: document.getElementById("loading-overlay"),
+            debugBtn: document.getElementById("toggle-debug"),
+            debugPanel: document.getElementById("debug-panel"),
+            debugContent: document.getElementById("debug-content"),
+            graphIndicator: document.getElementById("graph-indicator"),
+            graphComponentId: document.getElementById("graph-component-id"),
+            graphCount: document.getElementById("graph-count"),
+            leftCard: document.querySelector(".left-card"),
+            rightCard: document.querySelector(".right-card"),
+            collapsibleIndicator: document.getElementById("collapsible-indicator")
+        };
+    }
 
-    // Initialize the mode
-    async init() {
-        this.container = document.getElementById("compare-container");
-        this.loader = document.getElementById("loader");
-        this.manualScoreInput = this.container.querySelector("#manual_score");
-        this.graphIndicator = document.getElementById("graph-indicator");
+    attachEventListeners() {
+        const { leftButton, rightButton, skipButton, debugBtn, leftCard, rightCard } = this.elements;
 
-        // Load first comparison pair
-        this.fetchNextComparePair();
-    },
+        leftButton.onclick = () => this.submitVote("left");
+        rightButton.onclick = () => this.submitVote("right");
+        
+        if (leftCard) leftCard.onclick = (e) => { if (e.target !== leftButton) this.submitVote("left"); };
+        if (rightCard) rightCard.onclick = (e) => { if (e.target !== rightButton) this.submitVote("right"); };
+        
+        if (skipButton) skipButton.onclick = () => this.loadPair();
+        if (debugBtn) debugBtn.onclick = () => this.elements.debugPanel.classList.toggle("hidden");
+    }
 
-    // Status update from main polling
-    onStatusUpdate(status) {
-        const scanFinished = status.cached >= status.total && status.total > 0;
+    async init(params) {
+        console.log("Initializing CompareMode...");
+        this.cacheElements();
+        this.attachEventListeners();
+        
+        const leftFile = params?.get('left');
+        const rightFile = params?.get('right');
 
-        // For compare mode, the metric is scored_uncompared, not unscored
-        if (status.scored_uncompared === 0 && !scanFinished) {
-            // Scanning and nothing to compare
-            this.loader.classList.remove("hidden");
-            this.loader.querySelector(".loader-text").innerText = `Scanning images… (${status.cached}/${status.total} found)`;
-        } else if (status.scored_uncompared === 0 && !this.fetching) {
-            // No images to compare
-            this.loader.classList.remove("hidden");
-            if (scanFinished) {
-                this.loader.querySelector(".loader-text").innerText = "All images compared!";
-                this.loader.querySelector(".spinner").classList.add("hidden");
-            } else {
-                this.loader.querySelector(".loader-text").innerText = "No images to compare yet…";
+        if (leftFile && rightFile) {
+            this.updateStatus("Loading requested pair...");
+            try {
+                const [leftData, rightData] = await Promise.all([
+                    api.getImage(leftFile),
+                    api.getImage(rightFile)
+                ]);
+                this.currentPair = {
+                    left: leftData,
+                    right: rightData,
+                    rationale: {
+                        strategy: "Manual Selection (Chain Map)",
+                        score_diff: Math.abs(leftData.score - rightData.score).toFixed(4),
+                        seed: leftFile
+                    }
+                };
+                await this.renderPair();
+            } catch (e) {
+                console.error("Manual load failed:", e);
+                await this.loadPair();
             }
-        } else if (status.scored_uncompared > 0 && !this.fetching) {
-            // Images available and not scanning
-            this.loader.classList.add("hidden");
-        }
-    },
-
-    // Fetch next pair to compare
-    async fetchNextComparePair() {
-        this.fetching = true;
-        this.loader.classList.remove("hidden");
-        this.loader.querySelector(".loader-text").innerText = "Finding pair to compare…";
-
-        // Clear previous state BEFORE fetching to prevent stale data showing on error
-        this.compareLeftImage = null;
-        this.compareRightImage = null;
-        this.compareLeftData = null;
-        this.compareRightData = null;
-
-        try {
-            const res = await fetch(`/api/v2/ranking/next-pair`);
-
-            // Check for empty response (no pairs available)
-            const text = await res.text();
-            if (!text || text === "{}" || res.status === 204) {
-                this.loader.querySelector(".loader-text").innerText = "No more pairs to compare!";
-                resumePolling();
-                this.fetching = false;
-                return;
-            }
-
-            const data = JSON.parse(text);
-            if (data.error) {
-                this.loader.querySelector(".loader-text").innerText = data.message || data.error;
-                resumePolling();
-                this.fetching = false;
-                return;
-            }
-
-            // Debug log
-            console.log("[NEXT-PAIR] Got pair:", data.left.filename, "vs", data.right.filename);
-
-            this.compareLeftImage = data.left.filename;
-            this.compareRightImage = data.right.filename;
-            this.compareLeftData = data.left;
-            this.compareRightData = data.right;
-            this.sameComponent = data.same_component || null;
-
-            this.renderComparePair();
-            this.loader.classList.add("hidden");
-            resumePolling();
-            this.fetching = false;
-        } catch (e) {
-            console.error("Failed to fetch compare pair:", e);
-            this.loader.querySelector(".loader-text").innerText = "Error fetching pair…";
-            resumePolling();
-            this.fetching = false;
-        }
-    },
-
-    // Render the comparison pair
-    renderComparePair() {
-        const leftImg = this.container.querySelector("#compare-left");
-        const rightImg = this.container.querySelector("#compare-right");
-
-        // Add timestamp to force fresh fetch (cache buster)
-        const ts = Date.now();
-        const leftUrl = "/output/ranked/" + encodeURIComponent(this.compareLeftImage.replace(/\\/g, "/")) + "?t=" + ts;
-        const rightUrl = "/output/ranked/" + encodeURIComponent(this.compareRightImage.replace(/\\/g, "/")) + "?t=" + ts;
-
-        // Debug log
-        console.log("[RENDER] Setting images:", leftUrl, rightUrl);
-
-        // Force reload by setting src after clearing
-        leftImg.src = "";
-        leftImg.src = leftUrl;
-
-        rightImg.src = "";
-        rightImg.src = rightUrl;
-
-        this.container.querySelector("#left_file_id").innerText = this.compareLeftImage;
-        this.container.querySelector("#right_file_id").innerText = this.compareRightImage;
-
-        // Handle both v2 API (score, confidence, comparison_count) and old API (score, etc)
-        this.container.querySelector("#compare-left-score").innerText = this.compareLeftData.score ?? "0.5";
-        this.container.querySelector("#compare-left-modifier").innerText = this.compareLeftData.confidence ?? "-";
-        this.container.querySelector("#compare-left-count").innerText = this.compareLeftData.comparison_count ?? 0;
-        this.container.querySelector("#compare-left-volatility").innerText = "-";
-
-        this.container.querySelector("#compare-right-score").innerText = this.compareRightData.score ?? "0.5";
-        this.container.querySelector("#compare-right-modifier").innerText = this.compareRightData.confidence ?? "-";
-        this.container.querySelector("#compare-right-count").innerText = this.compareRightData.comparison_count ?? 0;
-        this.container.querySelector("#compare-right-volatility").innerText = "-";
-
-        // Update graph indicator
-        this.updateGraphIndicator();
-
-        // Show comparison buttons
-        const buttons = this.container.querySelectorAll(".btn-compare");
-        buttons.forEach(btn => btn.classList.remove("hidden"));
-    },
-
-    // Update graph indicator based on component information
-    updateGraphIndicator() {
-        const indicator = this.graphIndicator;
-        console.log("indicator", indicator);
-        if (!indicator) return;
-
-        const sameComp = this.sameComponent;
-
-        if (sameComp && sameComp.id !== null && sameComp.id !== undefined) {
-            indicator.classList.remove("hidden");
-            indicator.querySelector(".graph-component-id").innerText = sameComp.id;
-            indicator.querySelector(".graph-count").innerText = `(${sameComp.size} images)`;
         } else {
-            indicator.classList.add("hidden");
+            await this.loadPair();
         }
-    },
 
-    // Submit comparison result
-    async submitComparison(winner) {
-        const buttons = this.container.querySelectorAll(".btn-compare");
-        buttons.forEach(btn => btn.classList.add("hidden"));
+        this.preloadNextPair();
+        this.updateStats();
+    }
 
-        this.loader.classList.remove("hidden");
-        this.loader.querySelector(".loader-text").innerText = "Submitting comparison…";
-
-        // Determine winner and loser based on which button was clicked
-        const winnerImage = winner === "left" ? this.compareLeftImage : this.compareRightImage;
-        const loserImage = winner === "left" ? this.compareRightImage : this.compareLeftImage;
-        const winnerData = winner === "left" ? this.compareLeftData : this.compareRightData;
-        const loserData = winner === "left" ? this.compareRightData : this.compareLeftData;
+    async loadPair() {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        this.showLoading(true);
+        this.updateStatus("Finding next pair...");
 
         try {
-            const body = JSON.stringify({
-                filename_a: this.compareLeftImage,
-                filename_b: this.compareRightImage,
-                winner: winnerImage,
-            });
-
-            // SUBMIT FIRST, then fetch next pair
-            console.log("[SUBMIT] Sending:", this.compareLeftImage, "vs", this.compareRightImage, "winner:", winnerImage);
-            await this.fetchNextComparePair();
-
-            const res = await fetch("/api/v2/ranking/submit-comparison", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: body,
-            });
-
-            const result = await res.json();
-            if (result.error) {
-                console.error("[SUBMIT] Error:", result.error);
-                this.loader.querySelector(".loader-text").innerText = `Error: ${result.error}`;
-                buttons.forEach(btn => btn.classList.remove("hidden"));
-                // Clear the pair since submission failed
-                this.compareLeftImage = null;
-                this.compareRightImage = null;
+            const pair = await api.getNextPair();
+            if (!pair) {
+                this.updateStatus("No more pairs to compare!");
+                this.elements.leftButton.disabled = true;
+                this.elements.rightButton.disabled = true;
+                this.showLoading(false);
                 return;
             }
-
-            console.log("[SUBMIT] Success, fetching next...");
-
-            // Update local data with returned scores/confidence
-            if (result.images) {
-                this.compareLeftData = result.images[this.compareLeftImage] || this.compareLeftData;
-                this.compareRightData = result.images[this.compareRightImage] || this.compareRightData;
-            }
-
-            // Only fetch next pair after successful submission
-            this.loader.querySelector(".loader-text").innerText = "Loading next pair…";
-            // await this.fetchNextComparePair();
-
-            // Wait for images to actually load before hiding loader
-            // await new Promise(resolve => {
-            //     const leftImg = this.container.querySelector("#compare-left");
-            //     const rightImg = this.container.querySelector("#compare-right");
-            //     let loaded = 0;
-            //     const onLoad = () => {
-            //         loaded++;
-            //         if (loaded >= 2) resolve();
-            //     };
-            //     leftImg.onload = onLoad;
-            //     rightImg.onload = onLoad;
-            //     // Fallback timeout in case onload doesn't fire
-            //     setTimeout(resolve, 500);
-            // });
-
+            this.currentPair = pair;
+            await this.renderPair();
+            this.updateStatus("Ready");
         } catch (e) {
-            console.error("Error submitting comparison:", e);
-            this.loader.querySelector(".loader-text").innerText = "Error submitting comparison…";
-            buttons.forEach(btn => btn.classList.remove("hidden"));
+            this.updateStatus(`Error: ${e.message}`);
+            Utils.showToast(e.message, "error");
+        } finally {
+            this.isLoading = false;
+            this.showLoading(false);
         }
-    },
+    }
 
-    // Skip current comparison pair
-    skipComparison() {
-        this.fetchNextComparePair();
-    },
-};
+    async renderPair() {
+        const { left, right, pair_meta, collapsable } = this.currentPair;
+        const els = this.elements;
 
-// ═══════════════════════════════════════════════════════════════════
-// STATE CLEANUP FOR MODE SWITCHING
-// ═══════════════════════════════════════════════════════════════════
+        els.leftImg.classList.add("opacity-0");
+        els.rightImg.classList.add("opacity-0");
 
-async function clearCompareModeState() {
-    /**
-     * Clear all compare mode state when switching away from this mode
-     */
-    try {
-        // Clear the compareMode state
-        compareMode.comparisons = [];
-        compareMode.imageA = null;
-        compareMode.imageB = null;
-        compareMode.loadingComparison = false;
+        els.leftFilename.textContent = left.filename;
+        els.rightFilename.textContent = right.filename;
+        
+        // Update footer stats
+        if (this.currentPair.global_stats) {
+            const gs = this.currentPair.global_stats;
+            const totalEl = document.getElementById("stat-total");
+            const rankedEl = document.getElementById("stat-ranked");
+            const levelEl = document.getElementById("stat-level");
+            const compsEl = document.getElementById("stat-comparisons");
+            
+            if (totalEl) totalEl.textContent = gs.total_images.toLocaleString();
+            if (rankedEl) rankedEl.textContent = gs.level_count.toLocaleString();
+            if (levelEl) levelEl.textContent = gs.target_level;
+            if (compsEl) compsEl.textContent = gs.total_comparisons.toLocaleString();
+        }
 
-        // Clear DOM references
-        compareMode.imgA = null;
-        compareMode.imgB = null;
-        compareMode.controls = null;
-        compareMode.loader = null;
-    } catch (e) {
-        console.error("Error clearing compare mode state:", e);
+        // Single line stats separated by |
+        const statsText = `Score: ${Utils.formatScore(left.score)} | Chain: ${left.chain_length ?? "-"} | Comp: ${left.component_size ?? "-"} | Comps: ${left.comparison_count ?? 0}`;
+        const rightStatsText = `Score: ${Utils.formatScore(right.score)} | Chain: ${right.chain_length ?? "-"} | Comp: ${right.component_size ?? "-"} | Comps: ${right.comparison_count ?? 0}`;
+        
+        const leftStatsEl = document.getElementById("left-stats-line");
+        const rightStatsEl = document.getElementById("right-stats-line");
+        if (leftStatsEl) leftStatsEl.textContent = statsText;
+        if (rightStatsEl) rightStatsEl.textContent = rightStatsText;
+
+        // Update borders for collapsable
+        if (collapsable) {
+            els.leftCard.classList.add("collapsible-card");
+            els.rightCard.classList.add("collapsible-card");
+            if (els.collapsibleIndicator) els.collapsibleIndicator.classList.remove("hidden");
+        } else {
+            els.leftCard.classList.remove("collapsible-card");
+            els.rightCard.classList.remove("collapsible-card");
+            if (els.collapsibleIndicator) els.collapsibleIndicator.classList.add("hidden");
+        }
+
+        // Debug/Pair Meta Rationale - Enhanced Grid Alignment
+        const rationale = pair_meta || this.currentPair.rationale;
+        if (els.debugContent && rationale) {
+            els.debugContent.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-start">
+                    <table class="w-full text-left border-collapse">
+                        <thead><tr><th colspan="2" class="text-purple-400 border-b border-purple-500/20 pb-2 mb-2 uppercase tracking-widest text-[9px]">Selection Logic</th></tr></thead>
+                        <tbody class="text-[10px]">
+                            <tr class="h-6">
+                                <td class="text-gray-500 pr-4">Strategy</td>
+                                <td class="text-white font-bold">${rationale.pair_type || 'Standard'}</td>
+                            </tr>
+                            <tr class="h-6">
+                                <td class="text-gray-500 pr-4">Chain Level</td>
+                                <td class="text-white">${rationale.chain_level ?? '-'}</td>
+                            </tr>
+                            <tr class="h-6">
+                                <td class="text-gray-500 pr-4">Comp Size</td>
+                                <td class="text-white">${rationale.left_component_size || '-'} vs ${rationale.right_component_size || '-'}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr>
+                                <th class="text-purple-400 border-b border-purple-500/20 pb-2 mb-2 uppercase tracking-widest text-[9px]">Node Metrics</th>
+                                <th class="text-[8px] text-gray-500 text-right uppercase tracking-tighter">Left</th>
+                                <th class="text-[8px] text-gray-500 text-right uppercase tracking-tighter">Right</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-[10px]">
+                            <tr class="h-6 border-b border-white/5">
+                                <td class="text-gray-500 pr-4">Score</td>
+                                <td class="text-white text-right font-mono">${Utils.formatScore(left.score)}</td>
+                                <td class="text-white text-right font-mono">${Utils.formatScore(right.score)}</td>
+                            </tr>
+                            <tr class="h-6 border-b border-white/5">
+                                <td class="text-gray-500 pr-4">Chain Depth</td>
+                                <td class="text-white text-right">${left.chain_length || 0}</td>
+                                <td class="text-white text-right">${right.chain_length || 0}</td>
+                            </tr>
+                            <tr class="h-6 border-b border-white/5">
+                                <td class="text-gray-500 pr-4">Comparisons</td>
+                                <td class="text-white text-right">${left.comparison_count || 0}</td>
+                                <td class="text-white text-right">${right.comparison_count || 0}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        els.leftImg.src = `/images/${encodeURIComponent(left.filename)}`;
+        els.rightImg.src = `/images/${encodeURIComponent(right.filename)}`;
+
+        await Promise.all([
+            Utils.preloadImage(els.leftImg.src),
+            Utils.preloadImage(els.rightImg.src)
+        ]);
+
+        els.leftImg.classList.remove("opacity-0");
+        els.rightImg.classList.remove("opacity-0");
+        els.leftImg.classList.add("opacity-100");
+        els.rightImg.classList.add("opacity-100");
+    }
+
+    async submitVote(winner) {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        
+        const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
+        
+        try {
+            // Optimistically update
+            api.submitComparison(this.currentPair.left.filename, this.currentPair.right.filename, winnerFilename);
+            
+            Utils.showToast("Vote recorded!", "success");
+            
+            if (this.nextPair) {
+                this.currentPair = this.nextPair;
+                this.nextPair = null;
+                await this.renderPair();
+                this.preloadNextPair();
+            } else {
+                await this.loadPair();
+            }
+            this.updateStats();
+        } catch (e) {
+            Utils.showToast(e.message, "error");
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    async preloadNextPair() {
+        try {
+            this.nextPair = await api.getNextPair();
+            if (this.nextPair) {
+                Utils.preloadImage(`/images/${encodeURIComponent(this.nextPair.left.filename)}`);
+                Utils.preloadImage(`/images/${encodeURIComponent(this.nextPair.right.filename)}`);
+            }
+        } catch (e) { console.warn("Preload failed", e); }
+    }
+
+    showLoading(show) {
+        if (this.elements.loadingOverlay) {
+            this.elements.loadingOverlay.style.opacity = show ? "1" : "0";
+            this.elements.loadingOverlay.style.pointerEvents = show ? "auto" : "none";
+        }
+    }
+
+    updateStatus(msg) {
+        if (this.elements.status) this.elements.status.textContent = msg;
+    }
+
+    async updateStats() {
+        try {
+            const status = await api.getStatus();
+            const els = this.elements;
+            if (els.statsTotal) els.statsTotal.textContent = status.total_images;
+            if (els.statsRanked) els.statsRanked.textContent = status.ranked_images;
+            if (els.statsComparisons) els.statsComparisons.textContent = status.total_comparisons;
+            if (els.statsSkipped) els.statsSkipped.textContent = status.skipped_comparisons || 0;
+        } catch (e) {}
     }
 }
+
+window.compareMode = new CompareMode();

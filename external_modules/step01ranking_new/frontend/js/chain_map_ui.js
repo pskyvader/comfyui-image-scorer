@@ -1,38 +1,56 @@
-// Logic for chain map visualization using D3.js
+/**
+ * Chain Map UI Logic (Canvas-based for Performance)
+ */
 
 class ChainMapUI {
     static config = {
         visuals: {
             nodeMinRadius: 3,
-            nodeCountScale: 1.0,
-            scoreColors: ["#ef4444", "#eab308", "#22c55e"],
-            scoreDomain: [0, 0.5, 1],
             highlightColor: "#f472b6",
+            linkVisibilityZoomThreshold: 0.1,
+            linkGlobalOpacity: 0.25,
+            drawLinks: true,
+            progressiveReveal: true,
+            enablePointerHits: true
         },
         interaction: {
-            zoomExtent: [0.001, 2],
+            zoomExtent: [0.005, 5],
             interactThreshold: 0.01,
             transitionDuration: 750,
-            zoomToScale: 2,
         },
         filters: {
-            minLengthSliderMax: 20,
+            sliderMax: 30,
         },
     };
 
     constructor() {
-        console.log("ChainMapUI initializing...");
-        this.container = document.getElementById("graph-container");
-        if (!this.container) {
-            console.error("Critical: #graph-container not found");
-            return;
-        }
+        this.rawData = null;
+        this.chainSim = null;
+        this.renderer = null;
+        this.selectedNodes = [];
+        this.labelsOverridden = false;
+        this.width = 800;
+        this.height = 600;
+    }
 
+    cacheElements() {
+        this.container = document.getElementById("graph-container");
         this.loader = document.getElementById("loader");
         this.tooltip = document.getElementById("tooltip");
         this.refreshBtn = document.getElementById("refresh-btn");
         this.resetViewBtn = document.getElementById("reset-view-btn");
-        this.minLengthFilter = document.getElementById("min-length-filter");
+        
+        // Filters
+        this.minCompFilter = document.getElementById("min-comp-filter");
+        this.minCompVal = document.getElementById("min-comp-val");
+        this.maxCompFilter = document.getElementById("max-comp-filter");
+        this.maxCompVal = document.getElementById("max-comp-val");
+
+        this.minChainFilter = document.getElementById("min-chain-filter");
+        this.minChainVal = document.getElementById("min-chain-val");
+        this.maxChainFilter = document.getElementById("max-chain-filter");
+        this.maxChainVal = document.getElementById("max-chain-val");
+        
         this.playPauseBtn = document.getElementById("play-pause-btn");
         this.playIcon = document.getElementById("play-icon");
         this.pauseIcon = document.getElementById("pause-icon");
@@ -40,227 +58,330 @@ class ChainMapUI {
         this.statNodes = document.getElementById("stat-nodes");
         this.statEdges = document.getElementById("stat-edges");
         this.statChains = document.getElementById("stat-chains");
+        this.statComponents = document.getElementById("stat-components");
 
-        this.zoomInBtn = document.getElementById("zoom-in-btn");
-        this.zoomOutBtn = document.getElementById("zoom-out-btn");
-        this.zoomScaleEl = document.getElementById("zoom-scale");
         this.nodeDetails = document.getElementById("node-details");
-        this.minLengthVal = document.getElementById("min-length-val");
         this.compareSelectedBtn = document.getElementById("compare-selected-btn");
         this.selectedCountEl = document.getElementById("selected-count");
+        this.zoomScaleEl = document.getElementById("zoom-scale");
+        
+        this.width = this.container?.clientWidth || 800;
+        this.height = this.container?.clientHeight || 600;
+    }
 
-        this.width = this.container.clientWidth || 800;
-        this.height = this.container.clientHeight || 600;
+    async init() {
+        console.log("Initializing Canvas-based ChainMapUI...");
+        this.cacheElements();
+        if (!this.container) return;
 
+        this.setupSVGAndRenderer();
+        this.attachEventListeners();
+        await this.loadData();
+    }
+
+    cleanup() {
+        if (this.chainSim) this.chainSim.stop();
+        if (this.renderer) {
+            this.renderer.destroy();
+            this.renderer = null;
+        }
+        if (this.svg) {
+            this.svg.remove();
+            this.svg = null;
+        }
         this.rawData = null;
-        this.chainSim = null;
         this.selectedNodes = [];
+    }
 
-        if (typeof d3 === "undefined") {
-            console.error("Critical: D3 library not loaded");
-            Utils.showToast("D3 library failed to load", "error");
-            return;
+    setupSVGAndRenderer() {
+        if (this.svg) {
+            this.svg.remove();
         }
 
         this.svg = d3.select("#graph-container")
             .append("svg")
             .attr("width", "100%")
             .attr("height", "100%")
-            .attr("viewBox", [0, 0, this.width, this.height]);
+            .style("position", "absolute")
+            .style("top", 0)
+            .style("left", 0)
+            .style("z-index", 5)
+            .style("pointer-events", "none");
 
         this.g = this.svg.append("g");
+        
         this.zoom = d3.zoom()
-            .extent([[0, 0], [this.width, this.height]])
             .scaleExtent(ChainMapUI.config.interaction.zoomExtent)
-            .filter((event) => {
-                if (event.type === "click" || event.type === "dblclick") {
-                    return false;
-                }
-                if (event.button === 0 && event.target.tagName === "circle") {
-                    return false;
-                }
-                return true;
-            })
-            .on("zoom", event => this.handleZoom(event));
+            .on("zoom", (event) => {
+                this.g.attr("transform", event.transform);
+                if (this.zoomScaleEl) this.zoomScaleEl.textContent = `${event.transform.k.toFixed(2)}x`;
+                
+                // Update detail levels based on zoom thresholds
+                const k = event.transform.k;
+                this.renderer?.setDetailLevel({
+                    showLabels: this.labelsOverridden ? this.renderer.detailLevel.showLabels : k > 0.25,
+                    showArrows: k > 0.15,
+                    showNodeBorders: k > 0.2,
+                    showLinks: k > 0.05,
+                    labelCap: 500,
+                    arrowCap: 2000,
+                    zoom: k
+                });
+                this.renderer?.setTransform(event.transform);
+            });
+
         this.svg.call(this.zoom);
-
-        this.defs = this.svg.append("defs");
-        this.setupMarker("arrowhead-mid", "context-stroke", 10, 1);
-        this.setupMarker("arrowhead-legend", "#666", 12, 1);
-
-        this.init();
-    }
-
-    setupMarker(id, fill, size, opacity) {
-        this.defs.append("marker")
-            .attr("id", id)
-            .attr("viewBox", "0 -5 10 10")
-            .attr("refX", 5)
-            .attr("refY", 0)
-            .attr("orient", "auto")
-            .attr("markerWidth", size)
-            .attr("markerHeight", size)
-            .append("path")
-            .attr("d", "M 0,-5 L 10 ,0 L 0,5")
-            .attr("fill", fill)
-            .style("opacity", opacity);
-    }
-
-    async init() {
-        this.refreshBtn.addEventListener("click", () => this.loadData());
-        this.resetViewBtn.addEventListener("click", () => this.resetView(true));
-
-        const savedMinLen = localStorage.getItem("chainMap_minLen");
-        if (savedMinLen) {
-            this.minLengthFilter.value = savedMinLen;
-            this.minLengthVal.textContent = savedMinLen;
-        }
-
-        this.minLengthFilter.addEventListener("change", () => {
-            this.minLengthVal.textContent = this.minLengthFilter.value;
-            localStorage.setItem("chainMap_minLen", this.minLengthFilter.value);
-            this.applyFilters();
+        // Initialize high-performance Canvas renderer
+        this.renderer = new ChainMapRenderer({
+            container: this.container,
+            svg: this.svg,
+            g: this.g,
+            interaction: ChainMapUI.config.interaction
         });
 
-        this.minLengthFilter.addEventListener("input", () => {
-            this.minLengthVal.textContent = this.minLengthFilter.value;
-        });
+        // Bind zoom, drag and click to CANVAS
+        const canvas = d3.select(this.renderer.canvas);
+        
+        canvas.call(this.zoom)
+            .on("click", (event) => {
+                const p = d3.pointer(event, canvas.node());
+                const node = this.renderer?.hitTest({ x: p[0], y: p[1] });
+                if (node) {
+                    this.showNodeDetails(node);
+                    this.toggleSelection(node.id);
+                }
+            })
+            .on("dblclick.zoom", null);
 
-        this.playPauseBtn.addEventListener("click", () => this.toggleSimulation());
+        canvas.call(d3.drag()
+            .container(canvas.node())
+            .subject((event) => {
+                const p = d3.pointer(event, canvas.node());
+                return this.renderer?.hitTest({ x: p[0], y: p[1] });
+            })
+            .on("start", (event) => {
+                if (!event.active && !this.chainSim?.isPaused) {
+                    this.chainSim?.simulation?.alphaTarget(0.3).restart();
+                }
+                event.subject.fx = event.subject.x;
+                event.subject.fy = event.subject.y;
+            })
+            .on("drag", (event) => {
+                const k = d3.zoomTransform(canvas.node()).k;
+                event.subject.fx += event.dx / k;
+                event.subject.fy += event.dy / k;
+            })
+            .on("end", (event) => {
+                if (!event.active) {
+                    this.chainSim?.simulation?.alphaTarget(0);
+                }
+                event.subject.fx = null;
+                event.subject.fy = null;
+            })
+        );
 
-        if (this.compareSelectedBtn) {
-            this.compareSelectedBtn.addEventListener("click", () => this.compareSelected());
-        }
-
-        if (this.zoomInBtn) {
-            this.zoomInBtn.addEventListener("click", () => this.zoomBy(1.5));
-        }
-        if (this.zoomOutBtn) {
-            this.zoomOutBtn.addEventListener("click", () => this.zoomBy(0.66));
-        }
-
-        this.container.addEventListener("click", (e) => {
-            if (e.target === this.container || e.target.tagName === "svg") {
-                this.nodeDetails.classList.add("hidden");
+        canvas.on("mousemove", (event) => {
+            const p = d3.pointer(event, canvas.node());
+            const node = this.renderer?.hitTest({ x: p[0], y: p[1] });
+            if (node) {
+                this.showTooltip(event, node);
+                canvas.style("cursor", "pointer");
+            } else {
+                this.hideTooltip();
+                canvas.style("cursor", "default");
             }
         });
+    }
 
-        window.addEventListener("resize", () => {
-            this.width = this.container.clientWidth;
-            this.height = this.container.clientHeight;
-            this.svg.attr("viewBox", [0, 0, this.width, this.height]);
-        });
+    attachEventListeners() {
+        this.refreshBtn.onclick = () => this.loadData();
+        this.resetViewBtn.onclick = () => this.resetView();
+        this.playPauseBtn.onclick = () => this.toggleSimulation();
 
-        await this.loadData();
+        const handleFilterInput = (filter, valEl, isMin = false) => {
+            const val = parseInt(filter.value);
+            const isMax = val >= ChainMapUI.config.filters.sliderMax;
+            valEl.textContent = (isMax && !isMin) ? "Max" : val;
+            
+            if (this.filterTimer) {
+                clearTimeout(this.filterTimer);
+                this.filterTimer = null;
+                const container = document.getElementById("filter-delay-container");
+                const bar = document.getElementById("filter-delay-bar");
+                if (container) container.classList.add("hidden");
+                if (bar) {
+                    bar.style.transition = 'none';
+                    bar.style.width = '0%';
+                }
+                if (this.loader) this.loader.classList.add("hidden");
+            }
+        };
+
+        this.minCompFilter.oninput = () => handleFilterInput(this.minCompFilter, this.minCompVal, true);
+        this.maxCompFilter.oninput = () => handleFilterInput(this.maxCompFilter, this.maxCompVal, false);
+        this.minChainFilter.oninput = () => handleFilterInput(this.minChainFilter, this.minChainVal, true);
+        this.maxChainFilter.oninput = () => handleFilterInput(this.maxChainFilter, this.maxChainVal, false);
+
+        this.minCompFilter.onchange = () => this.debouncedApplyFilters();
+        this.maxCompFilter.onchange = () => this.debouncedApplyFilters();
+        this.minChainFilter.onchange = () => this.debouncedApplyFilters();
+        this.maxChainFilter.onchange = () => this.debouncedApplyFilters();
+
+        if (this.compareSelectedBtn) {
+            this.compareSelectedBtn.onclick = () => this.compareSelected();
+        }
+
+        const toggleLabelsBtn = document.getElementById("toggle-labels-btn");
+        if (toggleLabelsBtn) {
+            toggleLabelsBtn.onclick = () => {
+                this.labelsOverridden = true;
+                const current = this.renderer?.detailLevel?.showLabels;
+                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLabels: !current, labelCap: !current ? 1000 : 0 });
+            };
+        }
     }
 
     async loadData() {
-        console.log("Loading graph data...");
         this.loader.classList.remove("hidden");
         try {
             const data = await api.getGraphData();
-            console.log("Graph data received:", data);
             this.rawData = data;
-
-            this.minLengthFilter.max = ChainMapUI.config.filters.minLengthSliderMax;
-
             this.applyFilters();
         } catch (e) {
-            console.error("Failed to load graph data:", e);
             Utils.showToast("Failed to load graph data", "error");
         } finally {
             this.loader.classList.add("hidden");
         }
     }
 
-    applyFilters() {
-        if (!this.rawData) {
-            return;
+    debouncedApplyFilters() {
+        if (this.filterTimer) clearTimeout(this.filterTimer);
+        
+        const bar = document.getElementById("filter-delay-bar");
+        const container = document.getElementById("filter-delay-container");
+        
+        if (container) container.classList.remove("hidden");
+        if (this.loader) this.loader.classList.remove("hidden"); // Show main loader early too
+        if (bar) {
+            bar.style.transition = 'none';
+            bar.style.width = '0%';
+            // Trigger reflow
+            void bar.offsetWidth;
+            bar.style.transition = 'width 3000ms linear';
+            bar.style.width = '100%';
         }
 
-        const minLen = parseInt(this.minLengthFilter.value) || 1;
+        this.filterTimer = setTimeout(() => {
+            this.applyFilters();
+            if (container) container.classList.add("hidden");
+            this.filterTimer = null;
+        }, 3000);
+    }
 
-        const validComponents = new Set(
-            Object.entries(this.rawData.components || {})
-                .filter(([id, members]) => members.length >= minLen)
-                .map(([id]) => id.toString()),
-        );
+    applyFilters() {
+        if (!this.rawData) return;
+        if (this.loader) this.loader.classList.remove("hidden"); // Show loader when filtering starts
 
-        const filteredNodes = (this.rawData.nodes || []).filter((n) => {
-            const compId = (n.component !== undefined && n.component !== null) ? n.component.toString() : "";
+        const minComp = parseInt(this.minCompFilter.value);
+        const maxComp = parseInt(this.maxCompFilter.value);
+        const minChain = parseInt(this.minChainFilter.value);
+        const maxChain = parseInt(this.maxChainFilter.value);
+        const maxLimit = ChainMapUI.config.filters.sliderMax;
+
+        const useMinComp = minComp > 1;
+        const useMaxComp = maxComp < maxLimit;
+        const useMinChain = minChain > 1;
+        const useMaxChain = maxChain < maxLimit;
+
+        const validComponents = new Set();
+        Object.entries(this.rawData.components || {}).forEach(([id, members]) => {
+            const size = members.length;
+            const meetsMinComp = !useMinComp || size >= minComp;
+            const meetsMaxComp = !useMaxComp || size <= maxComp;
+            
+            // Find max height in this component
+            let maxH = 0;
+            members.forEach(nid => {
+                const n = this.rawData.nodes.find(node => node.id === nid);
+                if (n && (n.height || 0) > maxH) maxH = n.height;
+            });
+
+            const meetsMinChain = !useMinChain || maxH >= minChain;
+            const meetsMaxChain = !useMaxChain || maxH <= maxChain;
+
+            if (meetsMinComp && meetsMaxComp && meetsMinChain && meetsMaxChain) {
+                validComponents.add(id.toString());
+            }
+        });
+
+        const filteredNodes = (this.rawData.nodes || []).filter(n => {
+            const compId = String(n.component ?? "");
             return validComponents.has(compId);
         });
 
         const nodeIds = new Set(filteredNodes.map(n => n.id));
-        const filteredEdges = (this.rawData.edges || this.rawData.links || []).filter(e =>
-            nodeIds.has(e.source) && nodeIds.has(e.target),
+        const filteredEdges = (this.rawData.edges || []).filter(e => 
+            nodeIds.has(e.source) && nodeIds.has(e.target)
         );
 
-        this.render({
-            nodes: filteredNodes,
-            edges: filteredEdges,
-            componentCount: validComponents.size,
-            componentList: validComponents,
+        this.render(filteredNodes, filteredEdges);
+        setTimeout(() => this.resetView(), 100); // Auto reset view after filtering
+    }
+
+    render(nodes, links) {
+        if (this.chainSim) this.chainSim.stop();
+
+        this.statNodes.textContent = nodes.length;
+        this.statEdges.textContent = links.length;
+        const distinctComponents = new Set(nodes.map(n => String(n.component ?? "")));
+        this.statChains.textContent = nodes.filter(n => (n.height || 0) > 1).length;
+        if (this.statComponents) this.statComponents.textContent = distinctComponents.size;
+
+        // Clone for simulation
+        // Custom color scale matching legend: High (>0.6) Green, Neutral (0.4-0.6) Yellow, Low (<0.4) Red
+        const colorScale = d3.scaleLinear()
+            .domain([0, 0.4, 0.5, 0.6, 1])
+            .range(["#ef4444", "#facc15", "#facc15", "#facc15", "#22c55e"]);
+
+        const simNodes = nodes.map(d => ({ 
+            ...d, 
+            _radius: 3 + Math.sqrt(d.comparison_count || 0) * 2,
+            _fill: colorScale(d.score),
+            _label: d.id.split('/').pop(),
+            _shortLabel: d.id.split('/').pop().substring(0, 8) + "..."
+        }));
+        
+        // Link sources/targets must match node objects for D3 Force
+        const nodeMap = new Map(simNodes.map(n => [n.id, n]));
+        const simLinks = links.map(d => ({
+            source: nodeMap.get(d.source),
+            target: nodeMap.get(d.target),
+            _opacity: 0.3
+        })).filter(l => l.source && l.target);
+
+        this.chainSim = new ChainSimulation(simNodes, simLinks, null, {
+            width: this.width,
+            height: this.height,
+            onTick: () => this.renderer.update(simNodes, simLinks)
         });
-    }
 
-    resetView(animate = false) {
-        const targetScale = 0.1;
-        const width = this.chainSim.effectiveWidth;
-        const height = this.chainSim.effectiveHeight;
-        const centerX = (this.width / 2) - (width / 2 * targetScale);
-        const centerY = (this.height / 2) - (height / 2 * targetScale);
+        this.renderer.render({
+            nodes: simNodes,
+            links: simLinks,
+            profile: ChainMapUI.config.visuals,
+            selectedIds: this.selectedNodes,
+            world: this.calculateWorldBounds(simNodes)
+        });
 
-        const animation = animate ? ChainMapUI.config.interaction.transitionDuration : 0;
-
-        const initialTransform = d3.zoomIdentity
-            .translate(centerX, centerY)
-            .scale(targetScale);
-
-        this.svg.transition()
-            .duration(animation)
-            .call(
-                this.zoom.transform,
-                initialTransform,
-            );
-
-        this.nodeDetails.classList.add("hidden");
-    }
-
-    zoomBy(factor) {
-        this.svg.transition()
-            .duration(300)
-            .call(this.zoom.scaleBy, factor);
-    }
-
-    handleZoom(event) {
-        this.g.attr("transform", event.transform);
-        const { x, y, k } = event.transform;
-
-        // This is the static center of your physical "box" (the 600x600 view)
-        const boxCenter = [300, 300];
-
-        // This is the DYNAMIC center of your simulation (the 5000x5000 world)
-        const [simX, simY] = event.transform.invert(boxCenter);
-
-        this.updateZoomScale(k, simX, simY);
-
-        const nodeGroup = this.g.select(".nodes");
-        if (!nodeGroup.empty()) {
-            nodeGroup.classed("no-interact", k < ChainMapUI.config.interaction.interactThreshold);
-        }
-    }
-
-    updateZoomScale(k, x, y) {
-        if (this.zoomScaleEl) {
-            this.zoomScaleEl.textContent = `${k.toFixed(2)}x (${x.toFixed(0)}, ${y.toFixed(0)})`;
+        if (this.loader) this.loader.classList.add("hidden");
+        
+        if (this.chainSim) {
+            this.chainSim.initialize();
+            this.chainSim.play();
         }
     }
 
     toggleSimulation() {
-        if (!this.chainSim) {
-            return;
-        }
         if (this.chainSim.isPaused) {
             this.chainSim.play();
             this.playIcon.classList.add("hidden");
@@ -272,277 +393,138 @@ class ChainMapUI {
         }
     }
 
-    render(data) {
-        if (this.chainSim) {
-            this.chainSim.stop();
-        }
-        this.g.selectAll("*")
-            .remove();
-
-        const nodes = data.nodes.map(d => ({ ...d }));
-        const links = data.edges.map(d => ({ ...d }));
-        const components = data.componentList;
-
-        this.statNodes.textContent = nodes.length;
-        this.statEdges.textContent = links.length;
-        this.statChains.textContent = data.componentCount;
-
-        if (nodes.length === 0) {
-            this.g.append("text")
-                .attr("x", this.width / 2)
-                .attr("y", this.height / 2)
-                .attr("text-anchor", "middle")
-                .attr("fill", "#666")
-                .text("No chains match the current filters.");
+    resetView() {
+        if (!this.rawData || !this.chainSim || !this.chainSim.nodes.length) {
+             this.svg.transition().duration(ChainMapUI.config.interaction.transitionDuration).call(
+                this.zoom.transform,
+                d3.zoomIdentity.translate(this.width/2, this.height/2).scale(0.05)
+            );
             return;
         }
 
-        this.chainSim = new ChainSimulation(nodes, links, components, {
-            width: this.width,
-            height: this.height,
-            onTick: (simNodes, simLinks) => this.updateRender(simNodes, simLinks),
-            onEnd: () => this.onSimulationEnd(),
+        // Center on the average position of filtered nodes
+        const nodes = this.chainSim.nodes;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+            minX = Math.min(minX, n.x);
+            maxX = Math.max(maxX, n.x);
+            minY = Math.min(minY, n.y);
+            maxY = Math.max(maxY, n.y);
         });
 
-        this.resetView(false);
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        const dx = maxX - minX;
+        const dy = maxY - minY;
+        const scale = Math.min(4, 0.8 / Math.max(dx / this.width, dy / this.height)) || 0.05;
 
-        this.chainSim.initialize();
-        const visuals = ChainMapUI.config.visuals;
-
-        const link = this.g.append("g")
-            .attr("class", "links")
-            .selectAll("path")
-            .data(links)
-            .join("path")
-            .attr("class", "link")
-            .attr("fill", "none")
-            .attr("stroke", "#fff")
-            .attr("opacity", d => Math.max(0.1, 1 - (d.distance * 0.002)))
-            .attr("marker-mid", nodes.length < 200000 ? "url(#arrowhead-mid)" : null);
-
-        const node = this.g.append("g")
-            .attr("class", "nodes")
-            .selectAll("g")
-            .data(nodes)
-            .join("g")
-            .attr("class", "node")
-            .call(this.drag());
-
-        const customColor = d3.scaleLinear()
-            .domain(visuals.scoreDomain)
-            .range(visuals.scoreColors)
-            .interpolate(d3.interpolateHcl);
-
-        node.append("circle")
-            .attr("r", d => visuals.nodeMinRadius + (
-                visuals.nodeMinRadius
-                * d.comparison_count
-                * visuals.nodeCountScale),
-            )
-            .attr("fill", d => customColor(d.score))
-            .attr("stroke", "#fff")
-            .attr("stroke-width", nodes.length < 5000 ? 1.5 : 0.5)
-            .style("cursor", "pointer")
-            .on("mouseover", (event, d) => this.showTooltip(event, d))
-            .on("mousemove", event => this.updateTooltipPos(event))
-            .on("mouseout", () => this.tooltip.classList.add("hidden"))
-            .on("click", (event, d) => this.handleNodeClick(event, d));
-
-        if (nodes.length < 1000) {
-            node.append("text")
-                .attr("x", 12)
-                .attr("y", 4)
-                .text(d => d.id.split("_")
-                    .pop()
-                    .slice(0, 15))
-                .style("font-size", "8px")
-                .style("opacity", "0.7");
-        }
-
-        this.updateUIState(nodes.length);
+        this.svg.transition().duration(ChainMapUI.config.interaction.transitionDuration).call(
+            this.zoom.transform,
+            d3.zoomIdentity
+                .translate(this.width/2, this.height/2)
+                .scale(scale)
+                .translate(-centerX, -centerY)
+        );
     }
 
-    updateRender(nodes, links) {
-        this.g.select(".links")
-            .selectAll("path")
-            .attr("d", (d) => {
-                const mx = (d.source.x + d.target.x) / 2;
-                const my = (d.source.y + d.target.y) / 2;
-                return `M${d.source.x},${d.source.y} L${mx},${my} L${d.target.x},${d.target.y}`;
-            });
-
-        this.g.select(".nodes")
-            .selectAll("g")
-            .attr("transform", d => `translate(${d.x},${d.y})`);
-    }
-
-    onSimulationEnd() {
-        console.log("Simulation settled");
-    }
-
-    updateUIState(nodeCount) {
-        if (nodeCount > 1000) {
-            this.chainSim.pause();
-            this.playIcon.classList.remove("hidden");
-            this.pauseIcon.classList.add("hidden");
-        } else {
-            this.playIcon.classList.add("hidden");
-            this.pauseIcon.classList.remove("hidden");
-        }
-    }
-
-    showTooltip(event, d) {
-        if (!this.nodeDetails.classList.contains("hidden")) {
-            return;
-        }
+    showTooltip(event, node) {
         this.tooltip.classList.remove("hidden");
+        this.tooltip.style.left = `${event.pageX + 10}px`;
+        this.tooltip.style.top = `${event.pageY + 10}px`;
         this.tooltip.innerHTML = `
-            <div class="font-bold text-white mb-1">${d.id.split("/")
-                .pop()}</div>
-            <div class="text-purple-300 text-xs">Score: ${d.score.toFixed(3)}</div>
-            <div class="text-blue-300 text-xs">Confidence: ${d.confidence.toFixed(3)}</div>
+            <div class="font-bold mb-1">${node.id.split('/').pop()}</div>
+            <div>Score: ${node.score.toFixed(3)}</div>
+            <div>Chain: ${node.height || node.chain_length || 0}</div>
+            <div class="text-[9px] text-gray-500 mt-1">Click for details</div>
         `;
-        this.updateTooltipPos(event);
     }
 
-    updateTooltipPos(event) {
-        this.tooltip.style.left = (event.pageX + 10) + "px";
-        this.tooltip.style.top = (event.pageY + 10) + "px";
-    }
-
-    handleNodeClick(event, d) {
-        event.stopPropagation();
-        if (event.shiftKey || event.ctrlKey || event.metaKey) {
-            this.toggleNodeSelection(d.id);
-        } else {
-            this.showNodeDetails(d);
-        }
-    }
-
-    drag() {
-        return d3.drag()
-            .on("start", (event) => {
-                const transform = d3.zoomTransform(this.svg.node());
-                if (transform.k < ChainMapUI.config.interaction.interactThreshold) {
-                    return;
-                }
-                if (!event.active && this.chainSim && !this.chainSim.isPaused) {
-                    this.chainSim.simulation.alphaTarget(0.3)
-                        .restart();
-                }
-                event.subject.fx = event.subject.x;
-                event.subject.fy = event.subject.y;
-            })
-            .on("drag", (event) => {
-                const transform = d3.zoomTransform(this.svg.node());
-                if (transform.k < ChainMapUI.config.interaction.interactThreshold) {
-                    return;
-                }
-                event.subject.fx = event.x;
-                event.subject.fy = event.y;
-            })
-            .on("end", (event) => {
-                if (!event.active && this.chainSim && !this.chainSim.isPaused) {
-                    this.chainSim.simulation.alphaTarget(0);
-                }
-                event.subject.fx = null;
-                event.subject.fy = null;
-            });
+    hideTooltip() {
+        this.tooltip.classList.add("hidden");
     }
 
     showNodeDetails(d) {
-        this.tooltip.classList.add("hidden");
         this.nodeDetails.classList.remove("hidden");
-
-        const filename = d.id;
-        const imageUrl = `/images/${encodeURIComponent(filename)}?score=${d.score}`;
-
+        const filename = d.id.split('/').pop();
         this.nodeDetails.innerHTML = `
             <div class="flex justify-between items-start mb-2">
-                <h3 class="text-white font-bold text-[10px] truncate pr-2" title="${filename}">${filename.split("/")
-                .pop()}</h3>
-                <button onclick="document.getElementById('node-details').classList.add('hidden')" class="text-gray-500 hover:text-white text-lg leading-none">&times;</button>
+                <h3 class="text-white font-bold text-[10px] truncate max-w-[80%]">${filename}</h3>
+                <button onclick="document.getElementById('node-details').classList.add('hidden')" class="text-gray-500 hover:text-white p-1">&times;</button>
             </div>
-            <div class="aspect-square bg-black/40 rounded-lg overflow-hidden mb-2 border border-white/5">
-                <img src="${imageUrl}" class="w-full h-full object-contain" onerror="this.src='/api/v2/placeholder'"/>
-            </div>
-            <div class="grid grid-cols-2 gap-1.5 text-[9px]">
-                <div class="bg-purple-500/10 p-1.5 rounded">
-                    <div class="text-purple-400 uppercase font-bold">Score</div>
-                    <div class="text-white text-xs font-mono">${d.score.toFixed(4)}</div>
+            <div class="flex flex-col gap-2">
+                <img src="/images/${encodeURIComponent(d.id)}" class="w-full h-32 md:h-48 object-contain rounded bg-black/40 border border-white/5" onerror="this.src='/output/ranked/${encodeURIComponent(d.id)}'">
+                
+                <div class="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-gray-300 justify-center">
+                    <span class="flex items-center gap-1">Score: <b class="text-purple-400">${d.score.toFixed(3)}</b></span>
+                    <span class="flex items-center gap-1">Chain: <b class="text-purple-400">${d.height || d.chain_length || 0}</b></span>
+                    <span class="flex items-center gap-1">Comp: <b class="text-purple-400">${d.component_size || 0}</b></span>
                 </div>
-                <div class="bg-blue-500/10 p-1.5 rounded">
-                    <div class="text-blue-400 uppercase font-bold">Conf</div>
-                    <div class="text-white text-xs font-mono">${d.confidence.toFixed(4)}</div>
+
+                <div class="flex gap-2">
+                    <button onclick="window.chainMapUI.toggleSelection('${d.id}')" class="flex-1 py-1.5 bg-pink-600 hover:bg-pink-500 rounded text-[9px] font-bold transition">
+                        Select
+                    </button>
+                    <button onclick="window.chainMapUI.focusNode('${d.id}')" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded text-[9px] transition">
+                        Focus
+                    </button>
                 </div>
-            </div>
-            <div class="mt-2 pt-2 border-t border-white/5 flex gap-2">
-                <button onclick="window.chainMapUI.toggleNodeSelection(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1 bg-pink-600 hover:bg-pink-500 text-white rounded text-[9px] font-bold transition">Select</button>
-                <button onclick="window.chainMapUI.zoomToNode(decodeURIComponent('${encodeURIComponent(filename)}'))" class="flex-1 text-center py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-[9px] font-bold transition">Focus</button>
             </div>
         `;
     }
 
-    zoomToNode(nodeId) {
-        if (!this.chainSim) {
-            return;
-        }
-        const simNode = this.chainSim.getSimNode(nodeId);
-        if (!simNode) {
-            return;
-        }
-
-        this.svg.transition()
-            .duration(ChainMapUI.config.interaction.transitionDuration)
-            .call(
-                this.zoom.transform,
-                d3.zoomIdentity.translate(this.width / 2, this.height / 2)
-                    .scale(ChainMapUI.config.interaction.zoomToScale)
-                    .translate(-simNode.x, -simNode.y),
-            );
+    focusNode(id) {
+        const node = this.chainSim.nodes.find(n => n.id === id);
+        if (!node) return;
+        
+        this.svg.transition().duration(750).call(
+            this.zoom.transform,
+            d3.zoomIdentity
+                .translate(this.width/2, this.height/2)
+                .scale(1.5)
+                .translate(-node.x, -node.y)
+        );
     }
 
-    toggleNodeSelection(nodeId) {
-        const index = this.selectedNodes.indexOf(nodeId);
-        if (index > -1) {
-            this.selectedNodes.splice(index, 1);
-        } else {
-            if (this.selectedNodes.length >= 2) {
-                this.selectedNodes.shift();
-            }
-            this.selectedNodes.push(nodeId);
+    calculateWorldBounds(nodes) {
+        if (!nodes || !nodes.length) return { x: -2500, y: -2500, width: 5000, height: 5000, padding: 0 };
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+            minX = Math.min(minX, n.x);
+            maxX = Math.max(maxX, n.x);
+            minY = Math.min(minY, n.y);
+            maxY = Math.max(maxY, n.y);
+        });
+        const padding = 150;
+        return {
+            x: minX - padding,
+            y: minY - padding,
+            width: (maxX - minX) + padding * 2,
+            height: (maxY - minY) + padding * 2,
+            padding: padding
+        };
+    }
+
+    toggleSelection(id) {
+        const idx = this.selectedNodes.indexOf(id);
+        if (idx > -1) this.selectedNodes.splice(idx, 1);
+        else {
+            if (this.selectedNodes.length >= 2) this.selectedNodes.shift();
+            this.selectedNodes.push(id);
         }
         this.updateSelectionUI();
+        this.renderer.updateSelection(this.selectedNodes);
     }
 
     updateSelectionUI() {
-        this.g.selectAll(".node circle")
-            .classed("highlight", d => this.selectedNodes.includes(d.id))
-            .attr("stroke-width", d => this.selectedNodes.includes(d.id) ? 3 : 1.5)
-            .attr("stroke", d => this.selectedNodes.includes(d.id) ? ChainMapUI.config.visuals.highlightColor : "#fff");
-
-        if (this.selectedNodes.length === 2) {
-            this.compareSelectedBtn.classList.remove("hidden");
-            this.selectedCountEl.textContent = this.selectedNodes.length;
-        } else {
-            this.compareSelectedBtn.classList.add("hidden");
-            this.selectedCountEl.textContent = this.selectedNodes.length;
-        }
-
-        if (this.selectedNodes.length === 1) {
-            Utils.showToast("Selected one image. Shift+Click another to compare.", "info");
-        }
+        const count = this.selectedNodes.length;
+        this.selectedCountEl.textContent = count;
+        this.compareSelectedBtn.classList.toggle("hidden", count < 2);
     }
 
     compareSelected() {
-        if (this.selectedNodes.length !== 2) {
-            return;
-        }
         const [left, right] = this.selectedNodes;
-        window.location.href = `/?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`;
+        window.location.hash = `#compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`;
     }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-    window.chainMapUI = new ChainMapUI();
-});
+window.chainMapUI = new ChainMapUI();

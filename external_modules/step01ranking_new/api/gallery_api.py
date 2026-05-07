@@ -82,8 +82,10 @@ def list_images():
             filtered.sort(key=lambda x: x["comparison_count"])
         elif sort_by == "comparisons_desc":
             filtered.sort(key=lambda x: x["comparison_count"], reverse=True)
-        elif sort_by == "newest":
-            filtered.sort(key=lambda x: x["last_compared_at"] or "", reverse=True)
+        elif sort_by == "last_compared_desc" or sort_by == "newest":
+            filtered.sort(key=lambda x: x.get("last_compared_at") or "", reverse=True)
+        elif sort_by == "last_compared_asc":
+            filtered.sort(key=lambda x: x.get("last_compared_at") or "9999-99-99")
 
         # Paginate
         total = len(filtered)
@@ -97,6 +99,8 @@ def list_images():
                 "file": f"{img['filename']}?score={round(img['score'],3)}",
                 "confidence": round(img["confidence"], 3),
                 "comparison_count": img["comparison_count"],
+                "chain_length": img.get("height") or img.get("chain_length", 0),
+                "component_size": img.get("component_size", 0),
                 "tier": int(img["score"] * 10),
             }
             for img in paginated
@@ -240,7 +244,30 @@ def get_image_history(filename: str):
             data = json.load(f)
 
         history = data.get("comparison_history", [])
-        return jsonify({"filename": filename, "history": history})
+        
+        # Categorize into wins/losses for the frontend
+        wins = []
+        losses = []
+        
+        for entry in history:
+            # entry structure: {"other": str, "winner": bool, "weight": float, "timestamp": str}
+            is_win = entry.get("winner") == True
+            item = {
+                "opponent": entry.get("other"),
+                "opponent_score": entry.get("opponent_score", 0.0),
+                "timestamp": entry.get("timestamp")
+            }
+            if is_win:
+                wins.append(item)
+            else:
+                losses.append(item)
+
+        return jsonify({
+            "filename": filename, 
+            "wins": wins,
+            "losses": losses,
+            "total_comparisons": len(history)
+        })
     except Exception as e:
         logger.error(f"Error getting history for {filename}: {e}")
         return jsonify({"error": str(e)}), 500

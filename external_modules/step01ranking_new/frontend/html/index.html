@@ -5,7 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Image Ranking System</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js (for Chain Map) -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -18,21 +21,11 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/css/style.css">
-    <style>
-        .collapsible-card {
-            border-color: #60a5fa !important;
-            box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important;
-        }
-        .collapsible-card button {
-            background: linear-gradient(to right, #3b82f6, #2563eb) !important;
-        }
-        .collapsible-vs {
-            border-color: #60a5fa !important;
-            box-shadow: 0 0 25px rgba(96, 165, 250, 0.5) !important;
-            color: #60a5fa !important;
-        }
-    </style>
+    <link rel="stylesheet" href="/css/index.css">
+    <!-- Section Specific Styles -->
+    <link rel="stylesheet" href="/css/compare.css">
+    <link rel="stylesheet" href="/css/gallery.css">
+    <link rel="stylesheet" href="/css/chains.css">
 </head>
 
 <body class="min-h-screen custom-scrollbar font-sans antialiased flex flex-col">
@@ -42,163 +35,36 @@
             <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-500">
                 Image Ranker</h1>
             <ul class="flex space-x-4 sm:space-x-6 items-center">
-                <li><a href="/"
-                        class="text-white bg-white/10 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium shadow transition text-sm sm:text-base">Compare</a>
-                </li>
-                <li><a href="/gallery.html"
-                        class="text-gray-300 hover:text-white transition text-sm sm:text-base">Gallery</a></li>
-                <li><a href="/chains.html"
-                        class="text-gray-300 hover:text-white transition text-sm sm:text-base">Chain Map</a></li>
-                <li><button id="backup-button"
-                        class="text-gray-400 hover:text-white transition text-xs sm:text-sm border border-gray-700 px-2 py-1 rounded"
-                        title="Sync DB to JSON Files">Backup</button></li>
-                <li><span id="status-indicator"
-                        class="hidden sm:inline-block px-3 py-1 text-sm font-semibold rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">Loading...</span>
-                </li>
+                <li><a href="#compare" class="text-gray-300 hover:text-white transition text-sm sm:text-base">Compare</a></li>
+                <li><a href="#gallery" class="text-gray-300 hover:text-white transition text-sm sm:text-base">Gallery</a></li>
+                <li><a href="#chains" class="text-gray-300 hover:text-white transition text-sm sm:text-base">Chain Map</a></li>
+                <li><button id="backup-button" class="text-gray-400 hover:text-white transition text-xs sm:text-sm border border-gray-700 px-2 py-1 rounded" title="Sync DB to JSON Files">Backup</button></li>
+                <li><span id="status-indicator" class="hidden sm:inline-block px-3 py-1 text-sm font-semibold rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">Ready</span></li>
             </ul>
         </div>
     </nav>
 
-    <!-- Main -->
-    <main class="flex-grow container mx-auto px-2 py-4 md:px-4 md:py-8">
-        <div class="glass rounded-2xl p-3 md:p-6 shadow-2xl relative overflow-hidden">
-            <div id="comparison-status" class="text-center text-gray-400 mb-6 text-lg animate-pulse">Loading ranking
-                data...</div>
-            <div id="error-box"
-                class="hidden my-8 p-8 border-2 border-red-500/50 bg-red-900/20 rounded-2xl text-center shadow-xl backdrop-blur-md">
-                <h2 id="error-title" class="text-2xl font-bold text-red-400 mb-4">Error</h2>
-                <p id="error-message" class="text-gray-300 text-lg"></p>
-            </div>
-
-            <div id="cards-container"
-                class="flex flex-col md:flex-row gap-4 md:gap-8 items-center justify-center relative min-h-[400px]">
-                <!-- Loading Overlay -->
-                <div id="loading-overlay"
-                    class="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-2xl opacity-0 pointer-events-none transition-opacity duration-300">
-                    <div class="flex flex-col items-center">
-                        <div
-                            class="w-16 h-16 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4">
-                        </div>
-                        <p class="text-purple-300 font-medium animate-pulse">Finding next pair...</p>
-                    </div>
-                </div>
-
-                <!-- Left Card -->
-                <div
-                    class="image-card glass rounded-xl overflow-hidden flex-1 w-full max-w-lg transition-all duration-300 cursor-pointer border border-white/5 left-card">
-                    <div class="relative overflow-hidden h-[300px] sm:h-[350px] md:h-[400px]">
-                        <img id="left-image" src="" alt=""
-                            class="w-full h-full object-contain opacity-0 transition-opacity duration-300">
-                    </div>
-                    <div class="p-2 md:p-4 bg-dark-800/80 border-t border-white/5">
-                        <p id="left-filename"
-                            class="font-medium text-[11px] md:text-sm text-gray-300 truncate mb-1 md:mb-2"></p>
-                        <div
-                            class="flex md:grid md:grid-cols-3 gap-2 text-[10px] md:text-xs text-gray-400 overflow-x-auto">
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Score</span><span id="left-score" class="text-white font-bold ml-1"></span>
-                            </div>
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Conf</span><span id="left-confidence" class="text-white font-bold ml-1"></span>
-                            </div>
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Comps</span><span id="left-count" class="text-purple-300 font-bold ml-1"></span>
-                            </div>
-                        </div>
-                        <button id="left-button"
-                            class="mt-2 md:mt-4 w-full py-2 md:py-3 rounded-lg font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg transform transition active:scale-95 text-sm md:text-base">←
-                            Better</button>
-                    </div>
-                </div>
-
-                <!-- VS -->
-                <div
-                    class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 md:relative md:left-0 md:top-0 md:translate-x-0 md:translate-y-0 z-10 w-10 h-10 md:w-16 md:h-16 rounded-full bg-dark-900 border-2 border-purple-500 flex items-center justify-center font-black text-sm md:text-xl text-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.4)] backdrop-blur-md">
-                    VS
-                </div>
-
-                <!-- Right Card -->
-                <div
-                    class="image-card glass rounded-xl overflow-hidden flex-1 w-full max-w-lg transition-all duration-300 cursor-pointer border border-white/5 right-card">
-                    <div class="relative overflow-hidden h-[300px] sm:h-[350px] md:h-[400px]">
-                        <img id="right-image" src="" alt=""
-                            class="w-full h-full object-contain opacity-0 transition-opacity duration-300">
-                    </div>
-                    <div class="p-2 md:p-4 bg-dark-800/80 border-t border-white/5">
-                        <p id="right-filename"
-                            class="font-medium text-[11px] md:text-sm text-gray-300 truncate mb-1 md:mb-2"></p>
-                        <div
-                            class="flex md:grid md:grid-cols-3 gap-2 text-[10px] md:text-xs text-gray-400 overflow-x-auto">
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Score</span><span id="right-score" class="text-white font-bold ml-1"></span>
-                            </div>
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Conf</span><span id="right-confidence" class="text-white font-bold ml-1"></span>
-                            </div>
-                            <div
-                                class="bg-black/30 p-1.5 md:p-2 rounded flex-1 md:flex justify-between items-center whitespace-nowrap">
-                                <span>Comps</span><span id="right-count" class="text-purple-300 font-bold ml-1"></span>
-                            </div>
-                        </div>
-                        <button id="right-button"
-                            class="mt-2 md:mt-4 w-full py-2 md:py-3 rounded-lg font-bold text-white bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-lg transform transition active:scale-95 text-sm md:text-base">Better
-                            →</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Graph Indicator (shown when both images are in same component) -->
-            <div id="graph-indicator" class="hidden max-w-2xl mx-auto mb-4">
-                <details class="bg-blue-500/10 border border-blue-500/30 rounded-xl overflow-hidden">
-                    <summary class="px-4 py-3 cursor-pointer flex items-center gap-2 text-blue-400 hover:bg-blue-500/20 transition">
-                        <span>🔗</span>
-                        <span class="font-medium">Same Graph Detected (Component <span id="graph-component-id" class="font-bold">0</span>)</span>
-                        <span id="graph-count" class="ml-auto text-sm text-gray-400"></span>
-                    </summary>
-                    <div class="px-4 py-3 border-t border-blue-500/20 text-sm text-gray-400">
-                        Both images belong to the same comparison graph/component.
-                    </div>
-                </details>
-            </div>
-            
-            <div class="mt-8 pt-6 border-t border-white/10 flex flex-col items-center">
-                <div class="text-gray-400 text-sm mb-4">
-                    Total: <span id="stat-total" class="text-white font-bold">0</span> &bull;
-                    Ranked: <span id="stat-ranked" class="text-white font-bold">0</span> &bull;
-                    Comparisons: <span id="stat-comparisons" class="text-white font-bold">0</span> &bull;
-                    Skipped: <span id="stat-skipped" class="text-white font-bold">0</span>
-                </div>
-                <div class="flex gap-4">
-                    <button id="skip-button"
-                        class="px-6 py-2 rounded-full border border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white transition text-sm">Skip
-                        Pair</button>
-                    <button id="toggle-debug"
-                        class="px-4 py-2 rounded-full border border-purple-900/50 text-purple-400/50 hover:text-purple-400 transition text-xs">Debug
-                        Info</button>
-                </div>
-
-                <!-- Debug Panel -->
-                <div id="debug-panel"
-                    class="hidden mt-6 w-full max-w-2xl bg-black/40 border border-purple-500/20 rounded-xl p-4 text-[10px] font-mono text-purple-300/80">
-                    <h4
-                        class="text-purple-400 font-bold mb-2 uppercase tracking-widest border-b border-purple-500/10 pb-1">
-                        Selection Telemetry</h4>
-                    <div id="debug-content" class="grid grid-cols-2 gap-4">
-                        <!-- Filled by JS -->
-                    </div>
-                </div>
-            </div>
-        </div>
+    <!-- Main Content Area -->
+    <main id="app-content" class="flex-grow container mx-auto px-2 py-4 md:px-4 md:py-8">
+        <!-- Templates will be injected here -->
     </main>
 
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Core Logic -->
     <script src="/js/api.js"></script>
     <script src="/js/utils.js"></script>
-    <script src="/js/app.js"></script>
+    
+    <!-- Section Logic -->
+    <script src="/js/compare.js"></script>
+    <script src="/js/gallery.js"></script>
+    <script src="/js/chain_simulation.js"></script>
+    <script src="/js/chain_map_renderer.js"></script>
+    <script src="/js/chain_map_ui.js"></script>
+    
+    <!-- Router -->
+    <script src="/js/index.js"></script>
 </body>
 
 </html>

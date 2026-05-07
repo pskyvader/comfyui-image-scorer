@@ -1,266 +1,666 @@
 class ChainSimulation {
     static defaults = {
-        // BUOYANCY: Increased significantly.
-        // 1.0 score floats UP, 0.0 score sinks DOWN.
-        gravityStrength: 0.5,
-
-        // REPULSION: Only force moving nodes horizontally.
-        chargeStrength: -100,
-        chargeDistanceMax: 70,
-
-        // TETHERS: Links have a natural length and a hard "rope" limit.
-        linkDistance: 3,
-        // maxLinkDistance: 1000,
+        linkDistance: 6,
         linkStrength: 1,
-        scoreDistanceMultiplier: 100,
-        countDistanceMultiplier: 10,
-
-        // PHYSICS:
-        // Lower velocityDecay (0.1 - 0.2) makes them feel more fluid/slippery.
-        velocityDecay: 0.05,
-        alphaDecay: 0.0005, // Slower decay gives them time to reach the top/bottom
-        collisionRadius: 67,
-
-        simWidth: 300,
-        simHeight: 300,
+        linkStrengthInitialFactor: 0.001,
+        linkStrengthFinalFactor: 1,
+        linkStrengthRampMs: 10000,
+        linkStrengthRampCurve: 1.5,
+        scoreDistanceMultiplier: 10,
+        countDistanceMultiplier: 20,
+        maxLinkDistance: 1000,
+        chargeStrength: -60,
+        chargeDistanceMax: 200,
+        gravityStrength: 1,
+        scoreExponent: 2,
+        neutralDeadZone: 0,
+        velocityDecay: 0.008,
+        alphaDecay: 0.00008,
+        collisionRadius: 8,
+        linkConstraintSlack: 1.2,
+        linkConstraintPull: 0.5,
+        linkConstraintInitialSlackExtra: 0.9,
+        useBouncyBounds: true,
+        boundaryBounce: 0.85,
+        pausedLinkedDragInfluence: 1,
+        minWorldSize: 2000,
+        maxWorldSize: 120000,
+        worldScale: 200,
+        nodeJitter: 84,
+        boundaryPadding: 100,
+        renderIntervalMs: 16,
+        width: 800,
+        height: 600,
+        sizeMultipliers: {
+            small: {
+                chargeDistanceMax: 1,
+                gravityStrength: 1,
+                velocityDecay: 1,
+                alphaDecay: 1,
+                linkDistance: 1,
+                linkStrength: 1,
+                scoreDistanceMultiplier: 1,
+                countDistanceMultiplier: 1,
+                maxLinkDistance: 1,
+                worldScale: 1,
+                nodeJitter: 1,
+                boundaryPadding: 1,
+                constraintSlack: 1,
+                constraintPull: 1,
+                linkStrengthRampMs: 1,
+            },
+            medium: {
+                chargeDistanceMax: 0.24,
+                gravityStrength: 1,
+                velocityDecay: 2,
+                alphaDecay: 2,
+                linkDistance: 0.82,
+                linkStrength: 0.9,
+                scoreDistanceMultiplier: 0.75,
+                countDistanceMultiplier: 0.45,
+                maxLinkDistance: 0.5,
+                worldScale: 0.5,
+                nodeJitter: 0.66,
+                boundaryPadding: 0.66,
+                constraintSlack: 0.92,
+                constraintPull: 1.2,
+                linkStrengthRampMs: 0.8,
+            },
+            large: {
+                chargeDistanceMax: 0.16,
+                gravityStrength: 1,
+                velocityDecay: 10,
+                alphaDecay: 10,
+                linkDistance: 0.68,
+                linkStrength: 0.78,
+                scoreDistanceMultiplier: 0.45,
+                countDistanceMultiplier: 0.2,
+                maxLinkDistance: 0.1,
+                worldScale: 0.25,
+                nodeJitter: 0.42,
+                boundaryPadding: 0.1,
+                constraintSlack: 0.9,
+                constraintPull: 1.5,
+                linkStrengthRampMs: 0.55,
+            },
+        },
     };
 
     constructor(nodes, links, components, options = {}) {
         this.nodes = nodes;
         this.links = links;
-        this.components = components;
+        this.components = Array.from(components || []);
         this.config = { ...ChainSimulation.defaults, ...options };
+        this.config.sizeMultipliers = {
+            small: {
+                ...ChainSimulation.defaults.sizeMultipliers.small,
+                ...(options.sizeMultipliers?.small || {}),
+            },
+            medium: {
+                ...ChainSimulation.defaults.sizeMultipliers.medium,
+                ...(options.sizeMultipliers?.medium || {}),
+            },
+            large: {
+                ...ChainSimulation.defaults.sizeMultipliers.large,
+                ...(options.sizeMultipliers?.large || {}),
+            },
+        };
 
         this.simulation = null;
+        this.linkForce = null;
         this.onTick = options.onTick || null;
         this.onEnd = options.onEnd || null;
-        this.nodeDegree = {};
         this.isPaused = false;
-        // effective size based on node count
-        const scale = Math.sqrt(this.nodes.length);
-        this.effectiveWidth = this.config.simWidth * scale;
-        this.effectiveHeight = this.config.simHeight * scale;
-        console.log(`Effective simulation size: ${this.effectiveWidth} x ${this.effectiveHeight}`);
+
+        this.nodeById = new Map();
+        this.nodeDegree = new Map();
+        this.componentNodes = new Map();
+        this.runtime = this.resolveRuntimeProfile();
+        this.simulationLinks = this.links;
+        this.effectiveWidth = this.config.minWorldSize;
+        this.effectiveHeight = this.config.minWorldSize;
+        this.constraintPhase = 0;
+        this.lastRenderAt = 0;
+        this.simulationStartAt = 0;
+        this.currentLinkStrengthFactor = this.config.linkStrengthInitialFactor;
     }
 
-    // make a list of
+    resolveRuntimeProfile() {
+        const nodeCount = this.nodes.length;
+        const linkCount = this.links.length;
+        const workUnits = nodeCount + (linkCount * 1.5);
+        const mediumGraph = workUnits >= 9000;
+        const largeGraph = workUnits >= 30000;
+        const sizeKey = largeGraph ? "large" : (mediumGraph ? "medium" : "small");
+        const scale = this.config.sizeMultipliers[sizeKey] || this.config.sizeMultipliers.small;
+
+        return {
+            canvasMode: true, // Always canvas
+            enableCollision: !mediumGraph && nodeCount <= 1800,
+            enableMarkers: false, // No SVG markers in canvas mode
+            enableLabels: nodeCount < 900,
+            enableDrag: true, // Always enable drag
+            enablePausedGroupDrag: true, // Always enable paused group drag
+            enableTooltips: nodeCount < 12000,
+            enablePointerHits: nodeCount < 50000,
+            drawLinks: linkCount < 180000,
+            progressiveReveal: mediumGraph || nodeCount > 500,
+            usePerLinkOpacity: !largeGraph && linkCount <= 12000,
+            linkGlobalOpacity: largeGraph ? 0.12 : 0.18,
+            linkVisibilityZoomThreshold: largeGraph ? 0.08 : (mediumGraph ? 0.03 : 0),
+            renderIntervalMs: largeGraph ? 48 : (mediumGraph ? 32 : this.config.renderIntervalMs),
+            chargeDistanceMax: this.scalePositive(this.config.chargeDistanceMax, scale.chargeDistanceMax),
+            gravityStrength: this.config.gravityStrength * this.safeMultiplier(scale.gravityStrength),
+            velocityDecay: this.scalePositive(this.config.velocityDecay, scale.velocityDecay),
+            alphaDecay: this.scalePositive(this.config.alphaDecay, scale.alphaDecay),
+            linkDistanceScale: this.safeMultiplier(scale.linkDistance),
+            linkStrengthScale: this.safeMultiplier(scale.linkStrength),
+            scoreDistanceMultiplierScale: this.safeMultiplier(scale.scoreDistanceMultiplier),
+            countDistanceMultiplierScale: this.safeMultiplier(scale.countDistanceMultiplier),
+            maxLinkDistance: this.scalePositive(this.config.maxLinkDistance, scale.maxLinkDistance),
+            worldScale: this.scalePositive(this.config.worldScale, scale.worldScale),
+            nodeJitter: this.scalePositive(this.config.nodeJitter, scale.nodeJitter),
+            boundaryPadding: this.scalePositive(this.config.boundaryPadding, scale.boundaryPadding),
+            simulationLinkStride: largeGraph
+                ? Math.max(1, Math.ceil(linkCount / 60000))
+                : (mediumGraph ? Math.max(1, Math.ceil(linkCount / 45000)) : 1),
+            constraintPhases: largeGraph
+                ? Math.max(1, Math.ceil(linkCount / 50000))
+                : (mediumGraph ? Math.max(1, Math.ceil(linkCount / 90000)) : 1),
+            constraintSlack: this.scalePositive(this.config.linkConstraintSlack, scale.constraintSlack),
+            constraintPull: this.scalePositive(this.config.linkConstraintPull, scale.constraintPull),
+            linkStiffnessRampMs: this.scalePositive(this.config.linkStrengthRampMs, scale.linkStrengthRampMs),
+            startPaused: workUnits >= 110000,
+            statusLabel: largeGraph ? "Canvas / Reduced Physics" : (mediumGraph ? "Canvas / Scaled" : "Canvas"),
+        };
+    }
 
     initialize() {
+        this.indexNodes();
+        this.groupNodesByComponent();
         this.calculateNodeDegree();
+        this.prepareWorldBounds();
+        this.prepareNodes();
+        this.prepareLinks();
         this.setupSimulation();
     }
 
+    indexNodes() {
+        this.nodeById.clear();
+        for (const node of this.nodes) {
+            this.nodeById.set(node.id, node);
+        }
+    }
+
+    groupNodesByComponent() {
+        this.componentNodes.clear();
+
+        for (const node of this.nodes) {
+            const componentId = String(node.component ?? "");
+            if (!this.componentNodes.has(componentId)) {
+                this.componentNodes.set(componentId, []);
+            }
+            this.componentNodes.get(componentId).push(node);
+        }
+
+        if (!this.components.length) {
+            this.components = Array.from(this.componentNodes.keys());
+        }
+    }
+
     calculateNodeDegree() {
-        this.nodeDegree = {};
-        this.links.forEach((l) => {
-            const s = l.source.id || l.source;
-            const t = l.target.id || l.target;
-            this.nodeDegree[s] = (this.nodeDegree[s] || 0) + 1;
-            this.nodeDegree[t] = (this.nodeDegree[t] || 0) + 1;
+        this.nodeDegree.clear();
+
+        for (const link of this.links) {
+            const sourceId = this.getNodeId(link.source);
+            const targetId = this.getNodeId(link.target);
+            this.nodeDegree.set(sourceId, (this.nodeDegree.get(sourceId) || 0) + 1);
+            this.nodeDegree.set(targetId, (this.nodeDegree.get(targetId) || 0) + 1);
+        }
+    }
+
+    prepareWorldBounds() {
+        const viewportBase = Math.max(this.config.width, this.config.height, this.config.minWorldSize);
+        const scaledWorld = Math.ceil(Math.sqrt(Math.max(1, this.nodes.length)) * this.runtime.worldScale);
+        const worldSize = Math.min(this.config.maxWorldSize, Math.max(viewportBase, scaledWorld));
+        this.effectiveWidth = worldSize;
+        this.effectiveHeight = worldSize;
+    }
+
+    prepareNodes() {
+        const padding = this.runtime.boundaryPadding;
+        const componentIds = this.components.map(component => String(component));
+        const count = Math.max(1, componentIds.length);
+        const columns = Math.max(1, Math.ceil(Math.sqrt(count)));
+        const rows = Math.max(1, Math.ceil(count / columns));
+        const usableWidth = Math.max(1, this.effectiveWidth - (padding * 2));
+        const usableHeight = Math.max(1, this.effectiveHeight - (padding * 2));
+        const centers = new Map();
+
+        componentIds.forEach((componentId, index) => {
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            centers.set(componentId, {
+                x: padding + (((column + 0.5) / columns) * usableWidth),
+                y: padding + (((row + 0.5) / rows) * usableHeight),
+            });
         });
-    }
 
-    /**
-     * INDIVIDUAL BUOYANCY FORCE
-     * Every node acts independently.
-     */
-    getBuoyancyForce() {
-        let nodes;
-        const force = (alpha) => {
-            // We use alpha to gradually stabilize, but keep the strength high
-            const strength = this.config.gravityStrength * alpha * 10;
-
-            for (let i = 0, n = nodes.length; i < n; ++i) {
-                const node = nodes[i];
-                const score = Number(node.score ?? 0.5);
-
-                // Score 1.0 (Balloon) -> -0.5 direction (UP)
-                // Score 0.0 (Weight)  -> +0.5 direction (DOWN)
-                const direction = 0.5 - (score);
-                const sign = direction < 0 ? -1 : 1;
-
-                node.vy += sign * (direction * direction) * strength;
-            }
-        };
-        force.initialize = _ => nodes = _;
-        return force;
-    }
-
-    /**
-     * TETHER CONSTRAINT
-     * This acts like a physical string that cannot stretch past maxLinkDistance.
-     */
-
-    defineRopeLength() {
-        const distance = this.config.linkDistance;
-        const scoreDistanceMultiplier = this.config.scoreDistanceMultiplier;
-        const countDistanceMultiplier = this.config.countDistanceMultiplier;
-        for (let i = 0; i < this.links.length; i++) {
-            const link = this.links[i];
-            const s = this.nodes.find(n => n.id === link.source);
-            const t = this.nodes.find(n => n.id === link.target);
-            const count = Math.max(s.comparison_count, t.comparison_count);
-            const score_distance = Math.abs(s.score - t.score);
-            let relativeDistance = distance;
-            relativeDistance += (distance * score_distance * scoreDistanceMultiplier);
-            relativeDistance += distance * count * countDistanceMultiplier;
-
-            link.distance = relativeDistance;
-        }
-    }
-
-    applyTetherConstraints() {
-        // const maxDist = this.config.maxLinkDistance;
-        for (let i = 0; i < this.links.length; i++) {
-            const link = this.links[i];
-            const s = link.source;
-            const t = link.target;
-            const linkDistance = link.distance;
-
-            // const confidence = Math.max(s.confidence, t.confidence);
-            // const maxRelative = maxDist + (maxDist * confidence * 1);
-            const maxRelative = linkDistance;
-            // if (typeof s === 'object' && typeof t === 'object') {
-            const dx = t.x - s.x;
-            const dy = t.y - s.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance > maxRelative) {
-                const diff = (distance - maxRelative) / distance;
-                const offsetX = dx * diff * 0.5;
-                const offsetY = dy * diff * 0.5;
-
-                s.x += offsetX;
-                s.y += offsetY;
-                t.x -= offsetX;
-                t.y -= offsetY;
-            }
-            // }
-        }
-    }
-
-    defineInitialPositions() {
-        // 1. Map component strings to pre-defined coordinates
-        const componentCoords = {};
-        // let i = 0;
-        // const totalComponents = this.components.size;
-
-        this.components.forEach((comp) => {
-            const cid = String(comp);
-            componentCoords[cid] = {
-                x: Math.floor(Math.random() * (this.effectiveWidth)),
-                y: Math.floor(Math.random() * (this.effectiveHeight)),
-                // y: Math.floor((i / totalComponents) * this.config.simHeight)
+        for (const [componentId, members] of this.componentNodes.entries()) {
+            const center = centers.get(componentId) || {
+                x: this.effectiveWidth / 2,
+                y: this.effectiveHeight / 2,
             };
-            // i++;
-        });
 
-        // 2. Single pass through nodes to assign positions and reset velocity
-        this.nodes.forEach((n) => {
-            const coords = componentCoords[String(n.component)];
-            if (coords) {
-                n.x = coords.x + Math.random() * 100;
-                n.y = coords.y + Math.random() * 100;
-                n.vx = 0;
-                n.vy = 0;
-                // console.log(n)
+            for (const node of members) {
+                const score = this.getFiniteNumber(node.score, 0.5);
+                const degree = this.nodeDegree.get(node.id) || 0;
+                const isolatedMultiplier = degree === 0 ? 0.85 : 1;
+                const scoreBias = this.getScoreBias(score);
+                const jitter = this.runtime.nodeJitter;
+
+                node.x = center.x + ((Math.random() - 0.5) * jitter);
+                node.y = this.clamp(
+                    center.y + ((Math.random() - 0.5) * jitter * 0.75),
+                    padding,
+                    this.effectiveHeight - padding,
+                );
+                node.vx = 0;
+                node.vy = 0;
+                node._charge = this.config.chargeStrength * isolatedMultiplier;
+                node._scoreBias = scoreBias;
+                node._scoreForce = scoreBias * this.runtime.gravityStrength;
             }
-        });
+        }
+    }
+
+    prepareLinks() {
+        const baseDistance = this.config.linkDistance * this.runtime.linkDistanceScale;
+        const scoreMultiplier = this.config.scoreDistanceMultiplier * this.runtime.scoreDistanceMultiplierScale;
+        const countMultiplier = this.config.countDistanceMultiplier * this.runtime.countDistanceMultiplierScale;
+        const maxLinkDistance = this.runtime.maxLinkDistance;
+
+        for (const link of this.links) {
+            const source = this.nodeById.get(this.getNodeId(link.source));
+            const target = this.nodeById.get(this.getNodeId(link.target));
+            if (!source || !target) {
+                continue;
+            }
+
+            const sourceDegree = this.nodeDegree.get(source.id) || 1;
+            const targetDegree = this.nodeDegree.get(target.id) || 1;
+            const scoreGap = Math.abs(
+                this.getFiniteNumber(source.score, 0.5) - this.getFiniteNumber(target.score, 0.5),
+            );
+            const countWeight = Math.log1p(Math.max(
+                this.getFiniteNumber(source.comparison_count, 0),
+                this.getFiniteNumber(target.comparison_count, 0),
+            ));
+
+            link.distance = Math.min(
+                maxLinkDistance,
+                baseDistance
+                + (baseDistance * scoreGap * scoreMultiplier)
+                + (baseDistance * countWeight * countMultiplier),
+            );
+            link._baseStrength = Math.min(
+                1,
+                this.config.linkStrength
+                * this.runtime.linkStrengthScale
+                * (1 / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree)))),
+            );
+            link._opacity = this.runtime.usePerLinkOpacity
+                ? Math.max(0.08, 1 - (link.distance / (maxLinkDistance * 1.15)))
+                : this.runtime.linkGlobalOpacity;
+        }
+
+        if (this.runtime.simulationLinkStride === 1) {
+            this.simulationLinks = this.links;
+            return;
+        }
+
+        this.simulationLinks = this.links.filter((_, index) =>
+            index % this.runtime.simulationLinkStride === 0,
+        );
     }
 
     setupSimulation() {
-        this.defineInitialPositions();
+        const initialFactor = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
+        this.currentLinkStrengthFactor = initialFactor;
+        this.simulationStartAt = performance.now();
 
-        this.defineRopeLength();
+        this.linkForce = d3.forceLink(this.simulationLinks)
+            .id(node => node.id)
+            .distance(link => link.distance)
+            .strength(link => link._baseStrength * this.currentLinkStrengthFactor);
 
         this.simulation = d3.forceSimulation(this.nodes)
-            .force("link", d3.forceLink(this.links)
-                .id(d => d.id)
-                // .distance(this.config.linkDistance)
-                .distance(d => d.distance)
-                .strength(d => this.config.linkStrength / d.distance))
+            .force("link", this.linkForce)
             .force("charge", d3.forceManyBody()
-                .strength(this.config.chargeStrength)
-                .distanceMax(this.config.chargeDistanceMax))
-            .force("buoyancy", this.getBuoyancyForce())
-            .velocityDecay(this.config.velocityDecay)
-            .alphaDecay(this.config.alphaDecay);
+                .strength(node => node._charge)
+                .distanceMax(this.runtime.chargeDistanceMax))
+            .force("scoreY", this.createScoreForce())
+            .velocityDecay(this.runtime.velocityDecay)
+            .alphaDecay(this.runtime.alphaDecay);
 
-        // if (this.nodes.length < 2500) {
-        //     this.simulation.force("collide",
-        //         d3.forceCollide(
-        //             this.config.collisionRadius,
-        //         )
-        //             .iterations(2));
-        // }
+        if (this.runtime.enableCollision) {
+            this.simulation.force("collide", d3.forceCollide(node => {
+                const count = this.getFiniteNumber(node.comparison_count, 0);
+                return this.config.collisionRadius + Math.log1p(count);
+            }));
+        }
 
-        this.simulation.on("tick", () => {
-            // Apply tether constraints before finalizing coordinates
-            this.applyTetherConstraints();
-
-            this.nodes.forEach((n) => {
-                // Keep within universe boundaries
-                n.x = Math.max(25, Math.min(this.effectiveWidth - 25, n.x));
-                n.y = Math.max(25, Math.min(this.effectiveHeight - 25, n.y));
-            });
-
-            if (this.onTick) {
-                this.onTick(this.nodes, this.links);
-            }
-        });
-
+        this.simulation.on("tick", () => this.handleTick());
         this.simulation.on("end", () => {
-            if (this.onEnd) {
-                this.onEnd();
-            }
+            this.onTick?.(this.nodes, this.links, this.runtime);
+            this.onEnd?.(this.runtime);
         });
     }
 
-    // --- Control API ---
+    handleTick() {
+        const now = performance.now();
+        this.updateLinkStiffness(now);
+        this.applyLinkConstraints();
+
+        for (const node of this.nodes) {
+            this.applyBoundaryBehavior(node);
+        }
+
+        if (!this.onTick) {
+            return;
+        }
+
+        if (now - this.lastRenderAt >= this.runtime.renderIntervalMs) {
+            this.lastRenderAt = now;
+            this.onTick(this.nodes, this.links, this.runtime);
+        }
+    }
+
+    createScoreForce() {
+        let nodes = [];
+
+        const force = alpha => {
+            for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+                if (!node._scoreForce) {
+                    continue;
+                }
+                node.vy -= node._scoreForce * alpha;
+            }
+        };
+
+        force.initialize = allNodes => {
+            nodes = allNodes;
+        };
+
+        return force;
+    }
+
+    updateLinkStiffness(now) {
+        if (!this.linkForce) {
+            return;
+        }
+
+        const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
+        const final = Math.max(initial, this.config.linkStrengthFinalFactor);
+        const duration = Math.max(1, this.runtime.linkStiffnessRampMs);
+        const progress = this.clamp((now - this.simulationStartAt) / duration, 0, 1);
+        const eased = Math.pow(progress, Math.max(0.01, this.config.linkStrengthRampCurve));
+        const factor = initial + ((final - initial) * eased);
+
+        if (Math.abs(factor - this.currentLinkStrengthFactor) < 0.002) {
+            return;
+        }
+
+        this.currentLinkStrengthFactor = factor;
+        this.linkForce.strength(link => link._baseStrength * this.currentLinkStrengthFactor);
+        
+        // Distance annealing: Start long and relaxed, ramp down to actual distance
+        const distFactor = 3.0 - (2.0 * eased); 
+        this.linkForce.distance(link => (link.distance || 50) * distFactor);
+    }
+
+    applyLinkConstraints() {
+        if (!this.links.length) {
+            return;
+        }
+
+        const phases = this.runtime.constraintPhases;
+        const phaseOffset = this.constraintPhase;
+        const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
+        const final = Math.max(initial, this.config.linkStrengthFinalFactor);
+        const normalizedStiffness = final === initial
+            ? 1
+            : this.clamp((this.currentLinkStrengthFactor - initial) / (final - initial), 0, 1);
+
+        const relaxedSlack = this.runtime.constraintSlack + this.config.linkConstraintInitialSlackExtra;
+        const slack = this.runtime.constraintSlack + ((relaxedSlack - this.runtime.constraintSlack) * (1 - normalizedStiffness));
+        const pull = this.runtime.constraintPull * (0.15 + (0.85 * normalizedStiffness));
+
+        for (let index = phaseOffset; index < this.links.length; index += phases) {
+            const link = this.links[index];
+            const source = link.source;
+            const target = link.target;
+
+            if (!source || !target || typeof source !== "object" || typeof target !== "object") {
+                continue;
+            }
+
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const distanceSq = (dx * dx) + (dy * dy);
+            if (!distanceSq) {
+                continue;
+            }
+
+            const distance = Math.sqrt(distanceSq);
+            const limit = link.distance * slack;
+            if (distance <= limit) {
+                continue;
+            }
+
+            const correction = ((distance - limit) / distance) * pull;
+            const offsetX = dx * correction;
+            const offsetY = dy * correction;
+            const sourceFree = source.fx == null;
+            const targetFree = target.fx == null;
+
+            if (sourceFree && targetFree) {
+                source.x += offsetX * 0.5;
+                source.y += offsetY * 0.5;
+                target.x -= offsetX * 0.5;
+                target.y -= offsetY * 0.5;
+            } else if (sourceFree) {
+                source.x += offsetX;
+                source.y += offsetY;
+            } else if (targetFree) {
+                target.x -= offsetX;
+                target.y -= offsetY;
+            }
+        }
+
+        this.constraintPhase = (this.constraintPhase + 1) % phases;
+    }
+
+    applyBoundaryBehavior(node) {
+        const minX = this.runtime.boundaryPadding;
+        const maxX = this.effectiveWidth - this.runtime.boundaryPadding;
+        const minY = this.runtime.boundaryPadding;
+        const maxY = this.effectiveHeight - this.runtime.boundaryPadding;
+
+        if (node.fx != null) {
+            node.x = this.clamp(node.fx, minX, maxX);
+            node.vx = 0;
+        }
+        if (node.fy != null) {
+            node.y = this.clamp(node.fy, minY, maxY);
+            node.vy = 0;
+        }
+
+        if (!this.config.useBouncyBounds) {
+            node.x = this.clamp(node.x, minX, maxX);
+            node.y = this.clamp(node.y, minY, maxY);
+            return;
+        }
+
+        const bounce = this.clamp(this.config.boundaryBounce, 0, 1);
+
+        if (node.x < minX) {
+            node.x = minX + ((minX - node.x) * bounce);
+            if (node.vx < 0) {
+                node.vx = -node.vx * bounce;
+            }
+        } else if (node.x > maxX) {
+            node.x = maxX - ((node.x - maxX) * bounce);
+            if (node.vx > 0) {
+                node.vx = -node.vx * bounce;
+            }
+        }
+
+        if (node.y < minY) {
+            node.y = minY + ((minY - node.y) * bounce);
+            if (node.vy < 0) {
+                node.vy = -node.vy * bounce;
+            }
+        } else if (node.y > maxY) {
+            node.y = maxY - ((node.y - maxY) * bounce);
+            if (node.vy > 0) {
+                node.vy = -node.vy * bounce;
+            }
+        }
+    }
+
+    dragLinkedNodesWhilePaused(subject, dx, dy) {
+        if (!this.isPaused) {
+            return;
+        }
+
+        const offsetX = this.getFiniteNumber(dx, 0) * this.config.pausedLinkedDragInfluence;
+        const offsetY = this.getFiniteNumber(dy, 0) * this.config.pausedLinkedDragInfluence;
+        if (!offsetX && !offsetY) {
+            return;
+        }
+
+        const componentId = String(subject.component ?? "");
+        const members = this.componentNodes.get(componentId);
+        if (!members || !members.length) {
+            return;
+        }
+
+        const minX = this.runtime.boundaryPadding;
+        const maxX = this.effectiveWidth - this.runtime.boundaryPadding;
+        const minY = this.runtime.boundaryPadding;
+        const maxY = this.effectiveHeight - this.runtime.boundaryPadding;
+
+        for (const node of members) {
+            if (node === subject) {
+                continue;
+            }
+            node.x = this.clamp(node.x + offsetX, minX, maxX);
+            node.y = this.clamp(node.y + offsetY, minY, maxY);
+            node.vx = 0;
+            node.vy = 0;
+        }
+
+        this.onTick?.(this.nodes, this.links, this.runtime);
+    }
+
+    getScoreBias(score) {
+        const centeredScore = (this.getFiniteNumber(score, 0.5) - 0.5) * 2;
+        const magnitude = Math.abs(centeredScore);
+
+        if (magnitude <= this.config.neutralDeadZone) {
+            return 0;
+        }
+
+        const normalized = (magnitude - this.config.neutralDeadZone) / (1 - this.config.neutralDeadZone);
+        return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent);
+    }
+
+    getFiniteNumber(value, fallback = 0) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+    }
+
+    getNodeId(nodeOrId) {
+        return typeof nodeOrId === "object" ? nodeOrId.id : nodeOrId;
+    }
 
     getSimNode(id) {
-        return this.nodes.find(n => (n.id === id || n === id));
+        return this.nodeById.get(id) || null;
     }
 
-    updateConfig(newOpts) {
-        this.config = { ...this.config, ...newOpts };
+    updateConfig(newOptions) {
+        const sizeMultipliers = newOptions.sizeMultipliers
+            ? {
+                small: {
+                    ...this.config.sizeMultipliers.small,
+                    ...(newOptions.sizeMultipliers.small || {}),
+                },
+                medium: {
+                    ...this.config.sizeMultipliers.medium,
+                    ...(newOptions.sizeMultipliers.medium || {}),
+                },
+                large: {
+                    ...this.config.sizeMultipliers.large,
+                    ...(newOptions.sizeMultipliers.large || {}),
+                },
+            }
+            : this.config.sizeMultipliers;
+
+        this.config = { ...this.config, ...newOptions, sizeMultipliers };
+        this.runtime = this.resolveRuntimeProfile();
+
         if (this.simulation) {
-            this.simulation.alpha(0.5)
-                .restart();
+            this.simulation.alpha(0.5).restart();
         }
     }
 
     play() {
-        if (this.simulation) {
-            this.nodes.forEach((n) => {
-                n.vx = 0;
-                n.vy = 0;
-            });
-            this.simulation
-                .alpha(0.3)
-                .restart();
-            this.isPaused = false;
+        if (!this.simulation) {
+            return;
         }
+
+        for (const node of this.nodes) {
+            node.vx = 0;
+            node.vy = 0;
+        }
+
+        this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35)).restart();
+        this.isPaused = false;
     }
 
     pause() {
-        if (this.simulation) {
-            this.simulation.stop();
-            this.isPaused = true;
+        if (!this.simulation) {
+            return;
         }
+        this.simulation.stop();
+        this.isPaused = true;
     }
 
     stop() {
-        if (this.simulation) {
-            this.simulation.stop();
-        }
+        this.simulation?.stop();
     }
 
     restart() {
-        if (this.simulation) {
-            this.simulation.nodes(this.nodes);
-            this.simulation.alpha(1)
-                .restart();
+        if (!this.simulation) {
+            return;
         }
+        this.simulation.nodes(this.nodes);
+        this.simulation.alpha(1).restart();
+    }
+
+    safeMultiplier(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : 1;
+    }
+
+    scalePositive(base, multiplier) {
+        const result = Number(base) * this.safeMultiplier(multiplier);
+        return Number.isFinite(result) ? Math.max(0.000001, result) : base;
+    }
+
+    clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

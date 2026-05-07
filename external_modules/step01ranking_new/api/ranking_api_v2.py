@@ -162,6 +162,39 @@ def get_next_pair():
                     for _ in range(int(len(processor.recent_images) * 0.75)):
                         processor.recent_images.pop()
 
+        # Get pair selection metadata from the ranker
+        pair_meta = merge_sort_ranker.get_last_pair_metadata()
+        
+        # Calculate global stats for the status line
+        all_images_for_stats = get_all_images()
+        total_images_stats = len(all_images_for_stats)
+        total_comparisons_stats = get_total_comparisons()
+        
+        comp_counts = [img["comparison_count"] for img in all_images_for_stats]
+        min_comps = min(comp_counts) if comp_counts else 0
+        level_count = len([c for c in comp_counts if c > min_comps])
+        target_level = min_comps + 1
+
+        # Compute chain_length (height) and component_size for each image
+        height_a = crystal_graph.height.get(filename_a, 0)
+        height_b = crystal_graph.height.get(filename_b, 0)
+        comp_id_a = crystal_graph.component_by_filename.get(filename_a)
+        comp_id_b = crystal_graph.component_by_filename.get(filename_b)
+        comp_size_a = len(crystal_graph.chain_members_by_component.get(comp_id_a, [])) if comp_id_a is not None else 1
+        comp_size_b = len(crystal_graph.chain_members_by_component.get(comp_id_b, [])) if comp_id_b is not None else 1
+
+        # Count top/bottom nodes in each image's component (for debug)
+        def _count_extremes(comp_id):
+            if comp_id is None:
+                return {"top": 0, "bottom": 0}
+            members = crystal_graph.chain_members_by_component.get(comp_id, [])
+            top = sum(1 for m in members if not crystal_graph.better.get(m, []))
+            bottom = sum(1 for m in members if not crystal_graph.worse.get(m, []))
+            return {"top": top, "bottom": bottom}
+
+        extremes_a = _count_extremes(comp_id_a)
+        extremes_b = _count_extremes(comp_id_b)
+
         return jsonify(
             {
                 "left": {
@@ -169,28 +202,52 @@ def get_next_pair():
                     "score": round(data_a["score"], 4),
                     "confidence": round(data_a["confidence"], 4),
                     "comparison_count": data_a["comparison_count"],
+                    "chain_length": height_a,
+                    "component_size": comp_size_a,
+                    "component_id": comp_id_a,
+                    "is_top": len(crystal_graph.better.get(filename_a, [])) == 0,
+                    "is_bottom": len(crystal_graph.worse.get(filename_a, [])) == 0,
                 },
                 "right": {
                     "filename": data_b["filename"],
                     "score": round(data_b["score"], 4),
                     "confidence": round(data_b["confidence"], 4),
                     "comparison_count": data_b["comparison_count"],
+                    "chain_length": height_b,
+                    "component_size": comp_size_b,
+                    "component_id": comp_id_b,
+                    "is_top": len(crystal_graph.better.get(filename_b, [])) == 0,
+                    "is_bottom": len(crystal_graph.worse.get(filename_b, [])) == 0,
                 },
                 "collapsable": merge_sort_ranker.is_collapsable_pair(
                     filename_a, filename_b
                 ),
-                "rationale": {
-                    "seed": data_a["filename"],
-                    "partner": data_b["filename"],
-                    "score_diff": round(abs(data_a["score"] - data_b["score"]), 4),
-                    "common_confidence": round(
-                        max(data_a["confidence"], data_b["confidence"]), 4
-                    ),
-                    "allowed_range": round(
-                        max(0.05, 1.0 * math.exp(-0.3 * data_a["comparison_count"])), 4
-                    ),
-                    "strategy": "Lowest Common Confidence + Chain Ends + Score Gap Cap",
+                "same_component": {
+                    "id": comp_id_a if comp_id_a == comp_id_b else None,
+                    "size": comp_size_a if comp_id_a == comp_id_b else None,
                 },
+                "pair_meta": {
+                    "pair_type": pair_meta.get("pair_type", "unknown"),
+                    "chain_level": pair_meta.get("chain_level", -1),
+                    "component_size_group": pair_meta.get("component_size", -1),
+                    "left_component_size": comp_size_a,
+                    "right_component_size": comp_size_b,
+                    "left_comp_count": pair_meta.get("left_comp_count", 0),
+                    "right_comp_count": pair_meta.get("right_comp_count", 0),
+                },
+                "debug": {
+                    "score_diff": round(abs(data_a["score"] - data_b["score"]), 4),
+                    "left_extremes": extremes_a,
+                    "right_extremes": extremes_b,
+                    "max_graph_height": crystal_graph.get_max_height(),
+                    "total_components": len(crystal_graph.chain_members_by_component),
+                },
+                "global_stats": {
+                    "total_images": total_images_stats,
+                    "total_comparisons": total_comparisons_stats,
+                    "level_count": level_count,
+                    "target_level": target_level
+                }
             }
         )
 
