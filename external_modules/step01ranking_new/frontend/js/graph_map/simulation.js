@@ -1,108 +1,38 @@
-class ChainSimulation {
-    static defaults = {
-        linkDistance: 6,
-        linkStrength: 1,
-        linkStrengthInitialFactor: 0.001,
-        linkStrengthFinalFactor: 1,
-        linkStrengthRampMs: 10000,
-        linkStrengthRampCurve: 1.5,
-        scoreDistanceMultiplier: 10,
-        countDistanceMultiplier: 20,
-        maxLinkDistance: 1000,
-        chargeStrength: -60,
-        chargeDistanceMax: 200,
-        gravityStrength: 1,
-        scoreExponent: 2,
-        neutralDeadZone: 0,
-        velocityDecay: 0.008,
-        alphaDecay: 0.00008,
-        collisionRadius: 8,
-        linkConstraintSlack: 1.2,
-        linkConstraintPull: 0.5,
-        linkConstraintInitialSlackExtra: 0.9,
-        useBouncyBounds: true,
-        boundaryBounce: 0.85,
-        pausedLinkedDragInfluence: 1,
-        minWorldSize: 2000,
-        maxWorldSize: 120000,
-        worldScale: 200,
-        nodeJitter: 84,
-        boundaryPadding: 100,
-        renderIntervalMs: 16,
-        width: 800,
-        height: 600,
-        sizeMultipliers: {
-            small: {
-                chargeDistanceMax: 1,
-                gravityStrength: 1,
-                velocityDecay: 1,
-                alphaDecay: 1,
-                linkDistance: 1,
-                linkStrength: 1,
-                scoreDistanceMultiplier: 1,
-                countDistanceMultiplier: 1,
-                maxLinkDistance: 1,
-                worldScale: 1,
-                nodeJitter: 1,
-                boundaryPadding: 1,
-                constraintSlack: 1,
-                constraintPull: 1,
-                linkStrengthRampMs: 1,
-            },
-            medium: {
-                chargeDistanceMax: 0.24,
-                gravityStrength: 1,
-                velocityDecay: 2,
-                alphaDecay: 2,
-                linkDistance: 0.82,
-                linkStrength: 0.9,
-                scoreDistanceMultiplier: 0.75,
-                countDistanceMultiplier: 0.45,
-                maxLinkDistance: 0.5,
-                worldScale: 0.5,
-                nodeJitter: 0.66,
-                boundaryPadding: 0.66,
-                constraintSlack: 0.92,
-                constraintPull: 1.2,
-                linkStrengthRampMs: 0.8,
-            },
-            large: {
-                chargeDistanceMax: 0.16,
-                gravityStrength: 1,
-                velocityDecay: 10,
-                alphaDecay: 10,
-                linkDistance: 0.68,
-                linkStrength: 0.78,
-                scoreDistanceMultiplier: 0.45,
-                countDistanceMultiplier: 0.2,
-                maxLinkDistance: 0.1,
-                worldScale: 0.25,
-                nodeJitter: 0.42,
-                boundaryPadding: 0.1,
-                constraintSlack: 0.9,
-                constraintPull: 1.5,
-                linkStrengthRampMs: 0.55,
-            },
-        },
-    };
+/**
+ * Chain Simulation Logic (Physics Engine)
+ */
 
+class ChainSimulation {
     constructor(nodes, links, components, options = {}) {
         this.nodes = nodes;
         this.links = links;
         this.components = Array.from(components || []);
-        this.config = { ...ChainSimulation.defaults, ...options };
-        this.config.sizeMultipliers = {
+        
+        // Use global split physics defaults and scaling multipliers
+        const simLinks = typeof SIMULATION_LINKS !== 'undefined' ? SIMULATION_LINKS : {};
+        const simNodes = typeof SIMULATION_NODES !== 'undefined' ? SIMULATION_NODES : {};
+        const simWorld = typeof SIMULATION_WORLD !== 'undefined' ? SIMULATION_WORLD : {};
+
+        this.config = { ...simLinks, ...simNodes, ...simWorld, ...options };
+
+        this.config.scaling = {
             small: {
-                ...ChainSimulation.defaults.sizeMultipliers.small,
-                ...(options.sizeMultipliers?.small || {}),
+                ...(simLinks.scaling?.small || {}),
+                ...(simNodes.scaling?.small || {}),
+                ...(simWorld.scaling?.small || {}),
+                ...(options.scaling?.small || {}),
             },
             medium: {
-                ...ChainSimulation.defaults.sizeMultipliers.medium,
-                ...(options.sizeMultipliers?.medium || {}),
+                ...(simLinks.scaling?.medium || {}),
+                ...(simNodes.scaling?.medium || {}),
+                ...(simWorld.scaling?.medium || {}),
+                ...(options.scaling?.medium || {}),
             },
             large: {
-                ...ChainSimulation.defaults.sizeMultipliers.large,
-                ...(options.sizeMultipliers?.large || {}),
+                ...(simLinks.scaling?.large || {}),
+                ...(simNodes.scaling?.large || {}),
+                ...(simWorld.scaling?.large || {}),
+                ...(options.scaling?.large || {}),
             },
         };
 
@@ -132,15 +62,15 @@ class ChainSimulation {
         const mediumGraph = workUnits >= 9000;
         const largeGraph = workUnits >= 30000;
         const sizeKey = largeGraph ? "large" : (mediumGraph ? "medium" : "small");
-        const scale = this.config.sizeMultipliers[sizeKey] || this.config.sizeMultipliers.small;
+        const scale = this.config.scaling[sizeKey] || this.config.scaling.small;
 
         return {
-            canvasMode: true, // Always canvas
+            canvasMode: true,
             enableCollision: !mediumGraph && nodeCount <= 1800,
-            enableMarkers: false, // No SVG markers in canvas mode
+            enableMarkers: false,
             enableLabels: nodeCount < 900,
-            enableDrag: true, // Always enable drag
-            enablePausedGroupDrag: true, // Always enable paused group drag
+            enableDrag: true,
+            enablePausedGroupDrag: true,
             enableTooltips: nodeCount < 12000,
             enablePointerHits: nodeCount < 50000,
             drawLinks: linkCount < 180000,
@@ -169,7 +99,7 @@ class ChainSimulation {
                 : (mediumGraph ? Math.max(1, Math.ceil(linkCount / 90000)) : 1),
             constraintSlack: this.scalePositive(this.config.linkConstraintSlack, scale.constraintSlack),
             constraintPull: this.scalePositive(this.config.linkConstraintPull, scale.constraintPull),
-            linkStiffnessRampMs: this.scalePositive(this.config.linkStrengthRampMs, scale.linkStrengthRampMs),
+            linkStiffnessRampMs: this.scalePositive(this.config.linkStrengthRampMs, scale.linkStiffnessRampMs),
             startPaused: workUnits >= 110000,
             statusLabel: largeGraph ? "Canvas / Reduced Physics" : (mediumGraph ? "Canvas / Scaled" : "Canvas"),
         };
@@ -194,7 +124,6 @@ class ChainSimulation {
 
     groupNodesByComponent() {
         this.componentNodes.clear();
-
         for (const node of this.nodes) {
             const componentId = String(node.component ?? "");
             if (!this.componentNodes.has(componentId)) {
@@ -202,7 +131,6 @@ class ChainSimulation {
             }
             this.componentNodes.get(componentId).push(node);
         }
-
         if (!this.components.length) {
             this.components = Array.from(this.componentNodes.keys());
         }
@@ -210,7 +138,6 @@ class ChainSimulation {
 
     calculateNodeDegree() {
         this.nodeDegree.clear();
-
         for (const link of this.links) {
             const sourceId = this.getNodeId(link.source);
             const targetId = this.getNodeId(link.target);
@@ -261,7 +188,7 @@ class ChainSimulation {
 
                 node.x = center.x + ((Math.random() - 0.5) * jitter);
                 node.y = this.clamp(
-                    center.y + ((Math.random() - 0.5) * jitter * 0.75),
+                    center.y + ((Math.random() - 0.5) * jitter),
                     padding,
                     this.effectiveHeight - padding,
                 );
@@ -283,9 +210,7 @@ class ChainSimulation {
         for (const link of this.links) {
             const source = this.nodeById.get(this.getNodeId(link.source));
             const target = this.nodeById.get(this.getNodeId(link.target));
-            if (!source || !target) {
-                continue;
-            }
+            if (!source || !target) continue;
 
             const sourceDegree = this.nodeDegree.get(source.id) || 1;
             const targetDegree = this.nodeDegree.get(target.id) || 1;
@@ -366,9 +291,7 @@ class ChainSimulation {
             this.applyBoundaryBehavior(node);
         }
 
-        if (!this.onTick) {
-            return;
-        }
+        if (!this.onTick) return;
 
         if (now - this.lastRenderAt >= this.runtime.renderIntervalMs) {
             this.lastRenderAt = now;
@@ -378,28 +301,19 @@ class ChainSimulation {
 
     createScoreForce() {
         let nodes = [];
-
         const force = alpha => {
             for (let i = 0; i < nodes.length; i++) {
                 const node = nodes[i];
-                if (!node._scoreForce) {
-                    continue;
-                }
+                if (!node._scoreForce) continue;
                 node.vy -= node._scoreForce * alpha;
             }
         };
-
-        force.initialize = allNodes => {
-            nodes = allNodes;
-        };
-
+        force.initialize = allNodes => { nodes = allNodes; };
         return force;
     }
 
     updateLinkStiffness(now) {
-        if (!this.linkForce) {
-            return;
-        }
+        if (!this.linkForce) return;
 
         const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
         const final = Math.max(initial, this.config.linkStrengthFinalFactor);
@@ -409,23 +323,20 @@ class ChainSimulation {
         const factor = initial + ((final - initial) * eased);
 
         if (progress >= 1 && this.currentLinkStrengthFactor === final && this._annealingComplete) {
-            return; // Optimization: only skip if completely finished
+            return;
         }
 
         this.currentLinkStrengthFactor = factor;
         if (progress >= 1) this._annealingComplete = true;
 
         this.linkForce.strength(link => link._baseStrength * this.currentLinkStrengthFactor);
-        
-        // Distance annealing: Start long and relaxed, ramp down to actual distance
-        const distFactor = 3.0 - (2.0 * eased); 
+
+        const distFactor = 3.0 - (2.0 * eased);
         this.linkForce.distance(link => (link.distance || 50) * distFactor);
     }
 
     applyLinkConstraints() {
-        if (!this.links.length) {
-            return;
-        }
+        if (!this.links.length) return;
 
         const phases = this.runtime.constraintPhases;
         const phaseOffset = this.constraintPhase;
@@ -435,7 +346,7 @@ class ChainSimulation {
             ? 1
             : this.clamp((this.currentLinkStrengthFactor - initial) / (final - initial), 0, 1);
 
-        const relaxedSlack = this.runtime.constraintSlack + this.config.linkConstraintInitialSlackExtra;
+        const relaxedSlack = this.runtime.constraintSlack + (this.config.linkConstraintInitialSlackExtra || 0);
         const slack = this.runtime.constraintSlack + ((relaxedSlack - this.runtime.constraintSlack) * (1 - normalizedStiffness));
         const pull = this.runtime.constraintPull * (0.15 + (0.85 * normalizedStiffness));
 
@@ -443,23 +354,16 @@ class ChainSimulation {
             const link = this.links[index];
             const source = link.source;
             const target = link.target;
-
-            if (!source || !target || typeof source !== "object" || typeof target !== "object") {
-                continue;
-            }
+            if (!source || !target || typeof source !== "object" || typeof target !== "object") continue;
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const distanceSq = (dx * dx) + (dy * dy);
-            if (!distanceSq) {
-                continue;
-            }
+            if (!distanceSq) continue;
 
             const distance = Math.sqrt(distanceSq);
             const limit = link.distance * slack;
-            if (distance <= limit) {
-                continue;
-            }
+            if (distance <= limit) continue;
 
             const correction = ((distance - limit) / distance) * pull;
             const offsetX = dx * correction;
@@ -480,7 +384,6 @@ class ChainSimulation {
                 target.y -= offsetY;
             }
         }
-
         this.constraintPhase = (this.constraintPhase + 1) % phases;
     }
 
@@ -506,48 +409,32 @@ class ChainSimulation {
         }
 
         const bounce = this.clamp(this.config.boundaryBounce, 0, 1);
-
         if (node.x < minX) {
             node.x = minX + ((minX - node.x) * bounce);
-            if (node.vx < 0) {
-                node.vx = -node.vx * bounce;
-            }
+            if (node.vx < 0) node.vx = -node.vx * bounce;
         } else if (node.x > maxX) {
             node.x = maxX - ((node.x - maxX) * bounce);
-            if (node.vx > 0) {
-                node.vx = -node.vx * bounce;
-            }
+            if (node.vx > 0) node.vx = -node.vx * bounce;
         }
 
         if (node.y < minY) {
             node.y = minY + ((minY - node.y) * bounce);
-            if (node.vy < 0) {
-                node.vy = -node.vy * bounce;
-            }
+            if (node.vy < 0) node.vy = -node.vy * bounce;
         } else if (node.y > maxY) {
             node.y = maxY - ((node.y - maxY) * bounce);
-            if (node.vy > 0) {
-                node.vy = -node.vy * bounce;
-            }
+            if (node.vy > 0) node.vy = -node.vy * bounce;
         }
     }
 
     dragLinkedNodesWhilePaused(subject, dx, dy) {
-        if (!this.isPaused) {
-            return;
-        }
-
-        const offsetX = this.getFiniteNumber(dx, 0) * this.config.pausedLinkedDragInfluence;
-        const offsetY = this.getFiniteNumber(dy, 0) * this.config.pausedLinkedDragInfluence;
-        if (!offsetX && !offsetY) {
-            return;
-        }
+        if (!this.isPaused) return;
+        const offsetX = this.getFiniteNumber(dx, 0) * (this.config.pausedLinkedDragInfluence || 1);
+        const offsetY = this.getFiniteNumber(dy, 0) * (this.config.pausedLinkedDragInfluence || 1);
+        if (!offsetX && !offsetY) return;
 
         const componentId = String(subject.component ?? "");
         const members = this.componentNodes.get(componentId);
-        if (!members || !members.length) {
-            return;
-        }
+        if (!members || !members.length) return;
 
         const minX = this.runtime.boundaryPadding;
         const maxX = this.effectiveWidth - this.runtime.boundaryPadding;
@@ -555,28 +442,22 @@ class ChainSimulation {
         const maxY = this.effectiveHeight - this.runtime.boundaryPadding;
 
         for (const node of members) {
-            if (node === subject) {
-                continue;
-            }
+            if (node === subject) continue;
             node.x = this.clamp(node.x + offsetX, minX, maxX);
             node.y = this.clamp(node.y + offsetY, minY, maxY);
             node.vx = 0;
             node.vy = 0;
         }
-
         this.onTick?.(this.nodes, this.links, this.runtime);
     }
 
     getScoreBias(score) {
         const centeredScore = (this.getFiniteNumber(score, 0.5) - 0.5) * 2;
         const magnitude = Math.abs(centeredScore);
-
-        if (magnitude <= this.config.neutralDeadZone) {
-            return 0;
-        }
-
-        const normalized = (magnitude - this.config.neutralDeadZone) / (1 - this.config.neutralDeadZone);
-        return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent);
+        const deadZone = this.config.neutralDeadZone || 0;
+        if (magnitude <= deadZone) return 0;
+        const normalized = (magnitude - deadZone) / (1 - deadZone);
+        return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent || 2);
     }
 
     getFiniteNumber(value, fallback = 0) {
@@ -593,61 +474,36 @@ class ChainSimulation {
     }
 
     updateConfig(newOptions) {
-        const sizeMultipliers = newOptions.sizeMultipliers
+        const scaling = newOptions.scaling
             ? {
-                small: {
-                    ...this.config.sizeMultipliers.small,
-                    ...(newOptions.sizeMultipliers.small || {}),
-                },
-                medium: {
-                    ...this.config.sizeMultipliers.medium,
-                    ...(newOptions.sizeMultipliers.medium || {}),
-                },
-                large: {
-                    ...this.config.sizeMultipliers.large,
-                    ...(newOptions.sizeMultipliers.large || {}),
-                },
+                small: { ...this.config.scaling.small, ...(newOptions.scaling.small || {}) },
+                medium: { ...this.config.scaling.medium, ...(newOptions.scaling.medium || {}) },
+                large: { ...this.config.scaling.large, ...(newOptions.scaling.large || {}) },
             }
-            : this.config.sizeMultipliers;
+            : this.config.scaling;
 
-        this.config = { ...this.config, ...newOptions, sizeMultipliers };
+        this.config = { ...this.config, ...newOptions, scaling };
         this.runtime = this.resolveRuntimeProfile();
-
-        if (this.simulation) {
-            this.simulation.alpha(0.5).restart();
-        }
+        if (this.simulation) this.simulation.alpha(0.5).restart();
     }
 
     play() {
-        if (!this.simulation) {
-            return;
-        }
-
-        for (const node of this.nodes) {
-            node.vx = 0;
-            node.vy = 0;
-        }
-
+        if (!this.simulation) return;
+        for (const node of this.nodes) { node.vx = 0; node.vy = 0; }
         this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35)).restart();
         this.isPaused = false;
     }
 
     pause() {
-        if (!this.simulation) {
-            return;
-        }
+        if (!this.simulation) return;
         this.simulation.stop();
         this.isPaused = true;
     }
 
-    stop() {
-        this.simulation?.stop();
-    }
+    stop() { this.simulation?.stop(); }
 
     restart() {
-        if (!this.simulation) {
-            return;
-        }
+        if (!this.simulation) return;
         this.simulation.nodes(this.nodes);
         this.simulation.alpha(1).restart();
     }

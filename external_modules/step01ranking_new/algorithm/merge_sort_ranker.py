@@ -169,119 +169,107 @@ def select_pair_for_comparison(
     for img in all_images:
         comp_count_lookup[img["filename"]] = img.get("comparison_count", 0)
 
-    # --- Primary grouping: by component size (smallest first) ---
-    # Build component size map
+    # --- LOOP 1: COLLAPSIBLE PAIRS (Smallest to Largest Components) ---
+    # Goal: Simplify internal component structure.
     comp_sizes: dict[int, int] = {}
     for comp_id, members in crystal_graph.chain_members_by_component.items():
         comp_sizes[comp_id] = len(members)
 
-    # Group candidate nodes by component size, then by chain level within
-    # Sort by component size ascending
-    sorted_comp_sizes = sorted(set(comp_sizes.values()))
-    max_h = crystal_graph.get_max_height()
-    logger.debug(f"[NEXT-PAIR] Component sizes: {sorted_comp_sizes}, Max Graph Height: {max_h}")
+    sorted_sizes = sorted(set(comp_sizes.values()))
+    nodes_up_to_size: list[str] = []
 
-    # Accumulate nodes from smallest components to largest
-    nodes_up_to_comp_size: list[str] = []
-
-    for target_size in sorted_comp_sizes:
-        # Get nodes from components of this exact size
-        size_nodes: list[str] = []
+    for target_size in sorted_sizes:
+        # Add all nodes from components of this size
         for comp_id, size in comp_sizes.items():
             if size == target_size:
-                for member in crystal_graph.chain_members_by_component[comp_id]:
-                    if member in candidate_filenames:
-                        size_nodes.append(member)
+                nodes_up_to_size.extend(
+                    [
+                        n
+                        for n in crystal_graph.chain_members_by_component[comp_id]
+                        if n in candidate_filenames
+                    ]
+                )
 
-        if not size_nodes:
+        active_nodes = list(dict.fromkeys(nodes_up_to_size))
+        if len(active_nodes) < 2:
             continue
 
-        nodes_up_to_comp_size.extend(size_nodes)
-        cumulative_nodes = list(dict.fromkeys(nodes_up_to_comp_size))
-
-        if len(cumulative_nodes) < 2:
-            continue
-
-        # Within this component-size group:
-        # --- Priority 1: Collapsible pairs (Component-wide) ---
-        pair = _find_collapsable_pair_at_height(cumulative_nodes, -1, comp_count_lookup)
+        pair = _find_collapsable_pair_at_height(active_nodes, -1, comp_count_lookup)
         if pair:
+            comp_id = crystal_graph.component_by_filename.get(pair[0])
             _last_pair_metadata = {
                 "pair_type": PAIR_TYPE_COLLAPSIBLE,
                 "chain_level": -1,
-                "component_size": target_size,
+                "component_size": len(
+                    crystal_graph.chain_members_by_component.get(comp_id, [])
+                ),
                 "left_comp_count": comp_count_lookup.get(pair[0], 0),
                 "right_comp_count": comp_count_lookup.get(pair[1], 0),
             }
             logger.debug(
-                f"[NEXT-PAIR] component-wide collapsable pair (comp_size={target_size}): {pair}, "
-                f"time: total: {time.time() - total_time}"
+                f"[NEXT-PAIR] Loop 1 (Collapsible): {pair} at size {target_size}"
             )
             return pair
 
-        # Within this component-size group, iterate by chain level (shortest first)
-        all_heights: list[int] = sorted(crystal_graph.nodes_by_height.keys())
+    # --- LOOP 2: COMPONENT MERGING (Shortest to Longest Chains) ---
+    # Goal: Connect different components into a single hierarchy.
+    all_heights = sorted(crystal_graph.nodes_by_height.keys())
+    nodes_up_to_height: list[str] = []
 
-        for height in all_heights:
-            level_nodes: list[str] = [
-                n for n in cumulative_nodes
-                if crystal_graph.height.get(n, 0) <= height
+    for target_h in all_heights:
+        nodes_up_to_height.extend(
+            [
+                n
+                for n in candidate_filenames
+                if crystal_graph.height.get(n, 0) == target_h
             ]
+        )
+        active_nodes = list(dict.fromkeys(nodes_up_to_height))
+        if len(active_nodes) < 2:
+            continue
 
-            if len(level_nodes) < 2:
-                continue
+        pair = _find_merging_pair(active_nodes, target_h, comp_count_lookup)
+        if pair:
+            _last_pair_metadata = {
+                "pair_type": PAIR_TYPE_WORST_WITH_WORST,
+                "chain_level": target_h,
+                "component_size": -1,
+                "left_comp_count": comp_count_lookup.get(pair[0], 0),
+                "right_comp_count": comp_count_lookup.get(pair[1], 0),
+            }
+            logger.debug(f"[NEXT-PAIR] Loop 2 (Merging): {pair} at height {target_h}")
+            return pair
 
-            # Deduplicate
-            level_nodes = list(dict.fromkeys(level_nodes))
+    # --- LOOP 3: REFINEMENT (Least to Most Comparisons) ---
+    # Goal: Add detail to the existing structure.
+    # We sort all candidate pairs by total comparison count
+    all_unconnected = []
+    nodes = list(candidate_filenames)
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            a, b = nodes[i], nodes[j]
+            if not crystal_graph.are_in_same_path(a, b):
+                total_c = comp_count_lookup.get(a, 0) + comp_count_lookup.get(b, 0)
+                all_unconnected.append((total_c, a, b))
 
-            # --- Priority 2: Worst-with-worst pairs ---
-            pair = _find_worst_with_worst_pair(level_nodes, height, comp_count_lookup)
-            if pair:
-                _last_pair_metadata = {
-                    "pair_type": PAIR_TYPE_WORST_WITH_WORST,
-                    "chain_level": height,
-                    "component_size": target_size,
-                    "left_comp_count": comp_count_lookup.get(pair[0], 0),
-                    "right_comp_count": comp_count_lookup.get(pair[1], 0),
-                }
-                logger.debug(
-                    f"[NEXT-PAIR] worst-with-worst pair (comp_size={target_size}, chain={height}/{max_h}): {pair}, "
-                    f"counts: {_last_pair_metadata['left_comp_count']}, {_last_pair_metadata['right_comp_count']}, "
-                    f"time: total: {time.time() - total_time}"
-                )
-                return pair
+    if all_unconnected:
+        all_unconnected.sort()
+        best_refine = all_unconnected[0]
+        pair = (best_refine[1], best_refine[2])
+        _last_pair_metadata = {
+            "pair_type": PAIR_TYPE_UNCONNECTED,
+            "chain_level": -1,
+            "component_size": -1,
+            "left_comp_count": comp_count_lookup.get(pair[0], 0),
+            "right_comp_count": comp_count_lookup.get(pair[1], 0),
+        }
+        logger.debug(
+            f"[NEXT-PAIR] Loop 3 (Refinement): {pair} total_comps={best_refine[0]}"
+        )
+        return pair
 
-            # --- Priority 3: Unconnected pairs ---
-            pair = _find_unconnected_pair(level_nodes)
-            if pair:
-                _last_pair_metadata = {
-                    "pair_type": PAIR_TYPE_UNCONNECTED,
-                    "chain_level": height,
-                    "component_size": target_size,
-                    "left_comp_count": comp_count_lookup.get(pair[0], 0),
-                    "right_comp_count": comp_count_lookup.get(pair[1], 0),
-                }
-                logger.debug(
-                    f"[NEXT-PAIR] unconnected pair (comp_size={target_size}, chain={height}/{max_h}): {pair}, "
-                    f"time: total: {time.time() - total_time}"
-                )
-                return pair
-
-    # Priority 4: Final fallback - lowest confidence images from different chains
-    low_conf_images = _find_lowest_confidence_images(candidate_images)
-    pair = _find_fallback_cross_chain(low_conf_images)
-    _last_pair_metadata = {
-        "pair_type": PAIR_TYPE_FALLBACK,
-        "chain_level": -1,
-        "component_size": -1,
-    }
-    if pair:
-        _last_pair_metadata["left_comp_count"] = comp_count_lookup.get(pair[0], 0)
-        _last_pair_metadata["right_comp_count"] = comp_count_lookup.get(pair[1], 0)
-    logger.debug(
-        f"[NEXT-PAIR] fallback cross-chain pair:{pair} time: total: {time.time() - total_time}"
-    )
-    return pair
+    # Fallback
+    return _find_fallback_cross_chain(_find_lowest_confidence_images(candidate_images))
 
 
 def _filter_excluded_images(
@@ -393,9 +381,7 @@ def _find_collapsable_pair_at_height(
                         candidate_pairs.append((total_count, count_diff, a, b))
 
     if not candidate_pairs:
-        logger.debug(
-            f"[COLLAPSABLE-PAIR] No collapsible pairs at height {height}"
-        )
+        logger.debug(f"[COLLAPSABLE-PAIR] No collapsible pairs at height {height}")
         return None
 
     # Sort by total_count ascending, then count_diff ascending (least connections, most similar first)
@@ -409,75 +395,80 @@ def _find_collapsable_pair_at_height(
     return (best[2], best[3])
 
 
-def _find_worst_with_worst_pair(
+def _find_merging_pair(
     nodes_at_height: list[str], height: int, comp_count_lookup: dict[str, int]
 ) -> tuple[str, str] | None:
-    """Find worst-with-worst pairs in components that have a unique best or worst node.
+    """Find pairs of best/worst nodes from DIFFERENT components to merge them.
 
-    For components where there's exactly 1 top node (unique best) or exactly 1 bottom node
-    (unique worst), compare the remaining bottom/top nodes that need ordering.
+    Goal: Connect unconnected or sparsely connected hierarchies.
     Priority: least connections first.
     """
     node_set = set(nodes_at_height)
 
-    # Group nodes by component
-    nodes_by_component: dict[int, list[str]] = defaultdict(list)
+    # Group available nodes by component
+    comp_to_nodes: dict[int, list[str]] = defaultdict(list)
     for n in nodes_at_height:
         comp_id = crystal_graph.component_by_filename.get(n)
         if comp_id is not None:
-            nodes_by_component[comp_id].append(n)
+            comp_to_nodes[comp_id].append(n)
+
+    comp_ids = list(comp_to_nodes.keys())
+    if len(comp_ids) < 2:
+        return None
 
     candidate_pairs: list[tuple[int, int, str, str]] = []
 
-    for comp_id, comp_nodes in nodes_by_component.items():
-        if len(comp_nodes) < 2:
-            continue
+    # Compare each pair of components
+    for i in range(len(comp_ids)):
+        for j in range(i + 1, len(comp_ids)):
+            comp_a = comp_ids[i]
+            comp_b = comp_ids[j]
 
-        # Get all top and bottom nodes for this component (from the full component, not just filtered)
-        all_comp_members = crystal_graph.chain_members_by_component.get(comp_id, [])
-        all_top = [n for n in all_comp_members if not crystal_graph.better.get(n, [])]
-        all_bottom = [n for n in all_comp_members if not crystal_graph.worse.get(n, [])]
+            # Find extreme nodes (tops and bottoms) in each component
+            # We want to compare Top(A) with Top(B) or Bottom(A) with Bottom(B)
+            # or Top(A) with Bottom(B) etc. to merge them.
+            # Best merge is Top of one with Bottom of another, or Top vs Top to decide global best.
 
-        # If this component has exactly 1 top (unique best), compare bottom nodes with each other
-        if len(all_top) == 1 and len(all_bottom) >= 2:
-            # Filter bottom nodes to those in our candidate set
-            available_bottom = [n for n in all_bottom if n in node_set]
-            if len(available_bottom) >= 2:
-                for i in range(len(available_bottom)):
-                    for j in range(i + 1, len(available_bottom)):
-                        a, b = available_bottom[i], available_bottom[j]
-                        if not crystal_graph.are_in_same_path(a, b):
-                            count_a = comp_count_lookup.get(a, 0)
-                            count_b = comp_count_lookup.get(b, 0)
-                            total_count = count_a + count_b
-                            count_diff = abs(count_a - count_b)
-                            candidate_pairs.append((total_count, count_diff, a, b))
+            def get_extremes(cid):
+                members = crystal_graph.chain_members_by_component.get(cid, [])
+                tops = [
+                    n
+                    for n in members
+                    if n in node_set and not crystal_graph.better.get(n, [])
+                ]
+                bottoms = [
+                    n
+                    for n in members
+                    if n in node_set and not crystal_graph.worse.get(n, [])
+                ]
+                return tops, bottoms
 
-        # If this component has exactly 1 bottom (unique worst), compare top nodes with each other
-        if len(all_bottom) == 1 and len(all_top) >= 2:
-            available_top = [n for n in all_top if n in node_set]
-            if len(available_top) >= 2:
-                for i in range(len(available_top)):
-                    for j in range(i + 1, len(available_top)):
-                        a, b = available_top[i], available_top[j]
-                        if not crystal_graph.are_in_same_path(a, b):
-                            count_a = comp_count_lookup.get(a, 0)
-                            count_b = comp_count_lookup.get(b, 0)
-                            total_count = count_a + count_b
-                            count_diff = abs(count_a - count_b)
-                            candidate_pairs.append((total_count, count_diff, a, b))
+            tops_a, bottoms_a = get_extremes(comp_a)
+            tops_b, bottoms_b = get_extremes(comp_b)
+
+            # Compare Best with Best (Tops)
+            for a in tops_a:
+                for b in tops_b:
+                    count_a = comp_count_lookup.get(a, 0)
+                    count_b = comp_count_lookup.get(b, 0)
+                    candidate_pairs.append(
+                        (count_a + count_b, abs(count_a - count_b), a, b)
+                    )
+
+            # Compare Worst with Worst (Bottoms)
+            for a in bottoms_a:
+                for b in bottoms_b:
+                    count_a = comp_count_lookup.get(a, 0)
+                    count_b = comp_count_lookup.get(b, 0)
+                    candidate_pairs.append(
+                        (count_a + count_b, abs(count_a - count_b), a, b)
+                    )
 
     if not candidate_pairs:
         return None
 
-    # Sort by total_count ascending, then count_diff ascending
-    candidate_pairs.sort(key=lambda x: (x[0], x[1]))
-
+    candidate_pairs.sort()
     best = candidate_pairs[0]
-    logger.debug(
-        f"[WORST-WITH-WORST] Found {len(candidate_pairs)} pairs at height {height}. "
-        f"Best: {best[2]} vs {best[3]} (total_count={best[0]}, diff={best[1]})"
-    )
     return (best[2], best[3])
 
 

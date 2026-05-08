@@ -1,92 +1,6 @@
-class ChainMapRenderer {
-    constructor({ container, svg, g, interaction }) {
-        this.container = container;
-        this.svg = svg;
-        this.g = g;
-        this.interaction = interaction;
-        this.renderer = null;
-        this.mode = "canvas";
-        this.worldBounds = null;
-        this.detailLevel = {
-            showNodeBorders: true,
-            showLabels: false,
-            showArrows: false,
-            labelCap: 0,
-            arrowCap: 0,
-            zoom: 1,
-        };
-        // Initialize the sub-renderer immediately so the canvas is available for event binding
-        this.subRenderer = new CanvasGraphRenderer({
-            container: this.container,
-            svg: this.svg,
-        });
-    }
-
-    get canvas() {
-        return this.subRenderer?.canvas;
-    }
-
-    render({ nodes, links, profile, selectedIds, dragBehavior, world }) {
-        this.renderWorldBounds(world);
-        // Always use canvas mode
-        this.mode = "canvas";
-
-        this.subRenderer.render({ nodes, links, profile, selectedIds, world });
-        this.subRenderer.setDetailLevel?.(this.detailLevel);
-    }
-
-    renderWorldBounds(world) {
-        if (!world) return;
-
-        this.worldBounds = this.g.append("rect")
-            .attr("class", "world-bounds")
-            .attr("x", world.x)
-            .attr("y", world.y)
-            .attr("width", world.width)
-            .attr("height", world.height)
-            .attr("fill", "none")
-            .attr("stroke", "rgba(139, 92, 246, 0.3)")
-            .attr("stroke-dasharray", "10 5")
-            .attr("vector-effect", "non-scaling-stroke");
-    }
-
-    update(nodes, links) {
-        this.subRenderer?.update(nodes, links);
-    }
-
-    setTransform(transform) {
-        this.subRenderer?.setTransform(transform);
-    }
-
-    setDetailLevel(detailLevel) {
-        this.detailLevel = detailLevel || this.detailLevel;
-        this.subRenderer?.setDetailLevel?.(this.detailLevel);
-    }
-
-    updateSelection(selectedIds) {
-        this.subRenderer?.updateSelection?.(selectedIds);
-    }
-
-    resize() {
-        this.subRenderer?.resize?.();
-    }
-
-    hitTest(event) {
-        return this.subRenderer?.hitTest?.(event) ?? null;
-    }
-
-    isCanvasMode() {
-        return true; // Always canvas
-    }
-
-    destroy() {
-        this.g.selectAll("*").remove();
-        this.worldBounds = null;
-        this.subRenderer?.destroy?.();
-        this.subRenderer = null;
-        this.mode = "canvas";
-    }
-}
+/**
+ * Low-level Canvas Graph Renderer
+ */
 
 class CanvasGraphRenderer {
     constructor({ container, svg }) {
@@ -161,12 +75,10 @@ class CanvasGraphRenderer {
             return null;
         }
 
-        // Handle both raw mouse events and D3 drag/zoom events
         let px, py;
         if (event.sourceEvent) {
             [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
         } else if (event.x !== undefined && event.y !== undefined && event.sourceEvent === undefined) {
-            // Already in local coordinates (e.g. from d3.drag subject)
             px = event.x;
             py = event.y;
         } else {
@@ -177,9 +89,7 @@ class CanvasGraphRenderer {
         const worldX = (px - this.transform.x) / scale;
         const worldY = (py - this.transform.y) / scale;
         
-        console.log(`[HIT-TEST] Screen:(${px.toFixed(1)},${py.toFixed(1)}) -> World:(${worldX.toFixed(1)},${worldY.toFixed(1)}) Zoom:${scale.toFixed(2)} Nodes:${this.visibleNodeCount}`);
-
-        const padding = 10 / scale; // Larger click target
+        const padding = 10 / scale; 
         let bestNode = null;
         let bestDistanceSq = Infinity;
 
@@ -197,8 +107,6 @@ class CanvasGraphRenderer {
                 }
             }
         }
-
-        if (bestNode) console.log(`[HIT-TEST] MATCH: ${bestNode.id} DistSq:${bestDistanceSq.toFixed(1)}`);
         return bestNode;
     }
 
@@ -213,17 +121,13 @@ class CanvasGraphRenderer {
     }
 
     requestRender() {
-        if (this.pendingFrame) {
-            return;
-        }
+        if (this.pendingFrame) return;
         this.pendingFrame = window.requestAnimationFrame(() => this.draw());
     }
 
     draw() {
         this.pendingFrame = 0;
-        if (!this.ctx || !this.profile) {
-            return;
-        }
+        if (!this.ctx || !this.profile) return;
 
         const width = this.canvas.width;
         const height = this.canvas.height;
@@ -244,7 +148,7 @@ class CanvasGraphRenderer {
         this.drawSelectedNodes();
         this.drawNodeDetails(viewport);
 
-        // Dynamically compute and draw world bounds
+        // Draw world bounds
         if (this.nodes.length > 0) {
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             const limit = Math.min(this.visibleNodeCount, this.nodes.length);
@@ -275,7 +179,7 @@ class CanvasGraphRenderer {
     }
 
     drawLinks(viewport) {
-        if (!this.profile.drawLinks || !this.detailLevel.showLinks || this.transform.k < this.profile.linkVisibilityZoomThreshold) {
+        if (!this.profile.drawLinks || !this.detailLevel.showLinks || this.transform.k < (this.profile.linkVisibilityZoomThreshold || 0.05)) {
             return;
         }
 
@@ -315,7 +219,6 @@ class CanvasGraphRenderer {
             const dy = target.y - source.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
             
-            // Dynamic opacity based on world distance (600px falloff)
             const maxDist = 600;
             const opacity = Math.max(0.1, Math.min(1.0, 1 - (dist / maxDist)));
             
@@ -342,9 +245,7 @@ class CanvasGraphRenderer {
 
         for (let i = 0; i < visibleNodes; i++) {
             const node = this.nodes[i];
-            if (this.selectedIds.has(node.id)) {
-                continue;
-            }
+            if (this.selectedIds.has(node.id)) continue;
             if (node._fill !== fill) {
                 fill = node._fill;
                 this.ctx.fillStyle = fill;
@@ -356,19 +257,16 @@ class CanvasGraphRenderer {
     }
 
     drawSelectedNodes() {
-        if (!this.selectedIds.size) {
-            return;
-        }
+        if (!this.selectedIds.size) return;
 
         const visibleNodes = Math.min(this.visibleNodeCount, this.nodes.length);
         this.ctx.lineWidth = 2;
-        this.ctx.strokeStyle = ChainMapUI.config.visuals.highlightColor;
+        // Access config via global variable
+        this.ctx.strokeStyle = (typeof MAP_VISUALS !== 'undefined') ? MAP_VISUALS.highlightColor : "#f472b6";
 
         for (let i = 0; i < visibleNodes; i++) {
             const node = this.nodes[i];
-            if (!this.selectedIds.has(node.id)) {
-                continue;
-            }
+            if (!this.selectedIds.has(node.id)) continue;
             this.ctx.fillStyle = node._fill;
             this.ctx.beginPath();
             this.ctx.arc(node.x, node.y, node._radius, 0, Math.PI * 2);
@@ -378,9 +276,7 @@ class CanvasGraphRenderer {
     }
 
     drawNodeDetails(viewport) {
-        if (!this.detailLevel.showNodeBorders && !this.detailLevel.showLabels) {
-            return;
-        }
+        if (!this.detailLevel.showNodeBorders && !this.detailLevel.showLabels) return;
 
         const visibleNodes = Math.min(this.visibleNodeCount, this.nodes.length);
 
@@ -389,33 +285,25 @@ class CanvasGraphRenderer {
             this.ctx.lineWidth = 0.9;
             for (let i = 0; i < visibleNodes; i++) {
                 const node = this.nodes[i];
-                if (!this.isNodeInViewport(node, viewport, node._radius + 1)) {
-                    continue;
-                }
+                if (!this.isNodeInViewport(node, viewport, node._radius + 1)) continue;
                 this.ctx.beginPath();
                 this.ctx.arc(node.x, node.y, node._radius, 0, Math.PI * 2);
                 this.ctx.stroke();
             }
         }
 
-        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0 || this.transform.k < 0.25) {
-            return;
-        }
+        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0 || this.transform.k < 0.25) return;
 
         const labelLimit = Math.min(this.detailLevel.labelCap, visibleNodes);
         let drawn = 0;
         this.ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
         this.ctx.textBaseline = "middle";
 
-        // Font size scales with node radius — base 10px scales proportionally
         let lastFontSize = -1;
 
         for (let i = 0; i < visibleNodes && drawn < labelLimit; i++) {
             const node = this.nodes[i];
-            if (!this.isNodeInViewport(node, viewport, node._radius + 20)) {
-                continue;
-            }
-            // Scale font size based on node radius: min 6px, max 16px
+            if (!this.isNodeInViewport(node, viewport, node._radius + 20)) continue;
             const fontSize = Math.max(6, Math.min(16, Math.round(node._radius * 1.6)));
             if (fontSize !== lastFontSize) {
                 this.ctx.font = `${fontSize}px sans-serif`;
@@ -439,16 +327,12 @@ class CanvasGraphRenderer {
             const link = this.links[i];
             const source = link.source;
             const target = link.target;
-            if (!this.isNodeInViewport(source, viewport, 12) && !this.isNodeInViewport(target, viewport, 12)) {
-                continue;
-            }
+            if (!this.isNodeInViewport(source, viewport, 12) && !this.isNodeInViewport(target, viewport, 12)) continue;
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const lenSq = (dx * dx) + (dy * dy);
-            if (lenSq < minLengthSq) {
-                continue;
-            }
+            if (lenSq < minLengthSq) continue;
 
             const midX = (source.x + target.x) * 0.5;
             const midY = (source.y + target.y) * 0.5;
@@ -492,9 +376,7 @@ class CanvasGraphRenderer {
     }
 
     destroy() {
-        if (this.pendingFrame) {
-            window.cancelAnimationFrame(this.pendingFrame);
-        }
+        if (this.pendingFrame) window.cancelAnimationFrame(this.pendingFrame);
         this.pendingFrame = 0;
         this.canvas.remove();
     }
