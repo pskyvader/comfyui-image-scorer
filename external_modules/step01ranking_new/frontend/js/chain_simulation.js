@@ -408,11 +408,13 @@ class ChainSimulation {
         const eased = Math.pow(progress, Math.max(0.01, this.config.linkStrengthRampCurve));
         const factor = initial + ((final - initial) * eased);
 
-        if (Math.abs(factor - this.currentLinkStrengthFactor) < 0.002) {
-            return;
+        if (progress >= 1 && this.currentLinkStrengthFactor === final && this._annealingComplete) {
+            return; // Optimization: only skip if completely finished
         }
 
         this.currentLinkStrengthFactor = factor;
+        if (progress >= 1) this._annealingComplete = true;
+
         this.linkForce.strength(link => link._baseStrength * this.currentLinkStrengthFactor);
         
         // Distance annealing: Start long and relaxed, ramp down to actual distance

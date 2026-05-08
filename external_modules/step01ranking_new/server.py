@@ -69,7 +69,7 @@ def start_background_scanner(img_root: str) -> None:
     logger.info("[SCANNER] Global image scanner started.")
 
 
-def startup_worker(img_root: str) -> None:
+def startup_worker(img_root: str, sync_existing: bool = False) -> None:
     """Background worker for initialization tasks."""
     # Step 1: Initialize score folders
     logger.info("[1/3] Initializing score folder structure...")
@@ -78,10 +78,13 @@ def startup_worker(img_root: str) -> None:
         return
     logger.info("  [OK] Folder structure ready")
 
-    # Step 2: Rebuild database from existing ranked images (for recovery from DB loss)
-    logger.info("[2/3] Rebuilding database from existing ranked images...")
-    image_processor.rebuild_database_from_ranked()
-    logger.info("  [OK] Database rebuild started/complete")
+    # Step 2: Rebuild database from existing ranked images
+    if sync_existing:
+        logger.info("[2/3] Rebuilding database from existing ranked images (MANUAL SYNC ENABLED)...")
+        image_processor.rebuild_database_from_ranked()
+        logger.info("  [OK] Database rebuild complete")
+    else:
+        logger.info("[2/3] Skipping automatic database rebuild (use --sync-existing to enable)...")
 
     # Step 3: Start background scanner for new images
     if img_root:
@@ -92,14 +95,14 @@ def startup_worker(img_root: str) -> None:
         logger.info("[3/3] Skipping scanner (no image_root configured)")
 
 
-def init_ranking_system(img_root: str | None = None) -> bool:
+def init_ranking_system(img_root: str | None = None, sync_existing: bool = False) -> bool:
     """Initialize system and trigger background recovery."""
     logger.info("\n" + "=" * 60)
     logger.info("RANKING SYSTEM INITIALIZATION (BACKGROUND)")
     logger.info("=" * 60)
 
     # Trigger background worker for all heavy tasks
-    threading.Thread(target=startup_worker, args=(img_root,), daemon=True).start()
+    threading.Thread(target=startup_worker, args=(img_root, sync_existing), daemon=True).start()
 
     logger.info("[OK] Background initialization triggered.")
     logger.info("=" * 60)
@@ -260,6 +263,11 @@ def main():
         default=image_root,
         help="Root folder for images (for migration)",
     )
+    parser.add_argument(
+        "--sync-existing",
+        action="store_true",
+        help="Rebuild database from existing ranked images on startup",
+    )
 
     args = parser.parse_args()
 
@@ -282,7 +290,7 @@ def main():
         should_init = False
 
     if should_init:
-        if not init_ranking_system(args.image_root):
+        if not init_ranking_system(args.image_root, sync_existing=args.sync_existing):
             logger.error("Failed to initialize system")
             return 1
 

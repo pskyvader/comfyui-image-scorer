@@ -244,12 +244,28 @@ class CanvasGraphRenderer {
         this.drawSelectedNodes();
         this.drawNodeDetails(viewport);
 
-        // Always draw world border ON TOP
-        if (this.world) {
+        // Dynamically compute and draw world bounds
+        if (this.nodes.length > 0) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            const limit = Math.min(this.visibleNodeCount, this.nodes.length);
+            for (let i = 0; i < limit; i++) {
+                const n = this.nodes[i];
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            }
+            
+            const padding = 150;
+            const wX = minX - padding;
+            const wY = minY - padding;
+            const wWidth = (maxX - minX) + padding * 2;
+            const wHeight = (maxY - minY) + padding * 2;
+
             this.ctx.strokeStyle = "rgba(139, 92, 246, 0.8)";
             this.ctx.lineWidth = 2 / this.transform.k; 
             this.ctx.setLineDash([12 / this.transform.k, 6 / this.transform.k]);
-            this.ctx.strokeRect(this.world.x, this.world.y, this.world.width, this.world.height);
+            this.ctx.strokeRect(wX, wY, wWidth, wHeight);
             this.ctx.setLineDash([]);
         }
 
@@ -382,7 +398,7 @@ class CanvasGraphRenderer {
             }
         }
 
-        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0) {
+        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0 || this.transform.k < 0.25) {
             return;
         }
 

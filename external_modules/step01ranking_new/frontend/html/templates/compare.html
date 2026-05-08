@@ -1,12 +1,5 @@
     <div id="comparison-status-top" class="text-center text-gray-500 mb-6 text-sm opacity-50">Pair ready for comparison</div>
     
-    <div id="collapsible-indicator" class="hidden w-full max-w-xl mx-auto mb-6 p-4 bg-green-500/10 border-2 border-green-500/30 rounded-2xl flex items-center justify-center gap-4 text-green-400 shadow-[0_10px_30px_rgba(34,197,94,0.15)] animate-pulse">
-        <span class="text-2xl">⚡</span>
-        <div class="text-left">
-            <p class="font-bold uppercase tracking-widest text-sm">Collapsible Pair Detected</p>
-            <p class="text-xs opacity-70">This comparison will collapse redundant chains within the same graph component.</p>
-        </div>
-    </div>
     <div id="error-box" class="hidden my-8 p-8 border-2 border-red-500/50 bg-red-900/20 rounded-2xl text-center shadow-xl backdrop-blur-md">
         <h2 id="error-title" class="text-2xl font-bold text-red-400 mb-4">Error</h2>
         <p id="error-message" class="text-gray-300 text-lg"></p>
@@ -14,7 +7,7 @@
 
     <div id="cards-container" class="flex flex-col md:flex-row gap-4 md:gap-8 items-center justify-center relative min-h-[400px]">
         <!-- Loading Overlay -->
-        <div id="loading-overlay" class="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-2xl opacity-0 pointer-events-none transition-opacity duration-300">
+        <div id="loading-overlay" class="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-md rounded-2xl opacity-0 pointer-events-none">
             <div class="flex flex-col items-center">
                 <div class="w-16 h-16 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4"></div>
                 <p class="text-purple-300 font-medium animate-pulse">Finding next pair...</p>
@@ -80,6 +73,25 @@
             Total: <span id="stat-total" class="text-white">0</span> | 
             Compared: <span id="stat-ranked" class="text-white">0</span> (Level <span id="stat-level" class="text-white">-</span>) | 
             Comparisons: <span id="stat-comparisons" class="text-white">0</span>
+        </div>
+        
+        <!-- Legend -->
+        <div class="flex flex-wrap justify-center gap-4 mb-6 text-[10px] uppercase tracking-widest font-bold opacity-60">
+            <div class="flex items-center gap-2 group relative cursor-help">
+                <div class="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.4)]"></div>
+                <span>Regular</span>
+                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-purple-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Standard ranking step between two images in the same tier.</div>
+            </div>
+            <div class="flex items-center gap-2 group relative cursor-help">
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]"></div>
+                <span>Collapsible</span>
+                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-yellow-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Groups of very similar images; choosing one affects the entire cluster.</div>
+            </div>
+            <div class="flex items-center gap-2 group relative cursor-help">
+                <div class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]"></div>
+                <span>Extra</span>
+                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-blue-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Refinement comparisons between images that are already closely ranked.</div>
+            </div>
         </div>
         <div class="flex gap-4">
             <button id="skip-button" class="px-6 py-2 rounded-full border border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white transition text-sm">Skip Pair</button>

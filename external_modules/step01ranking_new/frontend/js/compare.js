@@ -65,6 +65,13 @@ class CompareMode {
         this.cacheElements();
         this.attachEventListeners();
         
+        // Reset pairs on load
+        try {
+            await fetch('/api/v2/ranking/reset', { method: 'POST' });
+        } catch (e) {
+            console.warn("Could not reset pairs:", e);
+        }
+        
         const leftFile = params?.get('left');
         const rightFile = params?.get('right');
 
@@ -125,6 +132,7 @@ class CompareMode {
     }
 
     async renderPair() {
+        this.showLoading(true);
         const { left, right, pair_meta, collapsable } = this.currentPair;
         const els = this.elements;
 
@@ -149,23 +157,30 @@ class CompareMode {
         }
 
         // Single line stats separated by |
-        const statsText = `Score: ${Utils.formatScore(left.score)} | Chain: ${left.chain_length ?? "-"} | Comp: ${left.component_size ?? "-"} | Comps: ${left.comparison_count ?? 0}`;
-        const rightStatsText = `Score: ${Utils.formatScore(right.score)} | Chain: ${right.chain_length ?? "-"} | Comp: ${right.component_size ?? "-"} | Comps: ${right.comparison_count ?? 0}`;
+        const statsText = `Score: ${Utils.formatScore(left.score)} | Chain: ${left.chain_length ?? "-"} | Component: ${left.component_size ?? "-"} | Comparisons: ${left.comparison_count ?? 0}`;
+        const rightStatsText = `Score: ${Utils.formatScore(right.score)} | Chain: ${right.chain_length ?? "-"} | Component: ${right.component_size ?? "-"} | Comparisons: ${right.comparison_count ?? 0}`;
         
         const leftStatsEl = document.getElementById("left-stats-line");
         const rightStatsEl = document.getElementById("right-stats-line");
         if (leftStatsEl) leftStatsEl.textContent = statsText;
         if (rightStatsEl) rightStatsEl.textContent = rightStatsText;
 
-        // Update borders for collapsable
+        // Update borders based on comparison type
+        els.leftCard.classList.remove("collapsible-card", "regular-card", "extra-card");
+        els.rightCard.classList.remove("collapsible-card", "regular-card", "extra-card");
+
+        const isExtra = left.component_id === right.component_id && 
+                      (this.currentPair.debug?.left_extremes?.top === 1 && this.currentPair.debug?.left_extremes?.bottom === 1);
+
         if (collapsable) {
             els.leftCard.classList.add("collapsible-card");
             els.rightCard.classList.add("collapsible-card");
-            if (els.collapsibleIndicator) els.collapsibleIndicator.classList.remove("hidden");
+        } else if (isExtra) {
+            els.leftCard.classList.add("extra-card");
+            els.rightCard.classList.add("extra-card");
         } else {
-            els.leftCard.classList.remove("collapsible-card");
-            els.rightCard.classList.remove("collapsible-card");
-            if (els.collapsibleIndicator) els.collapsibleIndicator.classList.add("hidden");
+            els.leftCard.classList.add("regular-card");
+            els.rightCard.classList.add("regular-card");
         }
 
         // Debug/Pair Meta Rationale - Enhanced Grid Alignment
@@ -182,7 +197,7 @@ class CompareMode {
                             </tr>
                             <tr class="h-6">
                                 <td class="text-gray-500 pr-4">Chain Level</td>
-                                <td class="text-white">${rationale.chain_level ?? '-'}</td>
+                                <td class="text-white">${(rationale.chain_level === -1 || rationale.chain_level === undefined) ? 'Auto' : rationale.chain_level}</td>
                             </tr>
                             <tr class="h-6">
                                 <td class="text-gray-500 pr-4">Comp Size</td>
@@ -232,11 +247,13 @@ class CompareMode {
         els.rightImg.classList.remove("opacity-0");
         els.leftImg.classList.add("opacity-100");
         els.rightImg.classList.add("opacity-100");
+        this.showLoading(false);
     }
 
     async submitVote(winner) {
         if (this.isLoading) return;
         this.isLoading = true;
+        this.showLoading(true);
         
         const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
         

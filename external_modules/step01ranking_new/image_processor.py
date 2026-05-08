@@ -36,6 +36,7 @@ from database.comparisons_table import (
     add_historical_comparison,
     deduplicate_comparisons,
 )
+from shared.vectors.terms import extract_terms
 
 # Use central paths definitions as the source of truth for filesystem roots
 from shared.paths import (
@@ -142,7 +143,7 @@ class ImageProcessor:
 
         Removes: score, score_modifier, volatility, image, comparison_count
         Keeps: custom_text, cfg, sampler, steps, lora, positive_prompt, negative_prompt, etc.
-        Adds: confidence=0, comparison_count=0, history=[]
+        Adds: confidence=0, comparison_count=0, history=[], prompt_tags=None
         """
         # Normalize various incoming JSON shapes into a simple top-level metadata
         # structure expected by other parts of the system. We support two common
@@ -191,11 +192,20 @@ class ImageProcessor:
         if filename:
             base.setdefault("filename", filename)
 
+        # Extract prompt tags
+        prompt = base.get("positive_prompt")
+        if prompt and isinstance(prompt, str):
+            weighted_tags = extract_terms(prompt)
+            # Filter weight >= 1.0 and format for DB
+            tags = [tag for tag, weight in weighted_tags if weight >= 1.0]
+            if tags:
+                base["prompt_tags"] = ",".join(tags)
+
         return base
 
     def process_image_file(
         self, image_path: Path
-    ) -> tuple[bool, str, float | None, str | None, bool]:
+    ) -> tuple[bool, str, float | None, str | None, bool, str | None]:
         """
         Process a single image file: convert score, clean JSON, move to tier folder.
 
@@ -214,11 +224,11 @@ class ImageProcessor:
                     self.processed_images.add(filename)
                 msg = f"Skipping {filename}: No JSON companion found at {json_path}"
                 logger.debug(msg)
-                return False, msg, None, None, False
+                return False, msg, None, None, False, None
 
             # Check if image already processed
             if filename in self.processed_images:
-                return False, f"Already processed", None, None, False
+                return False, f"Already processed", None, None, False, None
 
             # Default score from config
             new_score = self.default_score
@@ -435,7 +445,7 @@ class ImageProcessor:
                 except Exception as e2:
                     logger.error(f"Rollback failed for JSON {filename}: {e2}")
 
-                return False, f"Move failed: {e}", None, None, False
+                return False, f"Move failed: {e}", None, None, False, None
 
             # Mark as processed and return
             with self.processed_lock:
@@ -447,10 +457,11 @@ class ImageProcessor:
                 float(chosen_score),
                 dest_image.name,
                 bool(db_entry),
+                cleaned_json.get("prompt_tags"),
             )
 
         except Exception as e:
-            return False, f"Error processing: {e}", None, None, False
+            return False, f"Error processing: {e}", None, None, False, None
 
     def sync_processed_images_from_db(self):
         """Load all filenames currently in the database into the processed set."""
@@ -472,6 +483,7 @@ class ImageProcessor:
         score: float,
         confidence: float = 0.0,
         comparison_count: int = 0,
+        prompt_tags: str | None = None,
     ) -> bool:
         """Add processed image to database."""
         try:
@@ -480,6 +492,7 @@ class ImageProcessor:
                 score=score,
                 confidence=confidence,
                 comparison_count=comparison_count,
+                prompt_tags=prompt_tags,
             )
             return True
         except Exception as e:
@@ -633,16 +646,23 @@ class ImageProcessor:
                         filename = img_path.name
 
                         try:
-                            success, message, score, dest_name, db_entry_exists = (
-                                future.result()
-                            )
+                            (
+                                success,
+                                message,
+                                score,
+                                dest_name,
+                                db_entry_exists,
+                                prompt_tags,
+                            ) = future.result()
 
                             if success:
                                 with self.processed_lock:
                                     stats["processed"] += 1
                                     db_name = dest_name if dest_name else filename
                                     if score is not None and not db_entry_exists:
-                                        if self.add_to_database(db_name, score):
+                                        if self.add_to_database(
+                                            db_name, score, prompt_tags=prompt_tags
+                                        ):
                                             stats["added"] += 1
                                             current_global += 1
                                             update_desc()
@@ -798,10 +818,21 @@ class ImageProcessor:
             ):
                 comparison_count = len(comparison_history)
 
+            # Extract prompt tags
+            prompt_tags = None
+            prompt = metadata.get("positive_prompt")
+            if prompt and isinstance(prompt, str):
+                weighted_tags = extract_terms(prompt)
+                # Filter weight >= 1.0 and format for DB
+                tags = [tag for tag, weight in weighted_tags if weight >= 1.0]
+                if tags:
+                    prompt_tags = ",".join(tags)
+
             if phase == 1:
                 # PHASE 1: Handle images table
                 existing_data = db_get_image(filename)
                 if existing_data:
+                    changed = False
                     # ONLY sync from JSON if JSON has more comparisons (meaning JSON is more recent/complete)
                     # This prevents old JSONs from overwriting a fresh database state.
                     if comparison_count > existing_data.get("comparison_count", 0):
@@ -809,13 +840,28 @@ class ImageProcessor:
                             update_image_score_confidence(
                                 filename, score, confidence, comparison_count
                             )
-                            return "synced_history"
+                            changed = True
                         except Exception:
                             pass
-                    return "skipped"
+
+                    # Always try to sync prompt tags if they are missing or if we found them
+                    if prompt_tags and existing_data.get("prompt_tags") != prompt_tags:
+                        try:
+                            from database.images_table import update_image_tags
+
+                            update_image_tags(filename, prompt_tags)
+                            changed = True
+                        except Exception:
+                            pass
+
+                    return "synced_history" if changed else "skipped"
                 else:
                     if self.add_to_database(
-                        filename, score, confidence, comparison_count
+                        filename,
+                        score,
+                        confidence,
+                        comparison_count,
+                        prompt_tags=prompt_tags,
                     ):
                         return "recovered"
                     return "errors"

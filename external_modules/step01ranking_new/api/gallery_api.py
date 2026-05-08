@@ -56,8 +56,14 @@ def list_images():
         confidence_max = request.args.get("confidence_max", 1.0, type=float)
         comparisons_min = request.args.get("comparisons_min", 0, type=int)
         comparisons_max = request.args.get("comparisons_max", 999999, type=int)
+        search_mode = request.args.get("search_mode", "both").lower()
+        tags_query = request.args.get("tags", "").strip().lower()
+        search_tags = [t.strip() for t in tags_query.split(",")] if tags_query else []
 
-        filtered = []
+        # Separate into AND and OR lists for prioritization
+        filtered_and = []
+        filtered_or = []
+
         for img in scored:
             if not (score_min <= img["score"] <= score_max):
                 continue
@@ -66,26 +72,65 @@ def list_images():
             comp_count = img.get("comparison_count", 0)
             if not (comparisons_min <= comp_count <= comparisons_max):
                 continue
-            filtered.append(img)
+                
+            if not search_tags:
+                filtered_and.append(img)
+                continue
+                
+            img_tags = (img.get("prompt_tags", "") or "").lower()
+            
+            # 1. Check if matches ALL tags (AND)
+            all_match = True
+            for t in search_tags:
+                if t not in img_tags:
+                    all_match = False
+                    break
+            
+            if all_match:
+                filtered_and.append(img)
+            elif search_mode != "and":
+                # 2. Check if matches ANY tags (OR)
+                any_match = False
+                for t in search_tags:
+                    if t in img_tags:
+                        any_match = True
+                        break
+                if any_match:
+                    filtered_or.append(img)
 
-        # Apply sorting
+        # Apply sorting to each group individually to maintain AND-priority
         sort_by = request.args.get("sort", "score_desc")
-        if sort_by == "score_asc":
-            filtered.sort(key=lambda x: x["score"])
-        elif sort_by == "score_desc":
-            filtered.sort(key=lambda x: x["score"], reverse=True)
-        elif sort_by == "confidence_asc":
-            filtered.sort(key=lambda x: x["confidence"])
-        elif sort_by == "confidence_desc":
-            filtered.sort(key=lambda x: x["confidence"], reverse=True)
-        elif sort_by == "comparisons_asc":
-            filtered.sort(key=lambda x: x["comparison_count"])
-        elif sort_by == "comparisons_desc":
-            filtered.sort(key=lambda x: x["comparison_count"], reverse=True)
-        elif sort_by == "last_compared_desc" or sort_by == "newest":
-            filtered.sort(key=lambda x: x.get("last_compared_at") or "", reverse=True)
-        elif sort_by == "last_compared_asc":
-            filtered.sort(key=lambda x: x.get("last_compared_at") or "9999-99-99")
+        
+        def sort_list(lst):
+            if sort_by == "score_asc":
+                lst.sort(key=lambda x: x["score"])
+            elif sort_by == "score_desc":
+                lst.sort(key=lambda x: x["score"], reverse=True)
+            elif sort_by == "confidence_asc":
+                lst.sort(key=lambda x: x["confidence"])
+            elif sort_by == "confidence_desc":
+                lst.sort(key=lambda x: x["confidence"], reverse=True)
+            elif sort_by == "comparisons_asc":
+                lst.sort(key=lambda x: x["comparison_count"])
+            elif sort_by == "comparisons_desc":
+                lst.sort(key=lambda x: x["comparison_count"], reverse=True)
+            elif sort_by == "last_compared_desc" or sort_by == "newest":
+                lst.sort(key=lambda x: x.get("last_compared_at") or "", reverse=True)
+            elif sort_by == "last_compared_asc":
+                lst.sort(key=lambda x: x.get("last_compared_at") or "9999-99-99")
+
+        if search_tags:
+            sort_list(filtered_and)
+            sort_list(filtered_or)
+            if search_mode == "or":
+                filtered = filtered_or # Only OR matches
+            elif search_mode == "and":
+                filtered = filtered_and # Only AND matches
+            else: # both
+                filtered = filtered_and + filtered_or
+        else:
+            filtered = filtered_and
+            sort_list(filtered)
 
         # Paginate
         total = len(filtered)
@@ -101,6 +146,7 @@ def list_images():
                 "comparison_count": img["comparison_count"],
                 "chain_length": img.get("height") or img.get("chain_length", 0),
                 "component_size": img.get("component_size", 0),
+                "prompt_tags": img.get("prompt_tags", ""),
                 "tier": int(img["score"] * 10),
             }
             for img in paginated
@@ -135,6 +181,7 @@ def get_image_info(filename: str):
             "confidence": round(img["confidence"], 4),
             "comparison_count": img["comparison_count"],
             "last_compared_at": img.get("last_compared_at"),
+            "prompt_tags": img.get("prompt_tags", ""),
             "tier": int(img["score"] * 10)
         })
     except Exception as e:

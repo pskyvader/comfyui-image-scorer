@@ -254,6 +254,24 @@ def get_next_pair():
     return "", 204
 
 
+@ranking_bp.route("/reset", methods=["POST"])
+def reset_ranking_queue():
+    """
+    Reset the comparison queue state.
+    """
+    logger.info("[RESET] Client requested ranking queue reset.")
+    try:
+        from server import image_processor
+        if image_processor:
+            with image_processor.recent_lock:
+                image_processor.recent_images.clear()
+                logger.info("[RESET] Cleared processor recent images LRU queue.")
+        return jsonify({"status": "success", "message": "Ranking queue reset."})
+    except Exception as e:
+        logger.error(f"[RESET] Failed to reset queue: {e}")
+        return jsonify({"error": "Failed to reset queue"}), 500
+
+
 @ranking_bp.route("/submit-comparison", methods=["POST"])
 def submit_comparison():
     """
@@ -376,6 +394,8 @@ def get_graph_data():
                     "height": crystal_graph.height.get(filename, 0),
                     "component": crystal_graph.component_by_filename.get(filename),
                     "comparison_count": img_data["comparison_count"],
+                    "is_top": len(crystal_graph.better.get(filename, [])) == 0,
+                    "is_bottom": len(crystal_graph.worse.get(filename, [])) == 0,
                 }
             )
 

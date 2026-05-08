@@ -22,6 +22,7 @@ class GalleryView {
             scoreDisplay: document.getElementById("score-display"),
             comparisonsDisplay: document.getElementById("comparisons-display"),
             sortFilter: document.getElementById("sort-filter"),
+            tagsFilter: document.getElementById("tags-filter"),
             galleryStatus: document.getElementById("gallery-status"),
             galleryGrid: document.getElementById("gallery-grid"),
             scrollSentinel: document.getElementById("scroll-sentinel"),
@@ -33,8 +34,11 @@ class GalleryView {
             modalPrev: document.getElementById("modal-prev"),
             modalNext: document.getElementById("modal-next"),
             modalHistory: document.getElementById("modal-history"),
+            modalTags: document.getElementById("modal-tags"),
+            tagsContainer: document.getElementById("tags-container"),
             historyWins: document.getElementById("history-wins"),
-            historyLosses: document.getElementById("history-losses")
+            historyLosses: document.getElementById("history-losses"),
+            searchMode: document.getElementById("search-mode")
         };
     }
 
@@ -52,6 +56,7 @@ class GalleryView {
                 }
                 this.els.comparisonsDisplay.textContent = `${this.els.comparisonsMin.value} - ${this.els.comparisonsMax.value}`;
             }
+            this.saveFilters();
         };
 
         const debouncedSearch = Utils.debounce(() => this.search(), 300);
@@ -60,7 +65,9 @@ class GalleryView {
             this.els[id]?.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
         });
         
-        this.els.sortFilter?.addEventListener("change", () => this.search());
+        this.els.sortFilter?.addEventListener("change", () => { this.saveFilters(); this.search(); });
+        this.els.tagsFilter?.addEventListener("input", () => { this.saveFilters(); debouncedSearch(); });
+        this.els.searchMode?.addEventListener("change", () => { this.saveFilters(); this.search(); });
         
         if (this.els.modalClose) this.els.modalClose.onclick = () => this.closeModal();
         if (this.els.modalPrev) this.els.modalPrev.onclick = (e) => { e.stopPropagation(); this.showPrevImage(); };
@@ -95,9 +102,43 @@ class GalleryView {
     async init() {
         console.log("Initializing GalleryView...");
         this.cacheElements();
+        this.loadFilters();
         this.attachEventListeners();
         this.setupInfiniteScroll();
         await this.search();
+    }
+
+    loadFilters() {
+        const saved = localStorage.getItem("gallery_filters");
+        if (saved) {
+            try {
+                const filters = JSON.parse(saved);
+                if (this.els.scoreMin) this.els.scoreMin.value = filters.scoreMin ?? 0;
+                if (this.els.scoreMax) this.els.scoreMax.value = filters.scoreMax ?? 1;
+                if (this.els.comparisonsMin) this.els.comparisonsMin.value = filters.comparisonsMin ?? 0;
+                if (this.els.comparisonsMax) this.els.comparisonsMax.value = filters.comparisonsMax ?? 10;
+                if (this.els.sortFilter) this.els.sortFilter.value = filters.sort ?? "score_desc";
+                if (this.els.tagsFilter) this.els.tagsFilter.value = filters.tags ?? "";
+                if (this.els.searchMode) this.els.searchMode.value = filters.searchMode ?? "both";
+                
+                // Update displays
+                if (this.els.scoreDisplay) this.els.scoreDisplay.textContent = `${parseFloat(this.els.scoreMin.value).toFixed(2)} - ${parseFloat(this.els.scoreMax.value).toFixed(2)}`;
+                if (this.els.comparisonsDisplay) this.els.comparisonsDisplay.textContent = `${this.els.comparisonsMin.value} - ${this.els.comparisonsMax.value}`;
+            } catch (e) { console.warn("Failed to load gallery filters", e); }
+        }
+    }
+
+    saveFilters() {
+        const filters = {
+            scoreMin: this.els.scoreMin?.value,
+            scoreMax: this.els.scoreMax?.value,
+            comparisonsMin: this.els.comparisonsMin?.value,
+            comparisonsMax: this.els.comparisonsMax?.value,
+            sort: this.els.sortFilter?.value,
+            tags: this.els.tagsFilter?.value,
+            searchMode: this.els.searchMode?.value
+        };
+        localStorage.setItem("gallery_filters", JSON.stringify(filters));
     }
 
     setupInfiniteScroll() {
@@ -137,6 +178,8 @@ class GalleryView {
                 comparisonsMin: parseInt(this.els.comparisonsMin.value),
                 comparisonsMax: parseInt(this.els.comparisonsMax.value),
                 sort: this.els.sortFilter.value,
+                tags: this.els.tagsFilter?.value || "",
+                search_mode: this.els.searchMode?.value || "both"
             };
 
             const result = await api.getGalleryImages(this.currentPage, this.perPage, filters);
@@ -212,7 +255,15 @@ class GalleryView {
                 <span class="text-white font-bold">${img.chain_length ?? img.height ?? "-"}</span>
             </div>
         `;
-
+        
+        // Tags
+        if (img.prompt_tags) {
+            this.els.tagsContainer.textContent = img.prompt_tags;
+            this.els.modalTags.classList.remove("hidden");
+        } else {
+            this.els.modalTags.classList.add("hidden");
+        }
+ 
         this.els.modal.classList.remove("hidden");
         this.els.modal.classList.add("flex");
         document.body.style.overflow = "hidden";

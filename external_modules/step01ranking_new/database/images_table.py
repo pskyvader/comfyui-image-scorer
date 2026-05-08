@@ -52,15 +52,16 @@ def add_image(
     score: float = 0.5,
     confidence: float = 0.3,
     comparison_count: int = 0,
+    prompt_tags: str | None = None,
 ) -> bool:
     """
     Add or update image in database.
 
-    Args:
         filename: Image filename (relative or basename, no path)
         score: Score 0-1 float
         confidence: Confidence 0-1 float
         comparison_count: Number of comparisons
+        prompt_tags: Comma-separated tags string
 
     Returns:
         True if successful
@@ -69,14 +70,15 @@ def add_image(
         with get_db_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO images(filename, score, confidence, comparison_count)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO images(filename, score, confidence, comparison_count, prompt_tags)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET 
                     score=excluded.score,
                     confidence=excluded.confidence,
-                    comparison_count=excluded.comparison_count
+                    comparison_count=excluded.comparison_count,
+                    prompt_tags=COALESCE(excluded.prompt_tags, images.prompt_tags)
                 """,
-                (filename, score, confidence, comparison_count),
+                (filename, score, confidence, comparison_count, prompt_tags),
             )
             conn.commit()
         # Invalidate/refresh cache for this filename
@@ -90,12 +92,28 @@ def add_image(
         return False
 
 
+def update_image_tags(filename: str, prompt_tags: str) -> bool:
+    """Update only the tags for an existing image."""
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE images SET prompt_tags=? WHERE filename=?",
+                (prompt_tags, filename),
+            )
+            conn.commit()
+        _cache_invalidate(filename)
+        return True
+    except Exception as e:
+        logger.error(f"Error updating tags for {filename}: {e}")
+        return False
+
+
 def get_image(filename: str) -> dict[str, Any] | None:
     """
     Get image metadata by filename.
 
     Returns:
-        Dict with filename, score, confidence, comparison_count, last_compared_at, ranking_generation
+        Dict with filename, score, confidence, comparison_count, last_compared_at, ranking_generation, prompt_tags
         or None if not found
     """
     # Check LRU cache first

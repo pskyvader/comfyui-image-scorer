@@ -47,7 +47,8 @@ def init_database() -> None:
                 confidence REAL DEFAULT 0.0,
                 comparison_count INTEGER DEFAULT 0,
                 last_compared_at TEXT,
-                ranking_generation INTEGER DEFAULT 0
+                ranking_generation INTEGER DEFAULT 0,
+                prompt_tags TEXT
             )
             """
         )
@@ -107,7 +108,7 @@ def init_database() -> None:
         conn.commit()
 
     # Initialize metadata
-    _set_meta_value("db_version", "2")
+    _set_meta_value("db_version", "3")
     _set_meta_value("ranking_generation", "0")
 
 

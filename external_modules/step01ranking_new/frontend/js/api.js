@@ -49,6 +49,8 @@ class RankingAPI {
             comparisons_min: filters.comparisonsMin || 0,
             comparisons_max: filters.comparisonsMax || 999999,
             sort: filters.sort || "score_desc",
+            tags: filters.tags || "",
+            search_mode: filters.search_mode || "both"
         });
         const response = await fetch(`${this.apiBase}/gallery/images?${params}`);
         if (!response.ok) throw new Error("Failed to get gallery images");

@@ -51,6 +51,13 @@ class ChainMapUI {
         this.maxChainFilter = document.getElementById("max-chain-filter");
         this.maxChainVal = document.getElementById("max-chain-val");
         
+        this.minCompCountFilter = document.getElementById("min-comp-count-filter");
+        this.minCompCountVal = document.getElementById("min-comp-count-val");
+        this.maxCompCountFilter = document.getElementById("max-comp-count-filter");
+        this.maxCompCountVal = document.getElementById("max-comp-count-val");
+        
+        this.collapsibleFilter = document.getElementById("collapsible-filter");
+        
         this.playPauseBtn = document.getElementById("play-pause-btn");
         this.playIcon = document.getElementById("play-icon");
         this.pauseIcon = document.getElementById("pause-icon");
@@ -59,11 +66,13 @@ class ChainMapUI {
         this.statEdges = document.getElementById("stat-edges");
         this.statChains = document.getElementById("stat-chains");
         this.statComponents = document.getElementById("stat-components");
+        this.statComparisons = document.getElementById("stat-comparisons");
 
         this.nodeDetails = document.getElementById("node-details");
         this.compareSelectedBtn = document.getElementById("compare-selected-btn");
         this.selectedCountEl = document.getElementById("selected-count");
         this.zoomScaleEl = document.getElementById("zoom-scale");
+        this.viewCoordsEl = document.getElementById("view-coords");
         
         this.width = this.container?.clientWidth || 800;
         this.height = this.container?.clientHeight || 600;
@@ -74,9 +83,47 @@ class ChainMapUI {
         this.cacheElements();
         if (!this.container) return;
 
+        this.loadFiltersFromStorage();
         this.setupSVGAndRenderer();
         this.attachEventListeners();
         await this.loadData();
+    }
+
+    loadFiltersFromStorage() {
+        const loadFilter = (el, valEl, key, defaultVal, isMin) => {
+            if (!el) return;
+            const saved = localStorage.getItem(key);
+            const val = saved !== null ? parseInt(saved) : defaultVal;
+            el.value = val;
+            if (valEl) {
+                const isMax = val >= parseInt(el.max);
+                valEl.textContent = (isMax && !isMin) ? "Max" : val;
+            }
+        };
+
+        loadFilter(this.minCompFilter, this.minCompVal, "chainmap_minComp", 1, true);
+        loadFilter(this.maxCompFilter, this.maxCompVal, "chainmap_maxComp", 30, false);
+        loadFilter(this.minChainFilter, this.minChainVal, "chainmap_minChain", 1, true);
+        loadFilter(this.maxChainFilter, this.maxChainVal, "chainmap_maxChain", 30, false);
+        loadFilter(this.minCompCountFilter, this.minCompCountVal, "chainmap_minCompCount", 0, true);
+        loadFilter(this.maxCompCountFilter, this.maxCompCountVal, "chainmap_maxCompCount", 10, false);
+        
+        if (this.collapsibleFilter) {
+            const saved = localStorage.getItem("chainmap_collapsible");
+            if (saved) this.collapsibleFilter.value = saved;
+        }
+    }
+
+    saveFilters() {
+        localStorage.setItem("chainmap_minComp", this.minCompFilter?.value || 1);
+        localStorage.setItem("chainmap_maxComp", this.maxCompFilter?.value || 30);
+        localStorage.setItem("chainmap_minChain", this.minChainFilter?.value || 1);
+        localStorage.setItem("chainmap_maxChain", this.maxChainFilter?.value || 30);
+        localStorage.setItem("chainmap_minCompCount", this.minCompCountFilter?.value || 0);
+        localStorage.setItem("chainmap_maxCompCount", this.maxCompCountFilter?.value || 10);
+        if (this.collapsibleFilter) {
+            localStorage.setItem("chainmap_collapsible", this.collapsibleFilter.value);
+        }
     }
 
     cleanup() {
@@ -112,9 +159,19 @@ class ChainMapUI {
         
         this.zoom = d3.zoom()
             .scaleExtent(ChainMapUI.config.interaction.zoomExtent)
+            .filter((event) => {
+                // If it's a mousedown and we hit a node, don't pan (let drag handle it)
+                if (event.type === "mousedown" || event.type === "touchstart") {
+                    const canvas = d3.select(this.renderer.canvas);
+                    const p = d3.pointer(event, canvas.node());
+                    const hit = this.renderer?.hitTest({ x: p[0], y: p[1] });
+                    if (hit) return false;
+                }
+                return !event.ctrlKey && !event.button; // Standard zoom filter
+            })
             .on("zoom", (event) => {
                 this.g.attr("transform", event.transform);
-                if (this.zoomScaleEl) this.zoomScaleEl.textContent = `${event.transform.k.toFixed(2)}x`;
+                this.updateHUD(event.transform);
                 
                 // Update detail levels based on zoom thresholds
                 const k = event.transform.k;
@@ -129,6 +186,16 @@ class ChainMapUI {
                 });
                 this.renderer?.setTransform(event.transform);
             });
+    }
+
+    updateHUD(transform) {
+        if (this.zoomScaleEl) this.zoomScaleEl.textContent = `${transform.k.toFixed(2)}x`;
+        if (this.viewCoordsEl) {
+            const centerX = Math.round((-transform.x + (this.width / 2)) / transform.k);
+            const centerY = Math.round((-transform.y + (this.height / 2)) / transform.k);
+            this.viewCoordsEl.textContent = `X: ${centerX}, Y: ${centerY}`;
+        }
+    }
 
         this.svg.call(this.zoom);
         // Initialize high-performance Canvas renderer
@@ -144,11 +211,12 @@ class ChainMapUI {
         
         canvas.call(this.zoom)
             .on("click", (event) => {
+                if (event.defaultPrevented) return; // ignore drag clicks
                 const p = d3.pointer(event, canvas.node());
                 const node = this.renderer?.hitTest({ x: p[0], y: p[1] });
                 if (node) {
                     this.showNodeDetails(node);
-                    this.toggleSelection(node.id);
+                    // Do not toggle selection automatically to avoid accidental comparisons
                 }
             })
             .on("dblclick.zoom", null);
@@ -156,20 +224,24 @@ class ChainMapUI {
         canvas.call(d3.drag()
             .container(canvas.node())
             .subject((event) => {
-                const p = d3.pointer(event, canvas.node());
+                const sourceEvent = event.sourceEvent || event;
+                const p = d3.pointer(sourceEvent, canvas.node());
                 return this.renderer?.hitTest({ x: p[0], y: p[1] });
             })
             .on("start", (event) => {
-                if (!event.active && !this.chainSim?.isPaused) {
+                if (this.chainSim?.isPaused) {
+                    this.toggleSimulation(); // Unpause to allow physics to react
+                }
+                if (!event.active) {
                     this.chainSim?.simulation?.alphaTarget(0.3).restart();
                 }
                 event.subject.fx = event.subject.x;
                 event.subject.fy = event.subject.y;
             })
             .on("drag", (event) => {
-                const k = d3.zoomTransform(canvas.node()).k;
-                event.subject.fx += event.dx / k;
-                event.subject.fy += event.dy / k;
+                const transform = d3.zoomTransform(canvas.node());
+                event.subject.fx = (event.x - transform.x) / transform.k;
+                event.subject.fy = (event.y - transform.y) / transform.k;
             })
             .on("end", (event) => {
                 if (!event.active) {
@@ -198,46 +270,75 @@ class ChainMapUI {
         this.resetViewBtn.onclick = () => this.resetView();
         this.playPauseBtn.onclick = () => this.toggleSimulation();
 
-        const handleFilterInput = (filter, valEl, isMin = false) => {
-            const val = parseInt(filter.value);
-            const isMax = val >= ChainMapUI.config.filters.sliderMax;
-            valEl.textContent = (isMax && !isMin) ? "Max" : val;
+        const handleFilterInput = (minEl, maxEl, minValEl, maxValEl, keyPrefix, isMin) => {
+            let min = parseInt(minEl.value);
+            let max = parseInt(maxEl.value);
+            const sliderMax = parseInt(maxEl.max);
+
+            if (min > max) {
+                if (isMin) maxEl.value = min;
+                else minEl.value = max;
+                min = parseInt(minEl.value);
+                max = parseInt(maxEl.value);
+            }
+
+            if (minValEl) minValEl.textContent = min;
+            if (maxValEl) maxValEl.textContent = max >= sliderMax ? "Max" : max;
+            
+            this.saveFilters();
             
             if (this.filterTimer) {
                 clearTimeout(this.filterTimer);
                 this.filterTimer = null;
                 const container = document.getElementById("filter-delay-container");
-                const bar = document.getElementById("filter-delay-bar");
                 if (container) container.classList.add("hidden");
-                if (bar) {
-                    bar.style.transition = 'none';
-                    bar.style.width = '0%';
-                }
                 if (this.loader) this.loader.classList.add("hidden");
             }
         };
 
-        this.minCompFilter.oninput = () => handleFilterInput(this.minCompFilter, this.minCompVal, true);
-        this.maxCompFilter.oninput = () => handleFilterInput(this.maxCompFilter, this.maxCompVal, false);
-        this.minChainFilter.oninput = () => handleFilterInput(this.minChainFilter, this.minChainVal, true);
-        this.maxChainFilter.oninput = () => handleFilterInput(this.maxChainFilter, this.maxChainVal, false);
+        this.minCompFilter.oninput = () => handleFilterInput(this.minCompFilter, this.maxCompFilter, this.minCompVal, this.maxCompVal, "comp", true);
+        this.maxCompFilter.oninput = () => handleFilterInput(this.minCompFilter, this.maxCompFilter, this.minCompVal, this.maxCompVal, "comp", false);
+        this.minChainFilter.oninput = () => handleFilterInput(this.minChainFilter, this.maxChainFilter, this.minChainVal, this.maxChainVal, "chain", true);
+        this.maxChainFilter.oninput = () => handleFilterInput(this.minChainFilter, this.maxChainFilter, this.minChainVal, this.maxChainVal, "chain", false);
+        
+        if (this.minCompCountFilter) {
+            this.minCompCountFilter.oninput = () => handleFilterInput(this.minCompCountFilter, this.maxCompCountFilter, this.minCompCountVal, this.maxCompCountVal, "compcount", true);
+            this.maxCompCountFilter.oninput = () => handleFilterInput(this.minCompCountFilter, this.maxCompCountFilter, this.minCompCountVal, this.maxCompCountVal, "compcount", false);
+        }
 
-        this.minCompFilter.onchange = () => this.debouncedApplyFilters();
-        this.maxCompFilter.onchange = () => this.debouncedApplyFilters();
-        this.minChainFilter.onchange = () => this.debouncedApplyFilters();
-        this.maxChainFilter.onchange = () => this.debouncedApplyFilters();
+        this.minCompFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        this.maxCompFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        this.minChainFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        this.maxChainFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        if (this.minCompCountFilter) this.minCompCountFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        if (this.maxCompCountFilter) this.maxCompCountFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        if (this.collapsibleFilter) this.collapsibleFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
 
         if (this.compareSelectedBtn) {
             this.compareSelectedBtn.onclick = () => this.compareSelected();
         }
 
         const toggleLabelsBtn = document.getElementById("toggle-labels-btn");
+        const iconOn = document.getElementById("tag-icon-on");
+        const iconOff = document.getElementById("tag-icon-off");
+
         if (toggleLabelsBtn) {
             toggleLabelsBtn.onclick = () => {
                 this.labelsOverridden = true;
                 const current = this.renderer?.detailLevel?.showLabels;
-                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLabels: !current, labelCap: !current ? 1000 : 0 });
+                const newState = !current;
+                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLabels: newState, labelCap: newState ? 1000 : 0 });
+                
+                if (iconOn) iconOn.classList.toggle("hidden", !newState);
+                if (iconOff) iconOff.classList.toggle("hidden", newState);
             };
+        }
+        
+        // Initial sync of label button icons
+        if (this.renderer?.detailLevel) {
+            const isShown = this.renderer.detailLevel.showLabels;
+            if (iconOn) iconOn.classList.toggle("hidden", !isShown);
+            if (iconOff) iconOff.classList.toggle("hidden", isShown);
         }
     }
 
@@ -286,30 +387,62 @@ class ChainMapUI {
         const maxComp = parseInt(this.maxCompFilter.value);
         const minChain = parseInt(this.minChainFilter.value);
         const maxChain = parseInt(this.maxChainFilter.value);
+        
+        const minCompCount = this.minCompCountFilter ? parseInt(this.minCompCountFilter.value) : 0;
+        const maxCompCount = this.maxCompCountFilter ? parseInt(this.maxCompCountFilter.value) : 10;
+        const collapsibleMode = this.collapsibleFilter ? this.collapsibleFilter.value : 'all';
+        
         const maxLimit = ChainMapUI.config.filters.sliderMax;
+
+        // Save to localStorage
+        localStorage.setItem("chainmap_minComp", minComp);
+        localStorage.setItem("chainmap_maxComp", maxComp);
+        localStorage.setItem("chainmap_minChain", minChain);
+        localStorage.setItem("chainmap_maxChain", maxChain);
+        localStorage.setItem("chainmap_minCompCount", minCompCount);
+        localStorage.setItem("chainmap_maxCompCount", maxCompCount);
+        localStorage.setItem("chainmap_collapsible", collapsibleMode);
 
         const useMinComp = minComp > 1;
         const useMaxComp = maxComp < maxLimit;
         const useMinChain = minChain > 1;
         const useMaxChain = maxChain < maxLimit;
+        const useMinCompCount = minCompCount > 0;
+        const useMaxCompCount = maxCompCount < 10;
 
         const validComponents = new Set();
+        const nodeMap = new Map(this.rawData.nodes.map(n => [n.id, n]));
+        
         Object.entries(this.rawData.components || {}).forEach(([id, members]) => {
             const size = members.length;
             const meetsMinComp = !useMinComp || size >= minComp;
             const meetsMaxComp = !useMaxComp || size <= maxComp;
             
-            // Find max height in this component
             let maxH = 0;
+            let topNodeCount = 0;
+            let anyNodeMatchesCompCount = false;
+            
             members.forEach(nid => {
-                const n = this.rawData.nodes.find(node => node.id === nid);
-                if (n && (n.height || 0) > maxH) maxH = n.height;
+                const n = nodeMap.get(nid);
+                if (n) {
+                    if ((n.height || 0) > maxH) maxH = n.height;
+                    if (n.is_top) topNodeCount++;
+                    
+                    const meetsMinC = !useMinCompCount || (n.comparison_count || 0) >= minCompCount;
+                    const meetsMaxC = !useMaxCompCount || (n.comparison_count || 0) <= maxCompCount;
+                    if (meetsMinC && meetsMaxC) anyNodeMatchesCompCount = true;
+                }
             });
 
             const meetsMinChain = !useMinChain || maxH >= minChain;
             const meetsMaxChain = !useMaxChain || maxH <= maxChain;
+            
+            const isCollapsible = topNodeCount >= 2;
+            let meetsCollapsible = true;
+            if (collapsibleMode === 'only') meetsCollapsible = isCollapsible;
+            if (collapsibleMode === 'exclude') meetsCollapsible = !isCollapsible;
 
-            if (meetsMinComp && meetsMaxComp && meetsMinChain && meetsMaxChain) {
+            if (meetsMinComp && meetsMaxComp && meetsMinChain && meetsMaxChain && meetsCollapsible && anyNodeMatchesCompCount) {
                 validComponents.add(id.toString());
             }
         });
@@ -334,8 +467,21 @@ class ChainMapUI {
         this.statNodes.textContent = nodes.length;
         this.statEdges.textContent = links.length;
         const distinctComponents = new Set(nodes.map(n => String(n.component ?? "")));
-        this.statChains.textContent = nodes.filter(n => (n.height || 0) > 1).length;
+        const totalComparisons = nodes.reduce((sum, n) => sum + (n.comparison_count || 0), 0);
+        
+        if (this.statComparisons) this.statComparisons.textContent = totalComparisons.toLocaleString();
         if (this.statComponents) this.statComponents.textContent = distinctComponents.size;
+
+        // Bottom stats
+        const nodesBottom = document.getElementById("stat-nodes-bottom");
+        const edgesBottom = document.getElementById("stat-edges-bottom");
+        const compsBottom = document.getElementById("stat-comparisons-bottom");
+        const componentsBottom = document.getElementById("stat-components-bottom");
+        
+        if (nodesBottom) nodesBottom.textContent = nodes.length.toLocaleString();
+        if (edgesBottom) edgesBottom.textContent = links.length.toLocaleString();
+        if (compsBottom) compsBottom.textContent = totalComparisons.toLocaleString();
+        if (componentsBottom) componentsBottom.textContent = distinctComponents.size.toLocaleString();
 
         // Clone for simulation
         // Custom color scale matching legend: High (>0.6) Green, Neutral (0.4-0.6) Yellow, Low (<0.4) Red
