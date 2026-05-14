@@ -6,14 +6,6 @@ class Utils {
         return (Math.round(score * 1000) / 1000).toFixed(3);
     }
 
-    // Get tier name from score
-    static getTierName(score) {
-        const tier = Math.floor(score * 10);
-        const min = (tier / 10).toFixed(1);
-        const max = ((tier + 1) / 10).toFixed(1);
-        return `Tier ${tier} (${min}-${max})`;
-    }
-
     // Debounce function
     static debounce(func, wait) {
         let timeout;

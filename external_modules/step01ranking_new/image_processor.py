@@ -3,15 +3,16 @@
 import json
 import os
 import shutil
-import time
-from pathlib import Path
-from typing import Any
-from threading import Lock
-import logging
 import sys
-from tqdm import tqdm
+import time
+import logging
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from threading import Lock
+from typing import Any
+
+from tqdm import tqdm
 
 # Add parent path for imports
 _root = Path(__file__).parent.parent.parent  # comfyui-image-scorer
@@ -31,10 +32,13 @@ from database.images_table import (
     get_image_count,
     update_image_score_confidence,
     get_all_images as db_get_all_images,
+    update_image_tags,
+    update_image_confidence,
 )
 from database.comparisons_table import (
     add_historical_comparison,
     deduplicate_comparisons,
+    get_comparison_count,
 )
 from shared.vectors.terms import extract_terms
 
@@ -45,38 +49,6 @@ from shared.paths import (
     output_dir,
 )
 from file_management.path_handler import compute_path_from_filename, get_ranked_root
-
-
-def _history_entry_to_comparison_row(
-    filename: str,
-    entry: dict,
-) -> dict[str, Any] | None:
-    """Convert a history entry to a comparison row format."""
-    winner_side = entry.get("winner", False)
-    other = entry.get("other")
-    if not other:
-        return None
-
-    if winner_side:
-        winner, loser = filename, other
-    else:
-        winner, loser = other, filename
-
-    return {
-        "winner": winner,
-        "loser": loser,
-        "comparison_id": entry.get("comparison_id"),
-        "timestamp": entry.get("timestamp"),
-        "weight": entry.get("weight", 1.0),
-    }
-
-
-def _comparison_row_key(row: dict) -> tuple:
-    """Generate a unique key for a comparison row for deduplication purposes."""
-    return (
-        tuple(sorted([row["winner"], row["loser"]])),
-        row.get("comparison_id"),
-    )
 
 
 class ImageProcessor:
@@ -781,6 +753,35 @@ class ImageProcessor:
         except Exception as e:
             logger.debug(f"Deduplication failed: {e}")
 
+        # Phase 4: Fix comparison_count for ALL images from actual DB counts
+        # This ensures counts are correct even if JSON was missing history or Phase 2 didn't run
+        logger.info("[DATABASE] Phase 4: Fixing comparison counts...")
+
+        all_images = db_get_all_images()
+        fixed_count = 0
+        with tqdm(
+            total=len(all_images),
+            desc="[DATABASE] Fixing comparison counts",
+            unit="img",
+            leave=False,
+        ) as pbar:
+            for img in all_images:
+                filename = img.get("filename")
+                if not filename:
+                    continue
+                actual_count = get_comparison_count(filename)
+                current_count = img.get("comparison_count", 0)
+                if actual_count != current_count:
+                    try:
+                        update_image_confidence(
+                            filename, img.get("confidence", 0.0), actual_count
+                        )
+                        fixed_count += 1
+                    except Exception:
+                        pass
+                pbar.update(1)
+        logger.info(f"[DATABASE] Fixed comparison_count for {fixed_count} images")
+
         logger.info(
             f"Database rebuild complete: recovered={stats['recovered']}, "
             f"skipped={stats['skipped']}, synced_history={stats['synced_history']}, "
@@ -824,9 +825,11 @@ class ImageProcessor:
             if prompt and isinstance(prompt, str):
                 weighted_tags = extract_terms(prompt)
                 # Filter weight >= 1.0 and format for DB
-                tags = [tag for tag, weight in weighted_tags if weight >= 1.0]
+                # tags: list[str] = [tag for tag, weight in weighted_tags if weight >= 1.0]
+                tags: list[str] = [tag for tag, _ in weighted_tags]
+
                 if tags:
-                    prompt_tags = ",".join(tags)
+                    prompt_tags: str = ",".join(tags)
 
             if phase == 1:
                 # PHASE 1: Handle images table
@@ -847,8 +850,6 @@ class ImageProcessor:
                     # Always try to sync prompt tags if they are missing or if we found them
                     if prompt_tags and existing_data.get("prompt_tags") != prompt_tags:
                         try:
-                            from database.images_table import update_image_tags
-
                             update_image_tags(filename, prompt_tags)
                             changed = True
                         except Exception:
@@ -877,7 +878,7 @@ class ImageProcessor:
                         is_winner_flag = comp.get("winner")
                         winner_file = filename if is_winner_flag else other
                         try:
-                            add_historical_comparison(
+                            result = add_historical_comparison(
                                 filename_a=filename,
                                 filename_b=other,
                                 winner=winner_file,
@@ -885,8 +886,31 @@ class ImageProcessor:
                                 weight=float(comp.get("weight", 1.0)),
                                 transitive_depth=int(comp.get("transitive_depth", 0)),
                             )
-                        except Exception:
-                            pass
+                            if result == 0:
+                                logger.debug(
+                                    f"[REBUILD] Comparison not added: {filename} vs {other}"
+                                )
+                        except Exception as e:
+                            logger.debug(
+                                f"[REBUILD] Failed to add comparison {filename} vs {other}: {e}"
+                            )
+
+                    # Update comparison_count in images table to match actual comparisons in DB
+                    actual_count = get_comparison_count(filename)
+                    if actual_count > 0:
+                        existing = db_get_image(filename)
+                        if existing and actual_count != existing.get(
+                            "comparison_count", 0
+                        ):
+                            try:
+                                update_image_confidence(
+                                    filename,
+                                    existing.get("confidence", 0.0),
+                                    actual_count,
+                                )
+                            except Exception:
+                                pass
+
                     return "synced_history"
                 return None
 

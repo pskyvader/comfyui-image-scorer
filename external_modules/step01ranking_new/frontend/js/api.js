@@ -57,13 +57,6 @@ class RankingAPI {
         return await response.json();
     }
 
-    async getTierImages(tier) {
-        // Get all images in a specific tier
-        const response = await fetch(`${this.apiBase}/gallery/tier/${tier}`);
-        if (!response.ok) throw new Error("Failed to get tier images");
-        return await response.json();
-    }
-
     async getImage(filename) {
         // Get metadata for a single image
         const response = await fetch(`${this.apiBase}/gallery/image/${encodeURIComponent(filename)}`);

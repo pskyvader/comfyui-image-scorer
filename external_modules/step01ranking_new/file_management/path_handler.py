@@ -115,15 +115,18 @@ def append_comparison_history_to_json(
     # Rebuild comparison history entirely from database
     # This ensures deleted comparisons stay deleted
     from database.comparisons_table import get_all_comparisons
+    from database.images_table import get_image as get_image_data
     all_comparisons = get_all_comparisons()
     history = []
     for comp in all_comparisons:
         if comp["filename_a"] == filename or comp["filename_b"] == filename:
             is_winner = comp["winner"] == filename
             other = comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+            other_data = get_image_data(other)
             history.append({
                 "comparison_id": comp["id"],
                 "other": other,
+                "opponent_score": other_data["score"] if other_data else 0.5,
                 "winner": is_winner,
                 "weight": float(comp["weight"]) if comp["weight"] is not None else 1.0,
                 "transitive_depth": int(comp["transitive_depth"]) if comp["transitive_depth"] is not None else 0,
@@ -227,6 +230,7 @@ def sync_image_metadata_to_json(
             from database.comparisons_table import get_all_comparisons
             all_comparisons = get_all_comparisons()
         
+        from database.images_table import get_image as get_image_data
         history = []
         for comp in all_comparisons:
             # Check if this image is involved in the comparison
@@ -235,9 +239,11 @@ def sync_image_metadata_to_json(
                 is_winner = comp["winner"] == filename
                 # The "other" image is the one that isn't this filename
                 other = comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+                other_data = get_image_data(other)
                 history.append({
                     "comparison_id": comp["id"],
                     "other": other,
+                    "opponent_score": other_data["score"] if other_data else 0.5,
                     "winner": is_winner,
                     "weight": float(comp["weight"]) if comp["weight"] is not None else 1.0,
                     "transitive_depth": int(comp["transitive_depth"]) if comp["transitive_depth"] is not None else 0,

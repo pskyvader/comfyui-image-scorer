@@ -176,7 +176,7 @@ class GalleryView {
                 scoreMin: parseFloat(this.els.scoreMin.value),
                 scoreMax: parseFloat(this.els.scoreMax.value),
                 comparisonsMin: parseInt(this.els.comparisonsMin.value),
-                comparisonsMax: parseInt(this.els.comparisonsMax.value),
+                comparisonsMax: parseInt(this.els.comparisonsMax.value) === 10 ? 999999 : parseInt(this.els.comparisonsMax.value),
                 sort: this.els.sortFilter.value,
                 tags: this.els.tagsFilter?.value || "",
                 search_mode: this.els.searchMode?.value || "both"
@@ -249,10 +249,6 @@ class GalleryView {
             <div class="bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
                 <span class="text-gray-400 block uppercase text-[8px] tracking-widest mb-0.5">Comparisons</span>
                 <span class="text-white font-bold">${img.comparison_count ?? 0}</span>
-            </div>
-            <div class="bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
-                <span class="text-gray-400 block uppercase text-[8px] tracking-widest mb-0.5">Chain</span>
-                <span class="text-white font-bold">${img.chain_length ?? img.height ?? "-"}</span>
             </div>
         `;
         

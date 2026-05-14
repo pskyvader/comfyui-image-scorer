@@ -31,14 +31,15 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
             this.g.attr("transform", event.transform);
             this.updateHUD(event.transform);
 
+            const z = MAP_ZOOM;
             const k = event.transform.k;
             this.renderer?.setDetailLevel({
-                showLabels: this.labelsOverridden ? this.renderer.detailLevel.showLabels : k > 0.25,
-                showArrows: k > 0.15,
-                showNodeBorders: k > 0.2,
-                showLinks: k > 0.05,
-                labelCap: 500,
-                arrowCap: 2000,
+                showLabels: this.labelsOverridden ? this.renderer.detailLevel.showLabels : k > z.labelThreshold,
+                showArrows: k > z.arrowThreshold,
+                showNodeBorders: k > z.borderThreshold,
+                showLinks: this.linksOverridden ? this.renderer.detailLevel.showLinks : k > z.linkThreshold,
+                labelCap: z.labelCap,
+                arrowCap: z.arrowCap,
                 zoom: k
             });
             this.renderer?.setTransform(event.transform);
@@ -54,31 +55,13 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
     const canvas = d3.select(this.renderer.canvas);
 
     d3.select(this.container).call(this.zoom).on("dblclick.zoom", null);
-    canvas.call(this.zoom).on("dblclick.zoom", null);
-
-    canvas.call(d3.drag()
-        .container(this.renderer.canvas)
-        .subject((event) => {
-            const p = d3.pointer(event, this.renderer.canvas);
-            return this.renderer?.hitTest({ x: p[0], y: p[1] });
-        })
-        .on("start", (event) => {
-            if (this.chainSim?.isPaused) this.chainSim.play();
-            if (!event.active) this.chainSim?.simulation?.alphaTarget(0.3).restart();
-            event.subject.fx = event.subject.x;
-            event.subject.fy = event.subject.y;
-        })
-        .on("drag", (event) => {
-            const transform = d3.zoomTransform(this.renderer.canvas);
-            event.subject.fx = (event.x - transform.x) / transform.k;
-            event.subject.fy = (event.y - transform.y) / transform.k;
-        })
-        .on("end", (event) => {
-            if (!event.active) this.chainSim?.simulation?.alphaTarget(0);
-            event.subject.fx = null;
-            event.subject.fy = null;
-        })
-    );
+    this._zoomEnabled = true;
+    const self = this;
+    const origZoomFilter = this.zoom.filter();
+    this.zoom.filter(function(event) {
+        if (!self._zoomEnabled) return false;
+        return origZoomFilter.call(this, event);
+    });
 
     canvas.on("mousemove", (event) => {
         const p = d3.pointer(event, this.renderer.canvas);
@@ -104,11 +87,12 @@ ChainMapUI.prototype.focusNode = function(id) {
     const node = this.chainSim.nodes.find(n => n.id === id);
     if (!node) return;
 
-    this.svg.transition().duration(750).call(
+    const z = MAP_ZOOM;
+    d3.select(this.container).transition().duration(z.focusDuration).call(
         this.zoom.transform,
         d3.zoomIdentity
             .translate(this.width / 2, this.height / 2)
-            .scale(1.5)
+            .scale(z.focusScale)
             .translate(-node.x, -node.y)
     );
 };

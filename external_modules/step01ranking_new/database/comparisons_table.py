@@ -254,6 +254,63 @@ def get_all_comparisons(weight: float | None = None) -> list[dict[str, Any]]:
         return []
 
 
+def get_images_with_only_wins() -> list[str]:
+    """
+    Get images that have ONLY won (never lost) in comparison history.
+
+    Queries the database directly to find images that have been the winner
+    in every comparison they participated in. These are pure "top" candidates
+    — no one has beaten them yet.
+
+    Returns:
+        List of filenames that have only wins and zero losses.
+    """
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT winner AS filename FROM comparisons
+                WHERE winner NOT IN (
+                    SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
+                    FROM comparisons
+                )
+                GROUP BY winner
+                """
+            ).fetchall()
+            return [row["filename"] for row in rows]
+    except Exception as e:
+        logger.error(f"Error getting images with only wins: {e}")
+        return []
+
+
+def get_images_with_only_losses() -> list[str]:
+    """
+    Get images that have ONLY lost (never won) in comparison history.
+
+    Queries the database directly to find images that have always been the loser
+    in every comparison they participated in. These are pure "bottom" candidates
+    — they haven't beaten anyone yet.
+
+    Returns:
+        List of filenames that have only losses and zero wins.
+    """
+    try:
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END AS filename
+                FROM comparisons
+                WHERE CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
+                NOT IN (SELECT DISTINCT winner FROM comparisons)
+                GROUP BY filename
+                """
+            ).fetchall()
+            return [row["filename"] for row in rows]
+    except Exception as e:
+        logger.error(f"Error getting images with only losses: {e}")
+        return []
+
+
 def deduplicate_comparisons() -> int:
     """
     Remove duplicate comparison rows (same pair, same winner, same transitive depth) keeping only the newest entry.

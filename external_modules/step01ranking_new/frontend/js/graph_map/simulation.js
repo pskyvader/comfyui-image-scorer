@@ -7,11 +7,13 @@ class ChainSimulation {
         this.nodes = nodes;
         this.links = links;
         this.components = Array.from(components || []);
-        
+        this._tickCount = 0;
+        this._simStart = performance.now();
+
         // Use global split physics defaults and scaling multipliers
-        const simLinks = typeof SIMULATION_LINKS !== 'undefined' ? SIMULATION_LINKS : {};
-        const simNodes = typeof SIMULATION_NODES !== 'undefined' ? SIMULATION_NODES : {};
-        const simWorld = typeof SIMULATION_WORLD !== 'undefined' ? SIMULATION_WORLD : {};
+        const simLinks = typeof SIMULATION_LINKS !== "undefined" ? SIMULATION_LINKS : {};
+        const simNodes = typeof SIMULATION_NODES !== "undefined" ? SIMULATION_NODES : {};
+        const simWorld = typeof SIMULATION_WORLD !== "undefined" ? SIMULATION_WORLD : {};
 
         this.config = { ...simLinks, ...simNodes, ...simWorld, ...options };
 
@@ -66,18 +68,18 @@ class ChainSimulation {
 
         return {
             canvasMode: true,
-            enableCollision: !mediumGraph && nodeCount <= 1800,
+            enableCollision: true,
             enableMarkers: false,
             enableLabels: nodeCount < 900,
             enableDrag: true,
             enablePausedGroupDrag: true,
             enableTooltips: nodeCount < 12000,
             enablePointerHits: nodeCount < 50000,
-            drawLinks: linkCount < 180000,
+            drawLinks: linkCount < 1800000,
             progressiveReveal: mediumGraph || nodeCount > 500,
             usePerLinkOpacity: !largeGraph && linkCount <= 12000,
             linkGlobalOpacity: largeGraph ? 0.12 : 0.18,
-            linkVisibilityZoomThreshold: largeGraph ? 0.08 : (mediumGraph ? 0.03 : 0),
+            linkVisibilityZoomThreshold: largeGraph ? 0.01 : (mediumGraph ? 0.005 : 0),
             renderIntervalMs: largeGraph ? 48 : (mediumGraph ? 32 : this.config.renderIntervalMs),
             chargeDistanceMax: this.scalePositive(this.config.chargeDistanceMax, scale.chargeDistanceMax),
             gravityStrength: this.config.gravityStrength * this.safeMultiplier(scale.gravityStrength),
@@ -129,7 +131,8 @@ class ChainSimulation {
             if (!this.componentNodes.has(componentId)) {
                 this.componentNodes.set(componentId, []);
             }
-            this.componentNodes.get(componentId).push(node);
+            this.componentNodes.get(componentId)
+                .push(node);
         }
         if (!this.components.length) {
             this.components = Array.from(this.componentNodes.keys());
@@ -210,10 +213,12 @@ class ChainSimulation {
         for (const link of this.links) {
             const source = this.nodeById.get(this.getNodeId(link.source));
             const target = this.nodeById.get(this.getNodeId(link.target));
-            if (!source || !target) continue;
+            if (!source || !target) {
+                continue;
+            }
 
-            const sourceDegree = this.nodeDegree.get(source.id) || 1;
-            const targetDegree = this.nodeDegree.get(target.id) || 1;
+            const sourceDegree = this.nodeDegree.get(source.id);
+            const targetDegree = this.nodeDegree.get(target.id);
             const scoreGap = Math.abs(
                 this.getFiniteNumber(source.score, 0.5) - this.getFiniteNumber(target.score, 0.5),
             );
@@ -222,12 +227,15 @@ class ChainSimulation {
                 this.getFiniteNumber(target.comparison_count, 0),
             ));
 
-            link.distance = Math.min(
+            const countContribution = baseDistance * countWeight * countMultiplier;
+            const targetDist = Math.min(
                 maxLinkDistance,
-                baseDistance
-                + (baseDistance * scoreGap * scoreMultiplier)
-                + (baseDistance * countWeight * countMultiplier),
+                baseDistance * (1 + scoreGap * scoreMultiplier) + countContribution,
             );
+            // link.distance = this.config.linkDistance;
+            link.distance = targetDist;
+            link._startDistance = targetDist;
+            link._targetDistance = targetDist;
             link._baseStrength = Math.min(
                 1,
                 this.config.linkStrength
@@ -266,10 +274,11 @@ class ChainSimulation {
                 .distanceMax(this.runtime.chargeDistanceMax))
             .force("scoreY", this.createScoreForce())
             .velocityDecay(this.runtime.velocityDecay)
-            .alphaDecay(this.runtime.alphaDecay);
+            .alphaDecay(this.runtime.alphaDecay)
+            .alphaTarget(0.1);
 
         if (this.runtime.enableCollision) {
-            this.simulation.force("collide", d3.forceCollide(node => {
+            this.simulation.force("collide", d3.forceCollide((node) => {
                 const count = this.getFiniteNumber(node.comparison_count, 0);
                 return this.config.collisionRadius + Math.log1p(count);
             }));
@@ -277,12 +286,21 @@ class ChainSimulation {
 
         this.simulation.on("tick", () => this.handleTick());
         this.simulation.on("end", () => {
+            console.log("SIM END | tick", this._tickCount, "| alpha", this.simulation?.alpha());
             this.onTick?.(this.nodes, this.links, this.runtime);
             this.onEnd?.(this.runtime);
         });
     }
 
     handleTick() {
+        this._tickCount++;
+        const t = performance.now();
+        if (this._tickCount % 40 === 0) {
+            const a = this.simulation?.alpha();
+            const n0 = this.nodes[0];
+            const n1 = this.nodes[this.nodes.length - 1];
+            console.log("TICK", this._tickCount, "| alpha", a !== undefined ? a.toFixed(6) : "?", "| elapsed ms", (t - this._simStart).toFixed(0), "| n0 y:", n0?.y?.toFixed(1), "| nLast y:", n1?.y?.toFixed(1));
+        }
         const now = performance.now();
         this.updateLinkStiffness(now);
         this.applyLinkConstraints();
@@ -291,7 +309,9 @@ class ChainSimulation {
             this.applyBoundaryBehavior(node);
         }
 
-        if (!this.onTick) return;
+        if (!this.onTick) {
+            return;
+        }
 
         if (now - this.lastRenderAt >= this.runtime.renderIntervalMs) {
             this.lastRenderAt = now;
@@ -301,19 +321,25 @@ class ChainSimulation {
 
     createScoreForce() {
         let nodes = [];
-        const force = alpha => {
+        const force = (alpha) => {
             for (let i = 0; i < nodes.length; i++) {
                 const node = nodes[i];
-                if (!node._scoreForce) continue;
+                if (!node._scoreForce) {
+                    continue;
+                }
                 node.vy -= node._scoreForce * alpha;
             }
         };
-        force.initialize = allNodes => { nodes = allNodes; };
+        force.initialize = (allNodes) => {
+            nodes = allNodes;
+        };
         return force;
     }
 
     updateLinkStiffness(now) {
-        if (!this.linkForce) return;
+        if (!this.linkForce) {
+            return;
+        }
 
         const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
         const final = Math.max(initial, this.config.linkStrengthFinalFactor);
@@ -327,16 +353,22 @@ class ChainSimulation {
         }
 
         this.currentLinkStrengthFactor = factor;
-        if (progress >= 1) this._annealingComplete = true;
+        if (progress >= 1) {
+            this._annealingComplete = true;
+        }
 
         this.linkForce.strength(link => link._baseStrength * this.currentLinkStrengthFactor);
 
-        const distFactor = 3.0 - (2.0 * eased);
-        this.linkForce.distance(link => (link.distance || 50) * distFactor);
+        for (const link of this.links) {
+            const startDist = link._startDistance;
+            link.distance = startDist + ((link._targetDistance - startDist) * eased);
+        }
     }
 
     applyLinkConstraints() {
-        if (!this.links.length) return;
+        if (!this.links.length) {
+            return;
+        }
 
         const phases = this.runtime.constraintPhases;
         const phaseOffset = this.constraintPhase;
@@ -346,24 +378,33 @@ class ChainSimulation {
             ? 1
             : this.clamp((this.currentLinkStrengthFactor - initial) / (final - initial), 0, 1);
 
-        const relaxedSlack = this.runtime.constraintSlack + (this.config.linkConstraintInitialSlackExtra || 0);
+        const relaxedSlack = this.runtime.constraintSlack + (this.config.linkConstraintInitialSlackExtra);
         const slack = this.runtime.constraintSlack + ((relaxedSlack - this.runtime.constraintSlack) * (1 - normalizedStiffness));
         const pull = this.runtime.constraintPull * (0.15 + (0.85 * normalizedStiffness));
+
+        if (pull <= 0 || this.config.linkConstraintPull <= 0) return;
 
         for (let index = phaseOffset; index < this.links.length; index += phases) {
             const link = this.links[index];
             const source = link.source;
             const target = link.target;
-            if (!source || !target || typeof source !== "object" || typeof target !== "object") continue;
+            if (!source || !target || typeof source !== "object" || typeof target !== "object") {
+                continue;
+            }
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const distanceSq = (dx * dx) + (dy * dy);
-            if (!distanceSq) continue;
+            if (!distanceSq) {
+                continue;
+            }
 
             const distance = Math.sqrt(distanceSq);
-            const limit = link.distance * slack;
-            if (distance <= limit) continue;
+            const stretchTolerance = 1.08;
+            const limit = link.distance * stretchTolerance;
+            if (distance <= limit) {
+                continue;
+            }
 
             const correction = ((distance - limit) / distance) * pull;
             const offsetX = dx * correction;
@@ -412,29 +453,39 @@ class ChainSimulation {
         if (node.x < minX) {
             node.x = minX + ((minX - node.x) * bounce);
             if (node.vx < 0) node.vx = -node.vx * bounce;
-        } else if (node.x > maxX) {
+        }
+        if (node.x > maxX) {
             node.x = maxX - ((node.x - maxX) * bounce);
             if (node.vx > 0) node.vx = -node.vx * bounce;
         }
-
         if (node.y < minY) {
             node.y = minY + ((minY - node.y) * bounce);
             if (node.vy < 0) node.vy = -node.vy * bounce;
-        } else if (node.y > maxY) {
+        }
+        if (node.y > maxY) {
             node.y = maxY - ((node.y - maxY) * bounce);
             if (node.vy > 0) node.vy = -node.vy * bounce;
         }
+
+        node.x = this.clamp(node.x, minX, maxX);
+        node.y = this.clamp(node.y, minY, maxY);
     }
 
     dragLinkedNodesWhilePaused(subject, dx, dy) {
-        if (!this.isPaused) return;
+        if (!this.isPaused) {
+            return;
+        }
         const offsetX = this.getFiniteNumber(dx, 0) * (this.config.pausedLinkedDragInfluence || 1);
         const offsetY = this.getFiniteNumber(dy, 0) * (this.config.pausedLinkedDragInfluence || 1);
-        if (!offsetX && !offsetY) return;
+        if (!offsetX && !offsetY) {
+            return;
+        }
 
         const componentId = String(subject.component ?? "");
         const members = this.componentNodes.get(componentId);
-        if (!members || !members.length) return;
+        if (!members || !members.length) {
+            return;
+        }
 
         const minX = this.runtime.boundaryPadding;
         const maxX = this.effectiveWidth - this.runtime.boundaryPadding;
@@ -442,7 +493,9 @@ class ChainSimulation {
         const maxY = this.effectiveHeight - this.runtime.boundaryPadding;
 
         for (const node of members) {
-            if (node === subject) continue;
+            if (node === subject) {
+                continue;
+            }
             node.x = this.clamp(node.x + offsetX, minX, maxX);
             node.y = this.clamp(node.y + offsetY, minY, maxY);
             node.vx = 0;
@@ -455,14 +508,16 @@ class ChainSimulation {
         const centeredScore = (this.getFiniteNumber(score, 0.5) - 0.5) * 2;
         const magnitude = Math.abs(centeredScore);
         const deadZone = this.config.neutralDeadZone || 0;
-        if (magnitude <= deadZone) return 0;
+        if (magnitude <= deadZone) {
+            return 0;
+        }
         const normalized = (magnitude - deadZone) / (1 - deadZone);
-        return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent || 2);
+        return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent);
     }
 
     getFiniteNumber(value, fallback = 0) {
         const number = Number(value);
-        return Number.isFinite(number) ? number : fallback;
+        return Number.isFinite(number) ? number : 0;
     }
 
     getNodeId(nodeOrId) {
@@ -484,28 +539,46 @@ class ChainSimulation {
 
         this.config = { ...this.config, ...newOptions, scaling };
         this.runtime = this.resolveRuntimeProfile();
-        if (this.simulation) this.simulation.alpha(0.5).restart();
+        if (this.simulation) {
+            this.simulation.alpha(0.5)
+                .restart();
+        }
     }
 
     play() {
-        if (!this.simulation) return;
-        for (const node of this.nodes) { node.vx = 0; node.vy = 0; }
-        this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35)).restart();
+        if (!this.simulation) {
+            return;
+        }
+        this._simStart = performance.now();
+        console.log("SIM PLAY | initial alpha:", this.simulation.alpha().toFixed(6));
+        for (const node of this.nodes) {
+            node.vx = 0; node.vy = 0;
+        }
+        this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35))
+            .restart();
         this.isPaused = false;
     }
 
     pause() {
-        if (!this.simulation) return;
+        if (!this.simulation) {
+            return;
+        }
         this.simulation.stop();
         this.isPaused = true;
     }
 
-    stop() { this.simulation?.stop(); }
+    stop() {
+        console.log("SIM STOP called at tick", this._tickCount, "alpha", this.simulation?.alpha());
+        this.simulation?.stop();
+    }
 
     restart() {
-        if (!this.simulation) return;
+        if (!this.simulation) {
+            return;
+        }
         this.simulation.nodes(this.nodes);
-        this.simulation.alpha(1).restart();
+        this.simulation.alpha(1)
+            .restart();
     }
 
     safeMultiplier(value) {

@@ -26,10 +26,15 @@ if __name__ == "__main__":
 from api.ranking_api_v2 import register_ranking_routes
 from api.gallery_api import register_gallery_routes
 from file_management.folder_organizer import ensure_tier_structure
-from file_management.path_handler import get_ranked_root, compute_path_from_filename, find_image_path
+from file_management.path_handler import (
+    get_ranked_root,
+    compute_path_from_filename,
+    find_image_path,
+)
 from database.images_table import get_image as get_db_image
 from image_processor import ImageProcessor
-from shared.config import config
+
+# from shared.config import config
 from shared.paths import image_root
 
 # Global image processor
@@ -37,7 +42,9 @@ image_processor = ImageProcessor()
 
 app = Flask(__name__, static_folder=None)
 app.extensions["image_processor"] = image_processor
-setattr(app, "image_processor", image_processor)  # Also set as attribute for easy access
+setattr(
+    app, "image_processor", image_processor
+)  # Also set as attribute for easy access
 logger = app.logger
 
 # Set up Flask configuration
@@ -46,6 +53,7 @@ app.config["JSON_SORT_KEYS"] = False
 # Register API routes FIRST before any other routes
 logger.debug("Registering API blueprints...")
 register_ranking_routes(app)
+
 logger.debug("Ranking routes registered")
 register_gallery_routes(app)
 logger.debug("Gallery routes registered")
@@ -80,11 +88,15 @@ def startup_worker(img_root: str, sync_existing: bool = False) -> None:
 
     # Step 2: Rebuild database from existing ranked images
     if sync_existing:
-        logger.info("[2/3] Rebuilding database from existing ranked images (MANUAL SYNC ENABLED)...")
+        logger.info(
+            "[2/3] Rebuilding database from existing ranked images (MANUAL SYNC ENABLED)..."
+        )
         image_processor.rebuild_database_from_ranked()
         logger.info("  [OK] Database rebuild complete")
     else:
-        logger.info("[2/3] Skipping automatic database rebuild (use --sync-existing to enable)...")
+        logger.info(
+            "[2/3] Skipping automatic database rebuild (use --sync-existing to enable)..."
+        )
 
     # Step 3: Start background scanner for new images
     if img_root:
@@ -95,14 +107,18 @@ def startup_worker(img_root: str, sync_existing: bool = False) -> None:
         logger.info("[3/3] Skipping scanner (no image_root configured)")
 
 
-def init_ranking_system(img_root: str | None = None, sync_existing: bool = False) -> bool:
+def init_ranking_system(
+    img_root: str | None = None, sync_existing: bool = False
+) -> bool:
     """Initialize system and trigger background recovery."""
     logger.info("\n" + "=" * 60)
     logger.info("RANKING SYSTEM INITIALIZATION (BACKGROUND)")
     logger.info("=" * 60)
 
     # Trigger background worker for all heavy tasks
-    threading.Thread(target=startup_worker, args=(img_root, sync_existing), daemon=True).start()
+    threading.Thread(
+        target=startup_worker, args=(img_root, sync_existing), daemon=True
+    ).start()
 
     logger.info("[OK] Background initialization triggered.")
     logger.info("=" * 60)
@@ -145,7 +161,9 @@ def serve_ranked_image(filepath: str):
         logger.debug(f"Found image at direct path: {direct_path}")
         response = send_file(str(direct_path))
         # Disable caching
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Cache-Control"] = (
+            "no-store, no-cache, must-revalidate, max-age=0"
+        )
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
@@ -159,7 +177,9 @@ def serve_ranked_image(filepath: str):
             f"Serving found image: {found_path} (root:{str(ranked_root)}) (parent: {found_path.parent})"
         )
         response = send_file(str(found_path))
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Cache-Control"] = (
+            "no-store, no-cache, must-revalidate, max-age=0"
+        )
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
@@ -273,13 +293,13 @@ def main():
 
     # Configure global logging based on debug flag
     log_level = logging.DEBUG if args.debug else logging.INFO
-    
+
     # Simple configuration that works well for both console and redirected output
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
-        datefmt='%H:%M:%S',
-        force=True # Ensure we override any existing configuration
+        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,  # Ensure we override any existing configuration
     )
 
     # Initialize system

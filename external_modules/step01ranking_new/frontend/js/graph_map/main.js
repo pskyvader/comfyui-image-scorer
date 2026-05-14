@@ -9,6 +9,7 @@ class ChainMapUI {
         this.renderer = null;
         this.selectedNodes = [];
         this.labelsOverridden = false;
+        this.linksOverridden = false;
         this.width = 800;
         this.height = 600;
     }
@@ -37,15 +38,16 @@ class ChainMapUI {
         this.maxCompCountVal = document.getElementById("max-comp-count-val");
 
         this.collapsibleFilter = document.getElementById("collapsible-filter");
+        this.nodeTypeFilter = document.getElementById("node-type-filter");
 
         this.playPauseBtn = document.getElementById("play-pause-btn");
         this.playIcon = document.getElementById("play-icon");
         this.pauseIcon = document.getElementById("pause-icon");
 
         this.statNodes = document.getElementById("stat-nodes");
-        this.statEdges = document.getElementById("stat-edges");
         this.statComponents = document.getElementById("stat-components");
         this.statComparisons = document.getElementById("stat-comparisons");
+        this.statChains = document.getElementById("stat-chains");
 
         this.nodeDetails = document.getElementById("node-details");
         this.compareSelectedBtn = document.getElementById("compare-selected-btn");
@@ -127,6 +129,9 @@ class ChainMapUI {
         if (this.collapsibleFilter) {
             this.collapsibleFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
         }
+        if (this.nodeTypeFilter) {
+            this.nodeTypeFilter.onchange = () => { this.saveFilters(); this.debouncedApplyFilters(); };
+        }
 
         if (this.compareSelectedBtn) {
             this.compareSelectedBtn.onclick = () => this.compareSelected();
@@ -153,36 +158,69 @@ class ChainMapUI {
             if (iconOn) iconOn.classList.toggle("hidden", !isShown);
             if (iconOff) iconOff.classList.toggle("hidden", isShown);
         }
+
+        const toggleLinksBtn = document.getElementById("toggle-links-btn");
+        const linksIconOn = document.getElementById("links-icon-on");
+        const linksIconOff = document.getElementById("links-icon-off");
+
+        if (toggleLinksBtn) {
+            toggleLinksBtn.onclick = () => {
+                this.linksOverridden = true;
+                const current = this.renderer?.detailLevel?.showLinks;
+                const newState = !current;
+                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLinks: newState });
+
+                if (linksIconOn) linksIconOn.classList.toggle("hidden", !newState);
+                if (linksIconOff) linksIconOff.classList.toggle("hidden", newState);
+            };
+        }
+
+        if (this.renderer?.detailLevel) {
+            const isShown = this.renderer.detailLevel.showLinks;
+            if (linksIconOn) linksIconOn.classList.toggle("hidden", !isShown);
+            if (linksIconOff) linksIconOff.classList.toggle("hidden", isShown);
+        }
     }
 
     render(nodes, links) {
-        if (this.chainSim) this.chainSim.stop();
+        if (this.chainSim) {
+            console.log("RENDER stopping old simulation");
+            this.chainSim.stop();
+        }
 
         const distinctComponents = new Set(nodes.map(n => String(n.component ?? "")));
-        const totalComparisons = nodes.reduce((sum, n) => sum + (n.comparison_count || 0), 0);
+        const totalChains = nodes.filter(n => n.is_top === true).length;
 
         if (this.statNodes) this.statNodes.textContent = nodes.length.toLocaleString();
-        if (this.statEdges) this.statEdges.textContent = links.length.toLocaleString();
-        if (this.statComparisons) this.statComparisons.textContent = totalComparisons.toLocaleString();
+        if (this.statComparisons) this.statComparisons.textContent = links.length.toLocaleString();
         if (this.statComponents) this.statComponents.textContent = distinctComponents.size.toLocaleString();
+        if (this.statChains) this.statChains.textContent = totalChains.toLocaleString();
 
         const colorScale = d3.scaleLinear()
-            .domain([0, 0.4, 0.5, 0.6, 1])
-            .range(["#ef4444", "#facc15", "#facc15", "#facc15", "#22c55e"]);
+            .domain(MAP_NODES.colorDomain)
+            .range(MAP_NODES.colorRange);
+
+        const componentSizeMap = {};
+        if (this.rawData?.components) {
+            for (const [compId, members] of Object.entries(this.rawData.components)) {
+                componentSizeMap[compId] = members.length;
+            }
+        }
 
         const simNodes = nodes.map(d => ({
             ...d,
-            _radius: 3 + Math.sqrt(d.comparison_count || 0) * 2,
+            _radius: MAP_NODES.baseRadius + Math.sqrt(d.comparison_count ?? 0) * MAP_NODES.radiusMultiplier,
             _fill: colorScale(d.score),
             _label: d.id.split('/').pop(),
-            _shortLabel: d.id.split('/').pop().substring(0, 8) + "..."
+            _shortLabel: d.id.split('/').pop().substring(0, MAP_NODES.labelTruncateLength) + "...",
+            _component_size: componentSizeMap[String(d.component ?? "")] ?? null
         }));
 
         const nodeMap = new Map(simNodes.map(n => [n.id, n]));
         const simLinks = links.map(d => ({
             source: nodeMap.get(d.source),
             target: nodeMap.get(d.target),
-            _opacity: 0.3
+            _opacity: MAP_NODES.defaultOpacity
         })).filter(l => l.source && l.target);
 
         this.chainSim = new ChainSimulation(simNodes, simLinks, null, {
@@ -191,20 +229,24 @@ class ChainMapUI {
             onTick: () => this.renderer.update(simNodes, simLinks)
         });
 
+        this.chainSim.initialize();
+
         this.renderer.render({
             nodes: simNodes,
             links: simLinks,
             profile: (typeof MAP_VISUALS !== 'undefined') ? MAP_VISUALS : {},
             selectedIds: this.selectedNodes,
-            world: this.calculateWorldBounds(simNodes)
+            world: {
+                x: 0,
+                y: 0,
+                width: this.chainSim.effectiveWidth,
+                height: this.chainSim.effectiveHeight
+            }
         });
 
         if (this.loader) this.loader.classList.add("hidden");
 
-        if (this.chainSim) {
-            this.chainSim.initialize();
-            this.chainSim.play();
-        }
+        this.chainSim.play();
     }
 
     calculateWorldBounds(nodes) {

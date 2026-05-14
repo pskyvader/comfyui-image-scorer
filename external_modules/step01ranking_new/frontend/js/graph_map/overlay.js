@@ -17,8 +17,10 @@ ChainMapUI.prototype.showTooltip = function(event, node) {
     this.tooltip.style.top = `${event.pageY + 10}px`;
     this.tooltip.innerHTML = `
         <div class="font-bold mb-1">${node.id.split('/').pop()}</div>
-        <div>Score: ${node.score.toFixed(3)}</div>
-        <div>Chain: ${node.height || node.chain_length || 0}</div>
+        <div>Score: ${node.score?.toFixed(3) ?? "-"}</div>
+        <div>Chain: ${node.height ?? "-"}</div>
+        <div>Component: ${node._component_size ?? "-"}</div>
+        <div>Comparisons: ${node.comparison_count ?? "-"}</div>
         <div class="text-[9px] text-gray-500 mt-1">Click for details</div>
     `;
 };
@@ -39,9 +41,10 @@ ChainMapUI.prototype.showNodeDetails = function(d) {
             <img src="/images/${encodeURIComponent(d.id)}" class="w-full h-32 md:h-48 object-contain rounded bg-black/40 border border-white/5" onerror="this.src='/output/ranked/${encodeURIComponent(d.id)}'">
             
             <div class="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-gray-300 justify-center">
-                <span class="flex items-center gap-1">Score: <b class="text-purple-400">${d.score.toFixed(3)}</b></span>
-                <span class="flex items-center gap-1">Chain: <b class="text-purple-400">${d.height || d.chain_length || 0}</b></span>
-                <span class="flex items-center gap-1">Comp: <b class="text-purple-400">${d.component_size || 0}</b></span>
+                <span class="flex items-center gap-1">Score: <b class="text-purple-400">${d.score?.toFixed(3) ?? "-"}</b></span>
+                <span class="flex items-center gap-1">Chain: <b class="text-purple-400">${d.height ?? "-"}</b></span>
+                <span class="flex items-center gap-1">Component: <b class="text-purple-400">${d._component_size ?? "-"}</b></span>
+                <span class="flex items-center gap-1">Comparisons: <b class="text-purple-400">${d.comparison_count ?? "-"}</b></span>
             </div>
 
             <div class="flex gap-2">

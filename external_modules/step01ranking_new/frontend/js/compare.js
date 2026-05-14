@@ -6,7 +6,7 @@ class CompareMode {
     constructor() {
         this.currentPair = null;
         this.nextPair = null;
-        this.isLoading = false;
+        this._submitting = false;
         
         // These will be populated in init()
         this.elements = {};
@@ -33,7 +33,14 @@ class CompareMode {
             statsTotal: document.getElementById("stat-total"),
             statsRanked: document.getElementById("stat-ranked"),
             statsComparisons: document.getElementById("stat-comparisons"),
+            statsComponents: document.getElementById("stat-components"),
+            statsChains: document.getElementById("stat-chains"),
             statsSkipped: document.getElementById("stat-skipped"),
+            statsLevel: document.getElementById("stat-level"),
+            statsActive: document.getElementById("stat-active"),
+            statsNextLevel: document.getElementById("stat-next-level"),
+            statsNextLevelNum: document.getElementById("stat-next-level-num"),
+            statsBaseLevel: document.getElementById("stat-base-level"),
             loadingOverlay: document.getElementById("loading-overlay"),
             debugBtn: document.getElementById("toggle-debug"),
             debugPanel: document.getElementById("debug-panel"),
@@ -105,8 +112,6 @@ class CompareMode {
     }
 
     async loadPair() {
-        if (this.isLoading) return;
-        this.isLoading = true;
         this.showLoading(true);
         this.updateStatus("Finding next pair...");
 
@@ -120,24 +125,43 @@ class CompareMode {
                 return;
             }
             this.currentPair = pair;
-            await this.renderPair();
-            this.updateStatus("Ready");
+            this.renderPair();
+            this.showLoading(false);
         } catch (e) {
             this.updateStatus(`Error: ${e.message}`);
             Utils.showToast(e.message, "error");
-        } finally {
-            this.isLoading = false;
             this.showLoading(false);
         }
     }
 
-    async renderPair() {
-        this.showLoading(true);
+    isSamePair(pairA, pairB) {
+        if (!pairA || !pairB || !pairA.left || !pairA.right || !pairB.left || !pairB.right) {
+            return false;
+        }
+
+        const a = [pairA.left.filename, pairA.right.filename].sort();
+        const b = [pairB.left.filename, pairB.right.filename].sort();
+        return a[0] === b[0] && a[1] === b[1];
+    }
+
+async renderPair() {
         const { left, right, pair_meta, collapsable } = this.currentPair;
         const els = this.elements;
 
         els.leftImg.classList.add("opacity-0");
         els.rightImg.classList.add("opacity-0");
+
+        // Cancel any pending image loads to prevent memory leaks
+        if (this._preloadLeft) {
+            this._preloadLeft.onload = null;
+            this._preloadLeft.onerror = null;
+            this._preloadLeft = null;
+        }
+        if (this._preloadRight) {
+            this._preloadRight.onload = null;
+            this._preloadRight.onerror = null;
+            this._preloadRight = null;
+        }
 
         els.leftFilename.textContent = left.filename;
         els.rightFilename.textContent = right.filename;
@@ -149,11 +173,25 @@ class CompareMode {
             const rankedEl = document.getElementById("stat-ranked");
             const levelEl = document.getElementById("stat-level");
             const compsEl = document.getElementById("stat-comparisons");
-            
+            const compsStatEl = document.getElementById("stat-components");
+            const chainsEl = document.getElementById("stat-chains");
+            const skippedEl = document.getElementById("stat-skipped");
+            const activeEl = document.getElementById("stat-active");
+            const nextLevelEl = document.getElementById("stat-next-level");
+            const nextLevelNumEl = document.getElementById("stat-next-level-num");
+            const baseLevelEl = document.getElementById("stat-base-level");
+
             if (totalEl) totalEl.textContent = gs.total_images.toLocaleString();
-            if (rankedEl) rankedEl.textContent = gs.level_count.toLocaleString();
+            if (rankedEl) rankedEl.textContent = (gs.level_count ?? 0).toLocaleString();
             if (levelEl) levelEl.textContent = gs.target_level;
             if (compsEl) compsEl.textContent = gs.total_comparisons.toLocaleString();
+            if (compsStatEl) compsStatEl.textContent = (gs.total_components ?? 0).toLocaleString();
+            if (chainsEl) chainsEl.textContent = (gs.total_chains ?? 0).toLocaleString();
+            if (skippedEl) skippedEl.textContent = (gs.skipped_comparisons ?? 0).toLocaleString();
+            if (activeEl) activeEl.textContent = (gs.active_nodes ?? 0).toLocaleString();
+            if (nextLevelEl) nextLevelEl.textContent = (gs.next_level_count ?? 0).toLocaleString();
+            if (nextLevelNumEl) nextLevelNumEl.textContent = gs.target_level + 1;
+            if (baseLevelEl) baseLevelEl.textContent = gs.base_level ?? (gs.target_level - 1);
         }
 
         // Single line stats separated by |
@@ -247,52 +285,71 @@ class CompareMode {
         els.rightImg.classList.remove("opacity-0");
         els.leftImg.classList.add("opacity-100");
         els.rightImg.classList.add("opacity-100");
-        this.showLoading(false);
     }
 
     async submitVote(winner) {
-        if (this.isLoading) return;
-        this.isLoading = true;
-        this.showLoading(true);
+        if (this._submitting) return;
+        this._submitting = true;
         
+        const previousPair = this.currentPair;
         const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
+        const filenameA = this.currentPair.left.filename;
+        const filenameB = this.currentPair.right.filename;
         
-        try {
-            // Optimistically update
-            api.submitComparison(this.currentPair.left.filename, this.currentPair.right.filename, winnerFilename);
-            
-            Utils.showToast("Vote recorded!", "success");
-            
-            if (this.nextPair) {
-                this.currentPair = this.nextPair;
-                this.nextPair = null;
-                await this.renderPair();
-                this.preloadNextPair();
-            } else {
-                await this.loadPair();
-            }
-            this.updateStats();
-        } catch (e) {
-            Utils.showToast(e.message, "error");
-        } finally {
-            this.isLoading = false;
+        if (this.nextPair && !this.isSamePair(previousPair, this.nextPair)) {
+            this.currentPair = this.nextPair;
+            this.nextPair = null;
+            this._preloadLeft = null;
+            this._preloadRight = null;
+            this.renderPair();
+            this.preloadNextPair();
+        } else {
+            this.loadPair();
         }
+        
+        api.submitComparison(filenameA, filenameB, winnerFilename)
+            .then(() => {
+                Utils.showToast("Vote recorded!", "success");
+            })
+            .catch(e => {
+                Utils.showToast("Failed to submit: " + e.message, "error");
+            });
+        
+        this._submitting = false;
     }
 
     async preloadNextPair() {
         try {
             this.nextPair = await api.getNextPair();
             if (this.nextPair) {
-                Utils.preloadImage(`/images/${encodeURIComponent(this.nextPair.left.filename)}`);
-                Utils.preloadImage(`/images/${encodeURIComponent(this.nextPair.right.filename)}`);
+                // Cancel previous preload images
+                if (this._preloadLeft) this._preloadLeft.onload = this._preloadLeft.onerror = null;
+                if (this._preloadRight) this._preloadRight.onload = this._preloadRight.onerror = null;
+                
+                this._preloadLeft = new Image();
+                this._preloadRight = new Image();
+                this._preloadLeft.src = `/images/${encodeURIComponent(this.nextPair.left.filename)}`;
+                this._preloadRight.src = `/images/${encodeURIComponent(this.nextPair.right.filename)}`;
             }
         } catch (e) { console.warn("Preload failed", e); }
     }
 
     showLoading(show) {
-        if (this.elements.loadingOverlay) {
-            this.elements.loadingOverlay.style.opacity = show ? "1" : "0";
-            this.elements.loadingOverlay.style.pointerEvents = show ? "auto" : "none";
+        const overlay = this.elements.loadingOverlay;
+        if (!overlay) return;
+        
+        if (show) {
+            overlay.style.display = "flex";
+            overlay.style.opacity = "1";
+            overlay.style.pointerEvents = "auto";
+        } else {
+            overlay.style.opacity = "0";
+            overlay.style.pointerEvents = "none";
+            setTimeout(() => {
+                if (overlay.style.opacity === "0") {
+                    overlay.style.display = "none";
+                }
+            }, 300);
         }
     }
 
@@ -307,7 +364,14 @@ class CompareMode {
             if (els.statsTotal) els.statsTotal.textContent = status.total_images;
             if (els.statsRanked) els.statsRanked.textContent = status.ranked_images;
             if (els.statsComparisons) els.statsComparisons.textContent = status.total_comparisons;
+            if (els.statsComponents) els.statsComponents.textContent = status.total_components || 0;
+            if (els.statsChains) els.statsChains.textContent = status.total_chains || 0;
             if (els.statsSkipped) els.statsSkipped.textContent = status.skipped_comparisons || 0;
+            if (els.statsLevel) els.statsLevel.textContent = status.current_target;
+            if (els.statsActive) els.statsActive.textContent = status.active_nodes || 0;
+            if (els.statsNextLevel) els.statsNextLevel.textContent = status.next_level_count || 0;
+            if (els.statsNextLevelNum) els.statsNextLevelNum.textContent = status.current_target + 1;
+            if (els.statsBaseLevel) els.statsBaseLevel.textContent = status.base_level ?? status.baseline_comparisons;
         } catch (e) {}
     }
 }

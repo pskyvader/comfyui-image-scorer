@@ -71,27 +71,32 @@
     <div class="mt-8 pt-6 border-t border-white/10 flex flex-col items-center">
         <div id="global-stats-footer" class="text-gray-400 text-sm mb-4 font-medium tracking-wide">
             Total: <span id="stat-total" class="text-white">0</span> | 
-            Compared: <span id="stat-ranked" class="text-white">0</span> (Level <span id="stat-level" class="text-white">-</span>) | 
-            Comparisons: <span id="stat-comparisons" class="text-white">0</span>
+            Comparisons: <span id="stat-comparisons" class="text-white">0</span> | 
+            Components: <span id="stat-components" class="text-white">0</span> | 
+            Chains: <span id="stat-chains" class="text-white">0</span> | 
+            Active (L<span id="stat-level" class="text-white">-</span>): <span id="stat-active" class="text-yellow-400">0</span> | 
+            Ready (L<span id="stat-next-level-num" class="text-green-400">-</span>): <span id="stat-next-level" class="text-green-400">0</span> | 
+            Skipped: <span id="stat-skipped" class="text-gray-500">0</span> | 
+            Compared (L<span id="stat-base-level" class="text-white">-</span>): <span id="stat-ranked" class="text-white">0</span>
         </div>
         
         <!-- Legend -->
-        <div class="flex flex-wrap justify-center gap-4 mb-6 text-[10px] uppercase tracking-widest font-bold opacity-60">
-            <div class="flex items-center gap-2 group relative cursor-help">
+        <div class="flex flex-wrap justify-center gap-6 mb-6 text-[10px] uppercase tracking-widest font-bold opacity-60">
+            <div class="flex items-center gap-2">
                 <div class="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.4)]"></div>
                 <span>Regular</span>
-                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-purple-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Standard ranking step between two images in the same tier.</div>
             </div>
-            <div class="flex items-center gap-2 group relative cursor-help">
+            <div class="flex items-center gap-2">
                 <div class="w-2.5 h-2.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]"></div>
                 <span>Collapsible</span>
-                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-yellow-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Groups of very similar images; choosing one affects the entire cluster.</div>
             </div>
-            <div class="flex items-center gap-2 group relative cursor-help">
+            <div class="flex items-center gap-2">
                 <div class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]"></div>
                 <span>Extra</span>
-                <div class="absolute bottom-full mb-2 hidden group-hover:block bg-dark-900 border border-blue-500/20 p-2 rounded text-[9px] w-48 normal-case font-normal text-gray-300 shadow-xl z-30">Refinement comparisons between images that are already closely ranked.</div>
             </div>
+        </div>
+        <div class="text-[10px] text-gray-500 max-w-md text-center mb-4 leading-relaxed">
+            Regular: Standard ranking step | Collapsible: Choosing one affects entire cluster | Extra: Refinement between closely ranked images
         </div>
         <div class="flex gap-4">
             <button id="skip-button" class="px-6 py-2 rounded-full border border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white transition text-sm">Skip Pair</button>

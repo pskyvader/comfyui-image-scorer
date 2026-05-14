@@ -194,6 +194,7 @@ def update_image_confidence(
         # Invalidate cache on update
         try:
             _cache_invalidate(filename)
+
         except Exception:
             pass
         return True
@@ -311,4 +312,3 @@ def delete_image(filename: str) -> bool:
     except Exception as e:
         logger.error(f"Error deleting image {filename}: {e}")
         return False
-
