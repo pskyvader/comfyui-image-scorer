@@ -18,11 +18,11 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
     this.g = this.svg.append("g");
 
     this.zoom = d3.zoom()
-        .scaleExtent(MAP_INTERACTION.zoomExtent)
+        .scaleExtent(CAMERA.zoomExtent)
         .filter((event) => {
             if (event.type === "mousedown" || event.type === "touchstart") {
-                const p = d3.pointer(event, this.renderer?.canvas);
-                const hit = this.renderer?.hitTest({ x: p[0], y: p[1] });
+                const p = d3.pointer(event, this.renderer.canvas);
+                const hit = this.renderer.hitTest({ x: p[0], y: p[1] });
                 if (hit) return false; 
             }
             return !event.ctrlKey && !event.button;
@@ -31,25 +31,24 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
             this.g.attr("transform", event.transform);
             this.updateHUD(event.transform);
 
-            const z = MAP_ZOOM;
             const k = event.transform.k;
-            this.renderer?.setDetailLevel({
-                showLabels: this.labelsOverridden ? this.renderer.detailLevel.showLabels : k > z.labelThreshold,
-                showArrows: k > z.arrowThreshold,
-                showNodeBorders: k > z.borderThreshold,
-                showLinks: this.linksOverridden ? this.renderer.detailLevel.showLinks : k > z.linkThreshold,
-                labelCap: z.labelCap,
-                arrowCap: z.arrowCap,
+            this.renderer.setDetailLevel({
+                showLabels: this.labelsOverridden ? this.renderer.detailLevel.showLabels : k > CAMERA.labelThreshold,
+                showArrows: k > CAMERA.arrowThreshold,
+                showNodeBorders: k > CAMERA.borderThreshold,
+                showLinks: this.linksOverridden ? this.renderer.detailLevel.showLinks : k > CAMERA.linkThreshold,
+                labelCap: RENDER.label.labelCap,
+                arrowCap: RENDER.arrow.arrowCap,
                 zoom: k
             });
-            this.renderer?.setTransform(event.transform);
+            this.renderer.setTransform(event.transform);
         });
 
     this.renderer = new ChainMapRenderer({
         container: this.container,
         svg: this.svg,
         g: this.g,
-        interaction: MAP_INTERACTION
+        interaction: CONTROLS
     });
 
     const canvas = d3.select(this.renderer.canvas);
@@ -65,7 +64,7 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
 
     canvas.on("mousemove", (event) => {
         const p = d3.pointer(event, this.renderer.canvas);
-        const node = this.renderer?.hitTest({ x: p[0], y: p[1] });
+        const node = this.renderer.hitTest({ x: p[0], y: p[1] });
         if (node) {
             this.showTooltip(event, node);
             canvas.style("cursor", "pointer");
@@ -78,7 +77,7 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
     canvas.on("click", (event) => {
         if (event.defaultPrevented) return;
         const p = d3.pointer(event, this.renderer.canvas);
-        const node = this.renderer?.hitTest({ x: p[0], y: p[1] });
+        const node = this.renderer.hitTest({ x: p[0], y: p[1] });
         if (node) this.showNodeDetails(node);
     });
 };
@@ -87,12 +86,11 @@ ChainMapUI.prototype.focusNode = function(id) {
     const node = this.chainSim.nodes.find(n => n.id === id);
     if (!node) return;
 
-    const z = MAP_ZOOM;
-    d3.select(this.container).transition().duration(z.focusDuration).call(
+    d3.select(this.container).transition().duration(CAMERA.focusDuration).call(
         this.zoom.transform,
         d3.zoomIdentity
             .translate(this.width / 2, this.height / 2)
-            .scale(z.focusScale)
+            .scale(CAMERA.focusScale)
             .translate(-node.x, -node.y)
     );
 };

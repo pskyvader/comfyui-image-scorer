@@ -87,7 +87,7 @@ class DataTransformer:
         cumulative /= cumulative[-1]  # normalize to 1
 
         # Keep features until cumulative gain reaches threshold (e.g., 95%)
-        cum_threshold = 0.95
+        cum_threshold = 0.99
         keep_mask = cumulative <= cum_threshold
 
         # Always keep at least one feature

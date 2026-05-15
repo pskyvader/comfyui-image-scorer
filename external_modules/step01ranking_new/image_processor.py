@@ -73,6 +73,7 @@ class ImageProcessor:
 
         self.lru_size = int(ranking_conf["lru_size"])
         self.recent_images = deque(maxlen=self.lru_size)
+        self.recent_chains = deque(maxlen=self.lru_size)
         self.recent_lock = Lock()
 
         # Load already processed filenames from database to avoid re-scanning

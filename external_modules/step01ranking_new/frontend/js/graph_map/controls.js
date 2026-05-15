@@ -38,12 +38,12 @@ ChainMapUI.prototype.loadFiltersFromStorage = function () {
 };
 
 ChainMapUI.prototype.saveFilters = function () {
-    localStorage.setItem("chainmap_minComp", this.minCompFilter?.value || 1);
-    localStorage.setItem("chainmap_maxComp", this.maxCompFilter?.value || 30);
-    localStorage.setItem("chainmap_minChain", this.minChainFilter?.value || 1);
-    localStorage.setItem("chainmap_maxChain", this.maxChainFilter?.value || 30);
-    localStorage.setItem("chainmap_minCompCount", this.minCompCountFilter?.value || 0);
-    localStorage.setItem("chainmap_maxCompCount", this.maxCompCountFilter?.value || 100);
+    localStorage.setItem("chainmap_minComp", this.minCompFilter.value);
+    localStorage.setItem("chainmap_maxComp", this.maxCompFilter.value);
+    localStorage.setItem("chainmap_minChain", this.minChainFilter.value);
+    localStorage.setItem("chainmap_maxChain", this.maxChainFilter.value);
+    localStorage.setItem("chainmap_minCompCount", this.minCompCountFilter.value);
+    localStorage.setItem("chainmap_maxCompCount", this.maxCompCountFilter.value);
     if (this.collapsibleFilter) {
         localStorage.setItem("chainmap_collapsible", this.collapsibleFilter.value);
     }
@@ -104,17 +104,17 @@ ChainMapUI.prototype.applyFilters = function () {
     this.saveFilters();
 
     const useMinComp = minComp > 1;
-    const useMaxComp = maxComp < parseInt(this.maxCompFilter?.max || 10000);
     const useMinChain = minChain > 1;
-    const useMaxChain = maxChain < parseInt(this.maxChainFilter?.max || 10000);
     const useMinCompCount = minCompCount > 0;
-    const maxCompCountMax = parseInt(this.maxCompCountFilter?.max || 10000);
+    const useMaxComp = maxComp < parseInt(this.maxCompFilter.max);
+    const useMaxChain = maxChain < parseInt(this.maxChainFilter.max);
+    const maxCompCountMax = parseInt(this.maxCompCountFilter.max);
     const useMaxCompCount = maxCompCount < maxCompCountMax;
 
     const validComponents = new Set();
     const nodeMap = new Map(this.rawData.nodes.map(n => [n.id, n]));
 
-    Object.entries(this.rawData.components || {})
+    Object.entries(this.rawData.components)
         .forEach(([id, members]) => {
             const size = members.length;
 
@@ -139,12 +139,12 @@ ChainMapUI.prototype.applyFilters = function () {
             members.forEach((nid) => {
                 const n = nodeMap.get(nid);
                 if (n) {
-                    if ((n.height || 0) > maxH) {
+                    if (n.height > maxH) {
                         maxH = n.height;
                     }
                     if (n.is_top || n.is_bottom) {
                         topBottomCount++;
-                        if ((n.height || 0) > maxTopBottomH) {
+                        if (n.height > maxTopBottomH) {
                             maxTopBottomH = n.height;
                         }
                     }
@@ -157,13 +157,13 @@ ChainMapUI.prototype.applyFilters = function () {
 
                     if (isNodeIncluded(n)) {
                         filteredNodeCount++;
-                        if ((n.height || 0) > filteredMaxH) {
+                        if (n.height > filteredMaxH) {
                             filteredMaxH = n.height;
                         }
                     }
 
-                    const meetsMinC = !useMinCompCount || (n.comparison_count || 0) >= minCompCount;
-                    const meetsMaxC = !useMaxCompCount || (n.comparison_count || 0) <= maxCompCount;
+                    const meetsMinC = !useMinCompCount || n.comparison_count >= minCompCount;
+                    const meetsMaxC = !useMaxCompCount || n.comparison_count <= maxCompCount;
                     if (meetsMinC && meetsMaxC) {
                         anyNodeMatchesCompCount = true;
                         if (isNodeIncluded(n)) {
@@ -198,57 +198,69 @@ ChainMapUI.prototype.applyFilters = function () {
             }
         });
 
-    const filteredNodes = (this.rawData.nodes || []).filter((n) => {
-        const compId = String(n.component ?? "");
+    const filteredNodes = this.rawData.nodes.filter((n) => {
+        const compId = String(n.component);
         return validComponents.has(compId);
     });
 
     const nodeIds = new Set(filteredNodes.map(n => n.id));
-    const filteredEdges = (this.rawData.edges || []).filter(e =>
+    const filteredEdges = this.rawData.edges.filter(e =>
         nodeIds.has(e.source) && nodeIds.has(e.target),
     );
 
-    this.render(filteredNodes, filteredEdges);
-    setTimeout(() => this.resetView(), 100);
+    this.render(filteredNodes, filteredEdges, this.rawData.stats);
 };
 
 ChainMapUI.prototype.toggleSimulation = function () {
     if (this.chainSim.isPaused) {
         this.chainSim.play();
-        this.playIcon.classList.add("hidden");
-        this.pauseIcon.classList.remove("hidden");
     } else {
         this.chainSim.pause();
-        this.playIcon.classList.remove("hidden");
-        this.pauseIcon.classList.add("hidden");
     }
+    this.syncButtonStates();
 };
 
 ChainMapUI.prototype.resetView = function () {
-    const z = MAP_ZOOM;
-    const worldW = this.chainSim?.effectiveWidth;
-    const worldH = this.chainSim?.effectiveHeight;
+    const w = this.width || this.container.clientWidth || 800;
+    const h = this.height || this.container.clientHeight || 600;
+    const worldW = this.chainSim && this.chainSim.effectiveWidth;
+    const worldH = this.chainSim && this.chainSim.effectiveHeight;
 
-    if (!worldW || !worldH) {
-        d3.select(this.container).transition()
-            .duration(MAP_INTERACTION.transitionDuration)
-            .call(
-                this.zoom.transform,
-                d3.zoomIdentity.translate(this.width / 2, this.height / 2)
-                    .scale(z.fallbackScale),
-            );
+    if (!worldW || !worldH || !w || !h) {
+        const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(CAMERA.fallbackScale);
+        if (isFinite(t.x) && isFinite(t.y) && isFinite(t.k)) {
+            d3.select(this.container).call(this.zoom.transform, t);
+            this.renderer.setTransform(t);
+        }
         return;
     }
 
-    const scale = Math.min(z.maxFitScale, z.fitPadding / Math.max(worldW / this.width, worldH / this.height)) || z.fallbackScale;
+    const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / w, worldH / h));
+    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(scale).translate(-worldW / 2, -worldH / 2);
+    if (isFinite(t.x) && isFinite(t.y) && isFinite(t.k)) {
+        d3.select(this.container).call(this.zoom.transform, t);
+        this.renderer.setTransform(t);
+    }
+};
 
-    d3.select(this.container).transition()
-        .duration(MAP_INTERACTION.transitionDuration)
-        .call(
-            this.zoom.transform,
-            d3.zoomIdentity
-                .translate(this.width / 2, this.height / 2)
-                .scale(scale)
-                .translate(-worldW / 2, -worldH / 2),
-        );
+ChainMapUI.prototype.zoomToFitNodes = function () {
+    const activeCount = this.chainSim._activeNodeCount;
+    const nodes = this.chainSim.nodes.slice(0, activeCount);
+    const bounds = this.calculateWorldBounds(nodes);
+    const bw = bounds.width || 1;
+    const bh = bounds.height || 1;
+
+    if (!this.width || !this.height) return;
+
+    const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(bw / this.width, bh / this.height));
+    const cx = bounds.x + bw / 2;
+    const cy = bounds.y + bh / 2;
+
+    d3.select(this.container).call(
+        this.zoom.transform,
+        d3.zoomIdentity
+            .translate(this.width / 2, this.height / 2)
+            .scale(scale)
+            .translate(-cx, -cy),
+    );
 };

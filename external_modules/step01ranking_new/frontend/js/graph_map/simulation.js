@@ -6,103 +6,182 @@ class ChainSimulation {
     constructor(nodes, links, components, options = {}) {
         this.nodes = nodes;
         this.links = links;
-        this.components = Array.from(components || []);
+        this.components = Array.from(components);
         this._tickCount = 0;
         this._simStart = performance.now();
 
-        // Use global split physics defaults and scaling multipliers
-        const simLinks = typeof SIMULATION_LINKS !== "undefined" ? SIMULATION_LINKS : {};
-        const simNodes = typeof SIMULATION_NODES !== "undefined" ? SIMULATION_NODES : {};
-        const simWorld = typeof SIMULATION_WORLD !== "undefined" ? SIMULATION_WORLD : {};
-
-        this.config = { ...simLinks, ...simNodes, ...simWorld, ...options };
-
-        this.config.scaling = {
-            small: {
-                ...(simLinks.scaling?.small || {}),
-                ...(simNodes.scaling?.small || {}),
-                ...(simWorld.scaling?.small || {}),
-                ...(options.scaling?.small || {}),
-            },
-            medium: {
-                ...(simLinks.scaling?.medium || {}),
-                ...(simNodes.scaling?.medium || {}),
-                ...(simWorld.scaling?.medium || {}),
-                ...(options.scaling?.medium || {}),
-            },
-            large: {
-                ...(simLinks.scaling?.large || {}),
-                ...(simNodes.scaling?.large || {}),
-                ...(simWorld.scaling?.large || {}),
-                ...(options.scaling?.large || {}),
-            },
-        };
+        this.config = { ...PHYSICS.link, ...PHYSICS.node, ...PHYSICS.world, ...RENDER.link, ...CONTROLS, ...options };
 
         this.simulation = null;
         this.linkForce = null;
-        this.onTick = options.onTick || null;
-        this.onEnd = options.onEnd || null;
+        this.onTick = options.onTick;
+        this.onEnd = options.onEnd;
         this.isPaused = false;
 
         this.nodeById = new Map();
         this.nodeDegree = new Map();
         this.componentNodes = new Map();
         this.runtime = this.resolveRuntimeProfile();
+
+        this._activeNodeCount = 0;
+        this._activeNodes = [];
+        this._activeLinks = [];
+        this._pendingNodeQueue = [...this.nodes];
+
+        this.batchSize = Math.max(PERFORMANCE.batch.nodeBatchMin, Math.ceil(this.nodes.length / PERFORMANCE.batch.nodeBatchDivisor));
+
         this.simulationLinks = this.links;
         this.effectiveWidth = this.config.minWorldSize;
         this.effectiveHeight = this.config.minWorldSize;
         this.constraintPhase = 0;
         this.lastRenderAt = 0;
-        this.simulationStartAt = 0;
-        this.currentLinkStrengthFactor = this.config.linkStrengthInitialFactor;
+        this.currentLinkStrengthFactor = this.config.linkStrengthFinalFactor;
+    }
+
+    setVisibleCount(count) {
+        const current = this._activeNodeCount;
+        if (count <= current) return;
+        const added = this._addNodes(count - current);
+        this._syncSimulation();
+        return added;
+    }
+
+    _addNodes(count) {
+        if (this._pendingNodeQueue.length === 0 || count <= 0) return 0;
+        const batch = this._pendingNodeQueue.splice(0, count);
+        this._positionNodes(batch);
+        this._activeNodes.push(...batch);
+        this._activeNodeCount = this._activeNodes.length;
+        return batch.length;
+    }
+
+    _syncSimulation(nudge) {
+        this._rebuildActiveLinks();
+        this.simulation.nodes(this._activeNodes);
+        this.linkForce.links(this._activeLinks);
+        if (nudge) {
+            for (let i = 0; i < this._activeNodes.length; i++) {
+                this._activeNodes[i].vx += (Math.random() - 0.5) * nudge;
+                this._activeNodes[i].vy += (Math.random() - 0.5) * nudge;
+            }
+        }
+        this.simulation.alpha(this.config.batchAlpha).restart();
+    }
+
+    addNodeBatch(count) {
+        if (this._pendingNodeQueue.length === 0 || count <= 0) return 0;
+        const added = this._addNodes(count);
+        this._syncSimulation(this.config.centerSpread * 4);
+        return added;
+    }
+
+    _rebuildActiveLinks() {
+        const activeIds = new Set();
+        for (let i = 0; i < this._activeNodes.length; i++) {
+            activeIds.add(this._activeNodes[i].id);
+        }
+        this._activeLinks = this.links.filter(function (l) {
+            const sId = typeof l.source === "object" ? l.source.id : l.source;
+            const tId = typeof l.target === "object" ? l.target.id : l.target;
+            return activeIds.has(sId) && activeIds.has(tId);
+        });
+    }
+
+    _componentCenters() {
+        const padding = this.runtime.boundaryPadding;
+        const componentIds = this.components.map(c => String(c));
+        const compCount = Math.max(1, componentIds.length);
+        const columns = Math.max(1, Math.ceil(Math.sqrt(compCount)));
+        const rows = Math.max(1, Math.ceil(compCount / columns));
+        const usableW = Math.max(1, this.effectiveWidth - padding * 2);
+        const usableH = Math.max(1, this.effectiveHeight - padding * 2);
+        const centers = new Map();
+
+        componentIds.forEach((id, i) => {
+            const col = i % columns;
+            const row = Math.floor(i / columns);
+            centers.set(id, {
+                x: padding + ((col + 0.5) / columns) * usableW,
+                y: padding + ((row + 0.5) / rows) * usableH,
+            });
+        });
+        return centers;
+    }
+
+    _positionNodes(nodes) {
+        const centers = this._componentCenters();
+        for (const node of nodes) {
+            const center = centers.get(String(node.component));
+            if (!center) {
+                showError("ChainSim: node \"" + node.id + "\" has unknown component \"" + node.component + "\"");
+                throw new Error("ChainSim: unknown component");
+            }
+            const scoreBias = this.getScoreBias(this.assertFinite(node.score, "node.score"));
+
+            node.x = center.x + (Math.random() - 0.5) * this.config.centerSpread;
+            node.y = center.y + (Math.random() - 0.5) * this.config.centerSpread;
+            node.vx = 0;
+            node.vy = 0;
+            const degree = this.nodeDegree.get(node.id);
+            node._charge = this.config.chargeStrength * (degree === 0 ? this.config.isolatedMultiplier : 1);
+            node._scoreBias = scoreBias;
+            node._scoreForce = scoreBias * this.runtime.gravityStrength;
+        }
     }
 
     resolveRuntimeProfile() {
         const nodeCount = this.nodes.length;
         const linkCount = this.links.length;
-        const workUnits = nodeCount + (linkCount * 1.5);
-        const mediumGraph = workUnits >= 9000;
-        const largeGraph = workUnits >= 30000;
+        const t = PERFORMANCE;
+        const workUnits = nodeCount + (linkCount * t.graph.linkWorkWeight);
+        const mediumGraph = workUnits >= t.graph.mediumGraphMinWorkUnits;
+        const largeGraph = workUnits >= t.graph.largeGraphMinWorkUnits;
         const sizeKey = largeGraph ? "large" : (mediumGraph ? "medium" : "small");
-        const scale = this.config.scaling[sizeKey] || this.config.scaling.small;
+        const PROFILE_SRC = { link: RENDER.link, render: PERFORMANCE.render };
+        const getProfileValue = (category, key) => {
+            const src = PROFILE_SRC[category];
+            const multKey = sizeKey + key.charAt(0).toUpperCase() + key.slice(1) + "Multiplier";
+            const mult = src[multKey];
+            if (mult !== undefined) return src[key] * mult;
+            const directKey = key + sizeKey.charAt(0).toUpperCase() + sizeKey.slice(1);
+            const direct = src[directKey];
+            return direct !== undefined ? direct : src[key];
+        };
+        const s = SCALE;
+        CONTROLS.enablePointerHits = nodeCount < t.node.pointerHitsMaxNodes;
 
         return {
             canvasMode: true,
             enableCollision: true,
             enableMarkers: false,
-            enableLabels: nodeCount < 900,
+            enableLabels: nodeCount < t.node.labelsMaxNodes,
             enableDrag: true,
             enablePausedGroupDrag: true,
-            enableTooltips: nodeCount < 12000,
-            enablePointerHits: nodeCount < 50000,
-            drawLinks: linkCount < 1800000,
-            progressiveReveal: mediumGraph || nodeCount > 500,
-            usePerLinkOpacity: !largeGraph && linkCount <= 12000,
-            linkGlobalOpacity: largeGraph ? 0.12 : 0.18,
-            linkVisibilityZoomThreshold: largeGraph ? 0.01 : (mediumGraph ? 0.005 : 0),
-            renderIntervalMs: largeGraph ? 48 : (mediumGraph ? 32 : this.config.renderIntervalMs),
-            chargeDistanceMax: this.scalePositive(this.config.chargeDistanceMax, scale.chargeDistanceMax),
-            gravityStrength: this.config.gravityStrength * this.safeMultiplier(scale.gravityStrength),
-            velocityDecay: this.scalePositive(this.config.velocityDecay, scale.velocityDecay),
-            alphaDecay: this.scalePositive(this.config.alphaDecay, scale.alphaDecay),
-            linkDistanceScale: this.safeMultiplier(scale.linkDistance),
-            linkStrengthScale: this.safeMultiplier(scale.linkStrength),
-            scoreDistanceMultiplierScale: this.safeMultiplier(scale.scoreDistanceMultiplier),
-            countDistanceMultiplierScale: this.safeMultiplier(scale.countDistanceMultiplier),
-            maxLinkDistance: this.scalePositive(this.config.maxLinkDistance, scale.maxLinkDistance),
-            worldScale: this.scalePositive(this.config.worldScale, scale.worldScale),
-            nodeJitter: this.scalePositive(this.config.nodeJitter, scale.nodeJitter),
-            boundaryPadding: this.scalePositive(this.config.boundaryPadding, scale.boundaryPadding),
-            simulationLinkStride: largeGraph
-                ? Math.max(1, Math.ceil(linkCount / 60000))
-                : (mediumGraph ? Math.max(1, Math.ceil(linkCount / 45000)) : 1),
-            constraintPhases: largeGraph
-                ? Math.max(1, Math.ceil(linkCount / 50000))
-                : (mediumGraph ? Math.max(1, Math.ceil(linkCount / 90000)) : 1),
-            constraintSlack: this.scalePositive(this.config.linkConstraintSlack, scale.constraintSlack),
-            constraintPull: this.scalePositive(this.config.linkConstraintPull, scale.constraintPull),
-            linkStiffnessRampMs: this.scalePositive(this.config.linkStrengthRampMs, scale.linkStiffnessRampMs),
-            startPaused: workUnits >= 110000,
+            enableTooltips: nodeCount < t.node.tooltipsMaxNodes,
+            drawLinks: linkCount < t.link.drawLinksMaxLinks,
+            progressiveReveal: mediumGraph || nodeCount > t.batch.progressiveRevealMinNodes,
+            usePerLinkOpacity: linkCount <= t.link.perLinkOpacityMaxLinks,
+            linkVisibilityZoomThreshold: getProfileValue("link", "linkVisibilityZoomThreshold"),
+            renderIntervalMs: getProfileValue("render", "renderIntervalMs"),
+            chargeDistanceMax: this.config.chargeDistanceMax * s.node.chargeDistanceMultiplier,
+            gravityStrength: this.config.gravityStrength * s.node.gravityMultiplier,
+            velocityDecay: this.config.velocityDecay * s.world.velocityDecayMultiplier,
+            alphaDecay: this.config.alphaDecay * s.world.alphaDecayMultiplier,
+            linkDistanceScale: s.link.distanceMultiplier,
+            linkStrengthScale: s.link.strengthMultiplier,
+            scoreDistanceMultiplierScale: s.link.scoreDistMultiplier,
+            countDistanceMultiplierScale: s.link.countDistMultiplier,
+            maxLinkDistance: this.config.maxLinkDistance * s.link.maxDistanceMultiplier,
+            worldScale: this.config.worldScale * s.world.worldScaleMultiplier,
+            boundaryPadding: this.config.boundaryPadding * s.world.boundaryPaddingMultiplier,
+            simulationLinkStride: largeGraph || mediumGraph
+                ? Math.max(1, Math.ceil(linkCount / (PERFORMANCE.link.linkStrideDivisor * (largeGraph ? PERFORMANCE.link.linkStrideLargeMultiplier : 1))))
+                : 1,
+            constraintPhases: largeGraph || mediumGraph
+                ? Math.max(1, Math.ceil(linkCount / (PERFORMANCE.constraint.constraintPhasesDivisor * (largeGraph ? PERFORMANCE.constraint.constraintPhasesLargeMultiplier : 1))))
+                : 1,
+            constraintPull: this.config.linkConstraintPull * s.link.constraintPullMultiplier,
+            startPaused: workUnits >= t.graph.startPausedWorkUnits,
             statusLabel: largeGraph ? "Canvas / Reduced Physics" : (mediumGraph ? "Canvas / Scaled" : "Canvas"),
         };
     }
@@ -114,7 +193,10 @@ class ChainSimulation {
         this.prepareWorldBounds();
         this.prepareNodes();
         this.prepareLinks();
+        this._activeNodes = [];
+        this._activeLinks = [];
         this.setupSimulation();
+        this.addNodeBatch(this.batchSize);
     }
 
     indexNodes() {
@@ -127,7 +209,7 @@ class ChainSimulation {
     groupNodesByComponent() {
         this.componentNodes.clear();
         for (const node of this.nodes) {
-            const componentId = String(node.component ?? "");
+            const componentId = String(node.component);
             if (!this.componentNodes.has(componentId)) {
                 this.componentNodes.set(componentId, []);
             }
@@ -144,8 +226,10 @@ class ChainSimulation {
         for (const link of this.links) {
             const sourceId = this.getNodeId(link.source);
             const targetId = this.getNodeId(link.target);
-            this.nodeDegree.set(sourceId, (this.nodeDegree.get(sourceId) || 0) + 1);
-            this.nodeDegree.set(targetId, (this.nodeDegree.get(targetId) || 0) + 1);
+            const currentSource = this.nodeDegree.get(sourceId);
+            this.nodeDegree.set(sourceId, currentSource === undefined ? 1 : currentSource + 1);
+            const currentTarget = this.nodeDegree.get(targetId);
+            this.nodeDegree.set(targetId, currentTarget === undefined ? 1 : currentTarget + 1);
         }
     }
 
@@ -158,49 +242,24 @@ class ChainSimulation {
     }
 
     prepareNodes() {
-        const padding = this.runtime.boundaryPadding;
-        const componentIds = this.components.map(component => String(component));
-        const count = Math.max(1, componentIds.length);
-        const columns = Math.max(1, Math.ceil(Math.sqrt(count)));
-        const rows = Math.max(1, Math.ceil(count / columns));
-        const usableWidth = Math.max(1, this.effectiveWidth - (padding * 2));
-        const usableHeight = Math.max(1, this.effectiveHeight - (padding * 2));
-        const centers = new Map();
+        const centers = this._componentCenters();
 
-        componentIds.forEach((componentId, index) => {
-            const column = index % columns;
-            const row = Math.floor(index / columns);
-            centers.set(componentId, {
-                x: padding + (((column + 0.5) / columns) * usableWidth),
-                y: padding + (((row + 0.5) / rows) * usableHeight),
-            });
-        });
-
-        for (const [componentId, members] of this.componentNodes.entries()) {
-            const center = centers.get(componentId) || {
-                x: this.effectiveWidth / 2,
-                y: this.effectiveHeight / 2,
-            };
-
-            for (const node of members) {
-                const score = this.getFiniteNumber(node.score, 0.5);
-                const degree = this.nodeDegree.get(node.id) || 0;
-                const isolatedMultiplier = degree === 0 ? 0.85 : 1;
-                const scoreBias = this.getScoreBias(score);
-                const jitter = this.runtime.nodeJitter;
-
-                node.x = center.x + ((Math.random() - 0.5) * jitter);
-                node.y = this.clamp(
-                    center.y + ((Math.random() - 0.5) * jitter),
-                    padding,
-                    this.effectiveHeight - padding,
-                );
-                node.vx = 0;
-                node.vy = 0;
-                node._charge = this.config.chargeStrength * isolatedMultiplier;
-                node._scoreBias = scoreBias;
-                node._scoreForce = scoreBias * this.runtime.gravityStrength;
+        for (const node of this.nodes) {
+            const center = centers.get(String(node.component));
+            if (!center) {
+                showError("ChainSim: node \"" + node.id + "\" has unknown component \"" + node.component + "\"");
+                throw new Error("ChainSim: unknown component");
             }
+            const scoreBias = this.getScoreBias(this.assertFinite(node.score, "node.score"));
+
+            node.x = center.x + (Math.random() - 0.5) * this.config.centerSpread;
+            node.y = center.y + (Math.random() - 0.5) * this.config.centerSpread;
+            node.vx = 0;
+            node.vy = 0;
+            const degree = this.nodeDegree.get(node.id);
+            node._charge = this.config.chargeStrength * (degree === 0 ? this.config.isolatedMultiplier : 1);
+            node._scoreBias = scoreBias;
+            node._scoreForce = scoreBias * this.runtime.gravityStrength;
         }
     }
 
@@ -220,11 +279,11 @@ class ChainSimulation {
             const sourceDegree = this.nodeDegree.get(source.id);
             const targetDegree = this.nodeDegree.get(target.id);
             const scoreGap = Math.abs(
-                this.getFiniteNumber(source.score, 0.5) - this.getFiniteNumber(target.score, 0.5),
+                this.assertFinite(source.score, "source.score") - this.assertFinite(target.score, "target.score"),
             );
             const countWeight = Math.log1p(Math.max(
-                this.getFiniteNumber(source.comparison_count, 0),
-                this.getFiniteNumber(target.comparison_count, 0),
+                this.assertFinite(source.comparison_count, "source.comparison_count"),
+                this.assertFinite(target.comparison_count, "target.comparison_count"),
             ));
 
             const countContribution = baseDistance * countWeight * countMultiplier;
@@ -243,8 +302,8 @@ class ChainSimulation {
                 * (1 / Math.sqrt(Math.max(1, Math.min(sourceDegree, targetDegree)))),
             );
             link._opacity = this.runtime.usePerLinkOpacity
-                ? Math.max(0.08, 1 - (link.distance / (maxLinkDistance * 1.15)))
-                : this.runtime.linkGlobalOpacity;
+                ? Math.max(this.config.linkOpacityMin, 1 - (link.distance / (maxLinkDistance * this.config.maxDistanceMultiplier)))
+                : this.config.linkOpacityMax;
         }
 
         if (this.runtime.simulationLinkStride === 1) {
@@ -258,16 +317,14 @@ class ChainSimulation {
     }
 
     setupSimulation() {
-        const initialFactor = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
-        this.currentLinkStrengthFactor = initialFactor;
-        this.simulationStartAt = performance.now();
+        this.currentLinkStrengthFactor = this.config.linkStrengthFinalFactor;
 
-        this.linkForce = d3.forceLink(this.simulationLinks)
+        this.linkForce = d3.forceLink(this._activeLinks)
             .id(node => node.id)
             .distance(link => link.distance)
             .strength(link => link._baseStrength * this.currentLinkStrengthFactor);
 
-        this.simulation = d3.forceSimulation(this.nodes)
+        this.simulation = d3.forceSimulation(this._activeNodes)
             .force("link", this.linkForce)
             .force("charge", d3.forceManyBody()
                 .strength(node => node._charge)
@@ -279,16 +336,16 @@ class ChainSimulation {
 
         if (this.runtime.enableCollision) {
             this.simulation.force("collide", d3.forceCollide((node) => {
-                const count = this.getFiniteNumber(node.comparison_count, 0);
+                const count = this.assertFinite(node.comparison_count, "node.comparison_count");
                 return this.config.collisionRadius + Math.log1p(count);
             }));
         }
 
         this.simulation.on("tick", () => this.handleTick());
         this.simulation.on("end", () => {
-            console.log("SIM END | tick", this._tickCount, "| alpha", this.simulation?.alpha());
-            this.onTick?.(this.nodes, this.links, this.runtime);
-            this.onEnd?.(this.runtime);
+            console.log("SIM END | tick", this._tickCount, "| alpha", this.simulation.alpha());
+            this.onTick(this.nodes, this.links, this.runtime);
+            this.onEnd(this.runtime);
         });
     }
 
@@ -296,17 +353,20 @@ class ChainSimulation {
         this._tickCount++;
         const t = performance.now();
         if (this._tickCount % 40 === 0) {
-            const a = this.simulation?.alpha();
-            const n0 = this.nodes[0];
-            const n1 = this.nodes[this.nodes.length - 1];
-            console.log("TICK", this._tickCount, "| alpha", a !== undefined ? a.toFixed(6) : "?", "| elapsed ms", (t - this._simStart).toFixed(0), "| n0 y:", n0?.y?.toFixed(1), "| nLast y:", n1?.y?.toFixed(1));
+            const a = this.simulation.alpha();
+            const n0 = this._activeNodes[0];
+            console.log("TICK", this._tickCount, "| alpha", a !== undefined ? a.toFixed(6) : "?", "| active", this._activeNodeCount, "| n0 x,y,vx,vy:", n0 ? n0.x.toFixed(1) : "N/A", n0 ? n0.y.toFixed(1) : "N/A", n0 ? n0.vx.toFixed(3) : "N/A", n0 ? n0.vy.toFixed(3) : "N/A");
         }
+
+        if (this._pendingNodeQueue.length > 0 && this._tickCount % PERFORMANCE.batch.batchTickDivider === 0) {
+            this.addNodeBatch(this.batchSize);
+        }
+
         const now = performance.now();
-        this.updateLinkStiffness(now);
         this.applyLinkConstraints();
 
-        for (const node of this.nodes) {
-            this.applyBoundaryBehavior(node);
+        for (let i = 0; i < this._activeNodes.length; i++) {
+            this.applyBoundaryBehavior(this._activeNodes[i]);
         }
 
         if (!this.onTick) {
@@ -336,62 +396,24 @@ class ChainSimulation {
         return force;
     }
 
-    updateLinkStiffness(now) {
-        if (!this.linkForce) {
-            return;
-        }
-
-        const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
-        const final = Math.max(initial, this.config.linkStrengthFinalFactor);
-        const duration = Math.max(1, this.runtime.linkStiffnessRampMs);
-        const progress = this.clamp((now - this.simulationStartAt) / duration, 0, 1);
-        const eased = Math.pow(progress, Math.max(0.01, this.config.linkStrengthRampCurve));
-        const factor = initial + ((final - initial) * eased);
-
-        if (progress >= 1 && this.currentLinkStrengthFactor === final && this._annealingComplete) {
-            return;
-        }
-
-        this.currentLinkStrengthFactor = factor;
-        if (progress >= 1) {
-            this._annealingComplete = true;
-        }
-
-        this.linkForce.strength(link => link._baseStrength * this.currentLinkStrengthFactor);
-
-        for (const link of this.links) {
-            const startDist = link._startDistance;
-            link.distance = startDist + ((link._targetDistance - startDist) * eased);
-        }
-    }
-
     applyLinkConstraints() {
-        if (!this.links.length) {
+        if (!this._activeLinks.length) {
             return;
         }
 
         const phases = this.runtime.constraintPhases;
         const phaseOffset = this.constraintPhase;
-        const initial = this.clamp(this.config.linkStrengthInitialFactor, 0, this.config.linkStrengthFinalFactor);
-        const final = Math.max(initial, this.config.linkStrengthFinalFactor);
-        const normalizedStiffness = final === initial
-            ? 1
-            : this.clamp((this.currentLinkStrengthFactor - initial) / (final - initial), 0, 1);
-
-        const relaxedSlack = this.runtime.constraintSlack + (this.config.linkConstraintInitialSlackExtra);
-        const slack = this.runtime.constraintSlack + ((relaxedSlack - this.runtime.constraintSlack) * (1 - normalizedStiffness));
-        const pull = this.runtime.constraintPull * (0.15 + (0.85 * normalizedStiffness));
+        const pull = this.runtime.constraintPull;
 
         if (pull <= 0 || this.config.linkConstraintPull <= 0) return;
 
-        for (let index = phaseOffset; index < this.links.length; index += phases) {
-            const link = this.links[index];
+        for (let index = phaseOffset; index < this._activeLinks.length; index += phases) {
+            const link = this._activeLinks[index];
             const source = link.source;
             const target = link.target;
             if (!source || !target || typeof source !== "object" || typeof target !== "object") {
                 continue;
             }
-
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const distanceSq = (dx * dx) + (dy * dy);
@@ -400,7 +422,7 @@ class ChainSimulation {
             }
 
             const distance = Math.sqrt(distanceSq);
-            const stretchTolerance = 1.08;
+            const stretchTolerance = PHYSICS.link.stretchTolerance;
             const limit = link.distance * stretchTolerance;
             if (distance <= limit) {
                 continue;
@@ -475,13 +497,13 @@ class ChainSimulation {
         if (!this.isPaused) {
             return;
         }
-        const offsetX = this.getFiniteNumber(dx, 0) * (this.config.pausedLinkedDragInfluence || 1);
-        const offsetY = this.getFiniteNumber(dy, 0) * (this.config.pausedLinkedDragInfluence || 1);
+        const offsetX = this.assertFinite(dx, "dx") * this.config.pausedLinkedDragInfluence;
+        const offsetY = this.assertFinite(dy, "dy") * this.config.pausedLinkedDragInfluence;
         if (!offsetX && !offsetY) {
             return;
         }
 
-        const componentId = String(subject.component ?? "");
+        const componentId = String(subject.component);
         const members = this.componentNodes.get(componentId);
         if (!members || !members.length) {
             return;
@@ -501,13 +523,13 @@ class ChainSimulation {
             node.vx = 0;
             node.vy = 0;
         }
-        this.onTick?.(this.nodes, this.links, this.runtime);
+        this.onTick(this.nodes, this.links, this.runtime);
     }
 
     getScoreBias(score) {
-        const centeredScore = (this.getFiniteNumber(score, 0.5) - 0.5) * 2;
+        const centeredScore = (this.assertFinite(score, "score") - 0.5) * 2;
         const magnitude = Math.abs(centeredScore);
-        const deadZone = this.config.neutralDeadZone || 0;
+        const deadZone = this.config.neutralDeadZone;
         if (magnitude <= deadZone) {
             return 0;
         }
@@ -515,9 +537,13 @@ class ChainSimulation {
         return Math.sign(centeredScore) * Math.pow(normalized, this.config.scoreExponent);
     }
 
-    getFiniteNumber(value, fallback = 0) {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : 0;
+    assertFinite(value, name) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+            showError("ChainSim: " + name + " is not a finite number (got " + JSON.stringify(value) + ")");
+            throw new Error("ChainSim: " + name + " not finite");
+        }
+        return n;
     }
 
     getNodeId(nodeOrId) {
@@ -525,19 +551,11 @@ class ChainSimulation {
     }
 
     getSimNode(id) {
-        return this.nodeById.get(id) || null;
+        return this.nodeById.get(id);
     }
 
     updateConfig(newOptions) {
-        const scaling = newOptions.scaling
-            ? {
-                small: { ...this.config.scaling.small, ...(newOptions.scaling.small || {}) },
-                medium: { ...this.config.scaling.medium, ...(newOptions.scaling.medium || {}) },
-                large: { ...this.config.scaling.large, ...(newOptions.scaling.large || {}) },
-            }
-            : this.config.scaling;
-
-        this.config = { ...this.config, ...newOptions, scaling };
+        this.config = { ...this.config, ...newOptions };
         this.runtime = this.resolveRuntimeProfile();
         if (this.simulation) {
             this.simulation.alpha(0.5)
@@ -551,9 +569,6 @@ class ChainSimulation {
         }
         this._simStart = performance.now();
         console.log("SIM PLAY | initial alpha:", this.simulation.alpha().toFixed(6));
-        for (const node of this.nodes) {
-            node.vx = 0; node.vy = 0;
-        }
         this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35))
             .restart();
         this.isPaused = false;
@@ -568,8 +583,8 @@ class ChainSimulation {
     }
 
     stop() {
-        console.log("SIM STOP called at tick", this._tickCount, "alpha", this.simulation?.alpha());
-        this.simulation?.stop();
+        console.log("SIM STOP called at tick", this._tickCount, "alpha", this.simulation.alpha());
+        this.simulation.stop();
     }
 
     restart() {
@@ -579,16 +594,6 @@ class ChainSimulation {
         this.simulation.nodes(this.nodes);
         this.simulation.alpha(1)
             .restart();
-    }
-
-    safeMultiplier(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : 1;
-    }
-
-    scalePositive(base, multiplier) {
-        const result = Number(base) * this.safeMultiplier(multiplier);
-        return Number.isFinite(result) ? Math.max(0.000001, result) : base;
     }
 
     clamp(value, min, max) {

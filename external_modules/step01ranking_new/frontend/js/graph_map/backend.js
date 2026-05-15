@@ -7,14 +7,12 @@ ChainMapUI.prototype.loadData = async function() {
     try {
         // api is a global object defined in api.js
         const data = await api.getGraphData();
+        console.log("Backend returned " + data.nodes.length + " nodes, " + data.edges.length + " edges");
         this.rawData = data;
         this.applyFilters();
     } catch (e) {
-        if (typeof Utils !== 'undefined') {
-            Utils.showToast("Failed to load graph data", "error");
-        } else {
-            console.error("Failed to load graph data", e);
-        }
+        console.error("Failed to load graph data:", e);
+        throw e;
     } finally {
         if (this.loader) this.loader.classList.add("hidden");
     }

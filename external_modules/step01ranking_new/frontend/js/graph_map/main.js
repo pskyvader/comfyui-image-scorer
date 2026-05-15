@@ -55,8 +55,10 @@ class ChainMapUI {
         this.zoomScaleEl = document.getElementById("zoom-scale");
         this.viewCoordsEl = document.getElementById("view-coords");
 
-        this.width = this.container?.clientWidth || 800;
-        this.height = this.container?.clientHeight || 600;
+        if (this.container.clientWidth > 0) {
+            this.width = this.container.clientWidth;
+            this.height = this.container.clientHeight;
+        }
     }
 
     async init() {
@@ -66,6 +68,8 @@ class ChainMapUI {
 
         this.loadFiltersFromStorage();
         this.setupSVGAndRenderer();
+        this.renderer.resize();
+        window.addEventListener("resize", () => this.renderer.resize());
         this.attachEventListeners();
         await this.loadData();
     }
@@ -144,19 +148,15 @@ class ChainMapUI {
         if (toggleLabelsBtn) {
             toggleLabelsBtn.onclick = () => {
                 this.labelsOverridden = true;
-                const current = this.renderer?.detailLevel?.showLabels;
+                const current = this.renderer.detailLevel.showLabels;
                 const newState = !current;
-                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLabels: newState, labelCap: newState ? 1000 : 0 });
-
-                if (iconOn) iconOn.classList.toggle("hidden", !newState);
-                if (iconOff) iconOff.classList.toggle("hidden", newState);
+                this.renderer.setDetailLevel({ ...this.renderer.detailLevel, showLabels: newState, labelCap: newState ? RENDER.label.labelCap : 0 });
+                this.syncButtonStates();
             };
         }
 
-        if (this.renderer?.detailLevel) {
-            const isShown = this.renderer.detailLevel.showLabels;
-            if (iconOn) iconOn.classList.toggle("hidden", !isShown);
-            if (iconOff) iconOff.classList.toggle("hidden", isShown);
+        if (this.renderer.detailLevel) {
+            this.syncButtonStates();
         }
 
         const toggleLinksBtn = document.getElementById("toggle-links-btn");
@@ -166,30 +166,44 @@ class ChainMapUI {
         if (toggleLinksBtn) {
             toggleLinksBtn.onclick = () => {
                 this.linksOverridden = true;
-                const current = this.renderer?.detailLevel?.showLinks;
+                const current = this.renderer.detailLevel.showLinks;
                 const newState = !current;
-                this.renderer?.setDetailLevel({ ...this.renderer.detailLevel, showLinks: newState });
-
-                if (linksIconOn) linksIconOn.classList.toggle("hidden", !newState);
-                if (linksIconOff) linksIconOff.classList.toggle("hidden", newState);
+                this.renderer.setDetailLevel({ ...this.renderer.detailLevel, showLinks: newState });
+                this.syncButtonStates();
             };
         }
 
-        if (this.renderer?.detailLevel) {
-            const isShown = this.renderer.detailLevel.showLinks;
-            if (linksIconOn) linksIconOn.classList.toggle("hidden", !isShown);
-            if (linksIconOff) linksIconOff.classList.toggle("hidden", isShown);
+        if (this.renderer.detailLevel) {
+            this.syncButtonStates();
         }
     }
 
-    render(nodes, links) {
+    render(nodes, links, stats) {
+        if (this._renderTimeout) {
+            clearTimeout(this._renderTimeout);
+            this._renderTimeout = null;
+        }
         if (this.chainSim) {
             console.log("RENDER stopping old simulation");
             this.chainSim.stop();
         }
 
-        const distinctComponents = new Set(nodes.map(n => String(n.component ?? "")));
-        const totalChains = nodes.filter(n => n.is_top === true).length;
+        if (nodes.length === 0) {
+            throw new Error("render received 0 nodes — filters may have excluded everything");
+        }
+
+        for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            if (n.comparison_count === undefined) {
+                throw new Error("node[" + i + "] (" + n.id + ") is missing comparison_count");
+            }
+            if (n.score === undefined) {
+                throw new Error("node[" + i + "] (" + n.id + ") is missing score");
+            }
+        }
+
+        const distinctComponents = new Set(nodes.map(n => String(n.component)));
+        const totalChains = stats.total_chains;
 
         if (this.statNodes) this.statNodes.textContent = nodes.length.toLocaleString();
         if (this.statComparisons) this.statComparisons.textContent = links.length.toLocaleString();
@@ -197,11 +211,11 @@ class ChainMapUI {
         if (this.statChains) this.statChains.textContent = totalChains.toLocaleString();
 
         const colorScale = d3.scaleLinear()
-            .domain(MAP_NODES.colorDomain)
-            .range(MAP_NODES.colorRange);
+            .domain(RENDER.node.colorDomain)
+            .range(RENDER.node.colorRange);
 
         const componentSizeMap = {};
-        if (this.rawData?.components) {
+        if (this.rawData.components) {
             for (const [compId, members] of Object.entries(this.rawData.components)) {
                 componentSizeMap[compId] = members.length;
             }
@@ -209,24 +223,28 @@ class ChainMapUI {
 
         const simNodes = nodes.map(d => ({
             ...d,
-            _radius: MAP_NODES.baseRadius + Math.sqrt(d.comparison_count ?? 0) * MAP_NODES.radiusMultiplier,
+            _radius: RENDER.node.baseRadius + Math.sqrt(d.comparison_count) * RENDER.node.radiusMultiplier,
             _fill: colorScale(d.score),
             _label: d.id.split('/').pop(),
-            _shortLabel: d.id.split('/').pop().substring(0, MAP_NODES.labelTruncateLength) + "...",
-            _component_size: componentSizeMap[String(d.component ?? "")] ?? null
+            _shortLabel: d.id.split('/').pop().substring(0, RENDER.node.labelTruncateLength) + "...",
+            _component_size: componentSizeMap[String(d.component)]
         }));
 
         const nodeMap = new Map(simNodes.map(n => [n.id, n]));
         const simLinks = links.map(d => ({
             source: nodeMap.get(d.source),
             target: nodeMap.get(d.target),
-            _opacity: MAP_NODES.defaultOpacity
+            _opacity: RENDER.node.defaultOpacity
         })).filter(l => l.source && l.target);
 
-        this.chainSim = new ChainSimulation(simNodes, simLinks, null, {
+        this.chainSim = new ChainSimulation(simNodes, simLinks, [], {
             width: this.width,
             height: this.height,
-            onTick: () => this.renderer.update(simNodes, simLinks)
+            onTick: () => {
+                this.renderer.setVisibleNodeCount(this.chainSim._activeNodeCount);
+                this.renderer.setVisibleLinkCount(simLinks.length);
+                this.renderer.update(simNodes, simLinks);
+            }
         });
 
         this.chainSim.initialize();
@@ -234,7 +252,7 @@ class ChainMapUI {
         this.renderer.render({
             nodes: simNodes,
             links: simLinks,
-            profile: (typeof MAP_VISUALS !== 'undefined') ? MAP_VISUALS : {},
+            profile: this.chainSim.runtime,
             selectedIds: this.selectedNodes,
             world: {
                 x: 0,
@@ -243,10 +261,45 @@ class ChainMapUI {
                 height: this.chainSim.effectiveHeight
             }
         });
+        this.renderer.setVisibleNodeCount(this.chainSim._activeNodeCount);
+        this.renderer.setVisibleLinkCount(simLinks.length);
 
         if (this.loader) this.loader.classList.add("hidden");
 
-        this.chainSim.play();
+        const isLargeMap = this.chainSim.runtime.startPaused;
+
+        if (isLargeMap) {
+            this.chainSim.pause();
+            this.labelsOverridden = true;
+            this.linksOverridden = true;
+            this.renderer.setDetailLevel({
+                ...this.renderer.detailLevel,
+                showLabels: false,
+                showLinks: false,
+            });
+        }
+
+        this.syncButtonStates();
+
+        const self = this;
+        const worldW = this.chainSim.effectiveWidth;
+        const worldH = this.chainSim.effectiveHeight;
+        const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / this.width, worldH / this.height));
+        const transform = d3.zoomIdentity
+            .translate(this.width / 2, this.height / 2)
+            .scale(scale)
+            .translate(-worldW / 2, -worldH / 2);
+        if (isFinite(transform.x) && isFinite(transform.y) && isFinite(transform.k)) {
+            d3.select(this.container).call(this.zoom.transform, transform);
+            this.renderer.setTransform(transform);
+        }
+
+        this._renderTimeout = setTimeout(function () {
+            if (self.chainSim && !self.chainSim.runtime.startPaused) {
+                self.chainSim.play();
+                self.syncButtonStates();
+            }
+        }, CONTROLS.transitionDuration + 100);
     }
 
     calculateWorldBounds(nodes) {
@@ -258,17 +311,20 @@ class ChainMapUI {
             minY = Math.min(minY, n.y);
             maxY = Math.max(maxY, n.y);
         });
-        const padding = 150;
         return {
-            x: minX - padding,
-            y: minY - padding,
-            width: (maxX - minX) + padding * 2,
-            height: (maxY - minY) + padding * 2,
-            padding: padding
+            x: minX - RENDER.bounds.padding,
+            y: minY - RENDER.bounds.padding,
+            width: (maxX - minX) + RENDER.bounds.padding * 2,
+            height: (maxY - minY) + RENDER.bounds.padding * 2,
+            padding: RENDER.bounds.padding
         };
     }
 
     cleanup() {
+        if (this._renderTimeout) {
+            clearTimeout(this._renderTimeout);
+            this._renderTimeout = null;
+        }
         if (this.chainSim) this.chainSim.stop();
         if (this.renderer) {
             this.renderer.destroy();
@@ -280,6 +336,28 @@ class ChainMapUI {
         }
         this.rawData = null;
         this.selectedNodes = [];
+    }
+
+    syncButtonStates() {
+        const paused = this.chainSim && this.chainSim.isPaused;
+        if (this.playIcon && this.pauseIcon) {
+            this.playIcon.classList.toggle("hidden", !paused);
+            this.pauseIcon.classList.toggle("hidden", paused);
+        }
+
+        if (this.renderer) {
+            const showLabels = this.renderer.detailLevel.showLabels;
+            const iconOn = document.getElementById("tag-icon-on");
+            const iconOff = document.getElementById("tag-icon-off");
+            if (iconOn) iconOn.classList.toggle("hidden", !showLabels);
+            if (iconOff) iconOff.classList.toggle("hidden", showLabels);
+
+            const showLinks = this.renderer.detailLevel.showLinks;
+            const linksIconOn = document.getElementById("links-icon-on");
+            const linksIconOff = document.getElementById("links-icon-off");
+            if (linksIconOn) linksIconOn.classList.toggle("hidden", !showLinks);
+            if (linksIconOff) linksIconOff.classList.toggle("hidden", showLinks);
+        }
     }
 }
 

@@ -47,6 +47,25 @@ PAIR_TYPE_FALLBACK = "fallback"
 # Module-level variable to store last pair selection metadata
 _last_pair_metadata: dict[str, Any] = {}
 
+from collections import OrderedDict
+
+# --- Loop 2 Refinement Caches ---
+_chain_pair_progress: dict[tuple[tuple[str, ...], tuple[str, ...]], int] = {}
+_node_lru_cache: "OrderedDict[str, None]" = OrderedDict()
+_chain_lru_cache: "OrderedDict[tuple[str, ...], None]" = OrderedDict()
+
+
+def _update_lru(cache: OrderedDict, item: Any, max_size: int = 0):
+    """Internal helper to track what was picked in this call's sub-loops."""
+    if item in cache:
+        cache.move_to_end(item)
+    else:
+        cache[item] = None
+        
+    if max_size > 0:
+        while len(cache) > max_size:
+            cache.popitem(last=False)
+
 
 def get_last_pair_metadata() -> dict[str, Any]:
     """Return metadata from the most recent pair selection."""
@@ -84,26 +103,22 @@ def _get_cached_all_images() -> list[dict[str, Any]]:
 
 def is_collapsable_pair(filename_a: str, filename_b: str) -> bool:
     """Check if a pair is collapsible (both top or both bottom in same component, no common chains)."""
-    if filename_a not in crystal_graph.images or filename_b not in crystal_graph.images:
+    node_a = crystal_graph.get_node(filename_a)
+    node_b = crystal_graph.get_node(filename_b)
+    if not node_a or not node_b:
         return False
 
     # Must be in the same component
-    comp_a = crystal_graph.component_by_filename[filename_a]
-    comp_b = crystal_graph.component_by_filename[filename_b]
-    if comp_a != comp_b or comp_a is None:
+    comp_a = crystal_graph.get_component(node_id=filename_a)
+    comp_b = crystal_graph.get_component(node_id=filename_b)
+    if not comp_a or not comp_b or comp_a.id != comp_b.id:
         return False
 
     # Check if both are top nodes (no better connections)
-    both_top = (
-        len(crystal_graph.better[filename_a]) == 0
-        and len(crystal_graph.better[filename_b]) == 0
-    )
+    both_top = node_a.is_top() and node_b.is_top()
 
     # Check if both are bottom nodes (no worse connections)
-    both_bottom = (
-        len(crystal_graph.worse[filename_a]) == 0
-        and len(crystal_graph.worse[filename_b]) == 0
-    )
+    both_bottom = node_a.is_bottom() and node_b.is_bottom()
 
     if not (both_top or both_bottom):
         return False
@@ -114,7 +129,7 @@ def is_collapsable_pair(filename_a: str, filename_b: str) -> bool:
 
 # def _get_comparison_count(filename: str) -> int:
 #     """Get comparison count for a node from the crystal graph."""
-#     img_data = crystal_graph.images[filename]
+#     img_data = crystal_graph._images[filename]
 #     if img_data:
 #         return img_data["comparison_count"]
 #     return 0
@@ -122,16 +137,10 @@ def is_collapsable_pair(filename_a: str, filename_b: str) -> bool:
 
 def select_pair_for_comparison(
     exclude_set: set[str] | None = None,
+    exclude_chains: set[tuple[str, ...]] | None = None,
 ) -> tuple[str, str] | None:
     """
     Select the next pair of images to compare using crystal graph priorities.
-
-    Primary grouping: component size (smallest components first).
-    Within each component-size group, chain level (shortest chains first).
-    Within each chain level:
-      1. Collapsible pairs: nodes in the same component that are both absolute top
-         or both absolute bottom, with no shared chains. Sorted by least connections
-         (comparison_count) first, ideally matching counts for both nodes.
       2. Worst-with-worst: components with a unique best or worst node, compare the
          remaining worst/best nodes. Sorted by least connections first.
       3. Unconnected pairs: nodes not in the same directed path.
@@ -153,9 +162,11 @@ def select_pair_for_comparison(
 
     # Refresh crystal_graph if stale
     if crystal_graph.is_cache_stale():
-        crystal_graph.build_from_database(images=all_images)
+        crystal_graph.rebuild_from_database(images=all_images)
+
+    # max_height is not easily accessible in new API, using total_images for debug
     logger.debug(
-        f"[NEXT-PAIR] crystal_graph built, max_height: {crystal_graph.get_max_height()}, time: total: {time.time() - total_time}, step: {time.time() - step_time}"
+        f"[NEXT-PAIR] crystal_graph built, total_images: {len(all_images)}, time: total: {time.time() - total_time}, step: {time.time() - step_time}"
     )
     step_time: float = time.time()
 
@@ -185,9 +196,7 @@ def select_pair_for_comparison(
     if pair:
         return pair
 
-    pair = _find_extreme_pair_from_db(
-        candidate_filenames, comp_count_lookup
-    )
+    pair = _find_extreme_pair_from_db(candidate_filenames, comp_count_lookup)
     if pair:
         return pair
 
@@ -195,14 +204,14 @@ def select_pair_for_comparison(
     if pair:
         return pair
 
-    pair = _find_refinement_pairs(candidate_filenames, comp_count_lookup)
+    pair = _find_refinement_pairs(comp_count_lookup)
     if pair:
         return pair
 
     # When only one connected component remains, loop 1/2 should fully drive the
     # endgame. Falling through into broad score/fallback searches is both slow
     # and semantically wrong because it can bypass remaining structured pairs.
-    if len(crystal_graph.chain_members_by_component) <= 1:
+    if len(crystal_graph.get_all_components()) <= 1:
         return None
 
     pair = _find_score_range_pairs(candidate_filenames, comp_count_lookup, all_images)
@@ -265,12 +274,8 @@ def _find_extreme_pair_from_db(
     """
     global _last_pair_metadata
 
-    only_wins = [
-        n for n in get_images_with_only_wins() if n in candidate_filenames
-    ]
-    only_losses = [
-        n for n in get_images_with_only_losses() if n in candidate_filenames
-    ]
+    only_wins = [n for n in get_images_with_only_wins() if n in candidate_filenames]
+    only_losses = [n for n in get_images_with_only_losses() if n in candidate_filenames]
 
     if len(only_wins) >= 2:
         only_wins.sort(key=lambda n: comp_count_lookup[n])
@@ -335,16 +340,17 @@ def _find_low_count_pairs(
     comparison_counts: list[int] = sorted(
         c for c in set(comp_count_lookup.values()) if c > 0
     )
-    if len(crystal_graph.chain_members_by_component) <= 1:
-        chain_heights: list[int] = sorted(crystal_graph.nodes_by_height.keys())
+    if len(crystal_graph._chain._component_members) <= 1:
+        chain_heights: list[int] = sorted(crystal_graph._chain._nodes_by_length.keys())
         extreme_nodes = [
             n
             for n in candidate_filenames
-            if not crystal_graph.better[n] or not crystal_graph.worse[n]
+            if not crystal_graph.get_node(n).get_links(better_than=True)
+            or not crystal_graph.get_node(n).get_links(worse_than=True)
         ]
         component_size = (
-            len(next(iter(crystal_graph.chain_members_by_component.values())))
-            if crystal_graph.chain_members_by_component
+            len(next(iter(crystal_graph._chain._component_members.values())))
+            if crystal_graph._chain._component_members
             else len(candidate_filenames)
         )
         for target_comparison_count in comparison_counts:
@@ -360,7 +366,7 @@ def _find_low_count_pairs(
                 nodes_at_chain = [
                     n
                     for n in nodes_at_or_below_target
-                    if crystal_graph.height[n] <= target_chain_height
+                    if crystal_graph._chain._chain_length[n] <= target_chain_height
                 ]
                 if not nodes_at_chain:
                     continue
@@ -395,12 +401,11 @@ def _find_low_count_pairs(
         return None
 
     component_sizes: dict[int, int] = {
-        comp_id: len(members)
-        for comp_id, members in crystal_graph.chain_members_by_component.items()
+        comp.id: comp.size for comp in crystal_graph.get_all_components()
     }
     sorted_component_sizes: list[int] = sorted(set(component_sizes.values()))
 
-    chain_heights: list[int] = sorted(crystal_graph.nodes_by_height.keys())
+    chain_heights: list[int] = sorted(crystal_graph._chain._nodes_by_length.keys())
     logger.debug(f"""
         [NEXT-PAIR] Loop=1 
         Comparison counts: {comparison_counts}
@@ -418,10 +423,10 @@ def _find_low_count_pairs(
 
         # Step 2: Filter to only extremes (top/bottom nodes only)
         top_nodes: list[str] = [
-            n for n in nodes_up_to_count if not crystal_graph.better[n]
+            n for n in nodes_up_to_count if not crystal_graph._chain._better_than[n]
         ]
         bottom_nodes: list[str] = [
-            n for n in nodes_up_to_count if not crystal_graph.worse[n]
+            n for n in nodes_up_to_count if not crystal_graph._chain._worse_than[n]
         ]
         if len(top_nodes) > 0 or len(bottom_nodes) > 0:
             logger.debug(
@@ -436,8 +441,7 @@ def _find_low_count_pairs(
             nodes_at_component = [
                 n
                 for n in extreme_nodes
-                    if component_sizes[crystal_graph.component_by_filename[n]]
-                <= target_component_size
+                if crystal_graph.get_component(node_id=n).id <= target_component_size
             ]
             if len(nodes_at_component) > 0:
                 logger.debug(
@@ -462,17 +466,17 @@ def _find_low_count_pairs(
             #     f"PHASE A: nodes_at_or_below_target: {nodes_at_or_below_target}"
             # )
             # logger.debug(
-            #     f"PHASE A: top nodes in component: {len([n for n in nodes_at_or_below_target if not crystal_graph.better[n]])}"
+            #     f"PHASE A: top nodes in component: {len([n for n in nodes_at_or_below_target if not crystal_graph._chain._better_than[n]])}"
             # )
             # logger.debug(
-            #     f"PHASE A: bottom nodes in component: {len([n for n in nodes_at_or_below_target if not crystal_graph.worse[n]])}"
+            #     f"PHASE A: bottom nodes in component: {len([n for n in nodes_at_or_below_target if not crystal_graph._chain._worse_than[n]])}"
             # )
             if len(nodes_at_or_below_target) >= 1:
                 for target_chain_height in chain_heights:
                     nodes_at_chain = [
                         n
                         for n in nodes_at_or_below_target
-                        if crystal_graph.height[n] <= target_chain_height
+                        if crystal_graph._chain._chain_length[n] <= target_chain_height
                     ]
                     # logger.debug(
                     #     f"PHASE A: height={target_chain_height}, nodes_at_chain count: {len(nodes_at_chain)}"
@@ -491,8 +495,8 @@ def _find_low_count_pairs(
                     )
                     # logger.debug(f"collapsible pair: {pair}")
                     if pair:
-                        comp_a = crystal_graph.component_by_filename[pair[0]]
-                        comp_b = crystal_graph.component_by_filename[pair[1]]
+                        comp_a = crystal_graph._chain._node_component[pair[0]]
+                        comp_b = crystal_graph._chain._node_component[pair[1]]
                         same_comp = "same" if comp_a == comp_b else "diff"
                         _last_pair_metadata = {
                             "pair_type": PAIR_TYPE_COLLAPSIBLE,
@@ -516,8 +520,8 @@ def _find_low_count_pairs(
                         candidate_filenames=candidate_filenames,
                     )
                     if pair:
-                        comp_a = crystal_graph.component_by_filename[pair[0]]
-                        comp_b = crystal_graph.component_by_filename[pair[1]]
+                        comp_a = crystal_graph._chain._node_component[pair[0]]
+                        comp_b = crystal_graph._chain._node_component[pair[1]]
                         same_comp = "same" if comp_a == comp_b else "diff"
                         _last_pair_metadata = {
                             "pair_type": PAIR_TYPE_COLLAPSIBLE,
@@ -534,11 +538,10 @@ def _find_low_count_pairs(
             # PHASE B: Cross-level pairs - low count extreme paired with higher count node in same component
             higher_nodes = []
             components_to_check = set(
-                crystal_graph.component_by_filename[n]
-                for n in nodes_at_component
+                crystal_graph._chain._node_component[n] for n in nodes_at_component
             )
             for comp_id in components_to_check:
-                comp_members = crystal_graph.chain_members_by_component[comp_id]
+                comp_members = crystal_graph._chain._component_members[comp_id]
                 for member in comp_members:
                     if (
                         member in candidate_filenames
@@ -550,13 +553,15 @@ def _find_low_count_pairs(
                     f"PHASE B: Cross-level nodes at/below:{len(nodes_at_or_below_target)}, higher nodes: {len(higher_nodes)}"
                 )
                 for node in nodes_at_or_below_target:
-                    node_comp = crystal_graph.component_by_filename[node]
-                    node_is_bottom = not crystal_graph.worse[node]
-                    node_is_top = not crystal_graph.better[node]
+                    node_comp = crystal_graph._chain._node_component[node]
+                    node_is_bottom = not crystal_graph._chain._worse_than[node]
+                    node_is_top = not crystal_graph._chain._better_than[node]
                     if not node_is_bottom and not node_is_top:
                         continue
-                    node_chain = crystal_graph.height[node]
-                    all_component_nodes = crystal_graph.chain_members_by_component[node_comp]
+                    node_chain = crystal_graph._chain._chain_length[node]
+                    all_component_nodes = crystal_graph._chain._component_members[
+                        node_comp
+                    ]
                     partner_candidates = [
                         n
                         for n in all_component_nodes
@@ -566,8 +571,10 @@ def _find_low_count_pairs(
                         and not crystal_graph.are_in_same_path(node, n)
                     ]
                     for partner in partner_candidates:
-                        partner_is_bottom = not crystal_graph.worse[partner]
-                        partner_is_top = not crystal_graph.better[partner]
+                        partner_is_bottom = not crystal_graph._chain._worse_than[
+                            partner
+                        ]
+                        partner_is_top = not crystal_graph._chain._better_than[partner]
                         same_extreme = (node_is_bottom and partner_is_bottom) or (
                             node_is_top and partner_is_top
                         )
@@ -590,7 +597,7 @@ def _find_low_count_pairs(
                 nodes_at_chain = [
                     n
                     for n in nodes_at_or_below_target
-                    if crystal_graph.height[n] <= target_chain_height
+                    if crystal_graph._chain._chain_length[n] <= target_chain_height
                 ]
                 if not nodes_at_chain:
                     continue
@@ -603,8 +610,8 @@ def _find_low_count_pairs(
                         prefer_bottom=True,
                     )
                     if pair:
-                        comp_a = crystal_graph.component_by_filename[pair[0]]
-                        comp_b = crystal_graph.component_by_filename[pair[1]]
+                        comp_a = crystal_graph._chain._node_component[pair[0]]
+                        comp_b = crystal_graph._chain._node_component[pair[1]]
                         _last_pair_metadata = {
                             "pair_type": PAIR_TYPE_WORST_WITH_WORST,
                             "chain_level": target_chain_height,
@@ -624,8 +631,8 @@ def _find_low_count_pairs(
                         prefer_bottom=False,
                     )
                     if pair:
-                        comp_a = crystal_graph.component_by_filename[pair[0]]
-                        comp_b = crystal_graph.component_by_filename[pair[1]]
+                        comp_a = crystal_graph._chain._node_component[pair[0]]
+                        comp_b = crystal_graph._chain._node_component[pair[1]]
                         _last_pair_metadata = {
                             "pair_type": PAIR_TYPE_WORST_WITH_WORST,
                             "chain_level": target_chain_height,
@@ -650,8 +657,8 @@ def _find_low_count_pairs(
                     target_comparison_count,
                 )
                 if pair:
-                    comp_a = crystal_graph.component_by_filename[pair[0]]
-                    comp_b = crystal_graph.component_by_filename[pair[1]]
+                    comp_a = crystal_graph._chain._node_component[pair[0]]
+                    comp_b = crystal_graph._chain._node_component[pair[1]]
                     _last_pair_metadata = {
                         "pair_type": "cross_component_progression",
                         "chain_level": target_chain_height,
@@ -666,98 +673,180 @@ def _find_low_count_pairs(
     return None
 
 
-def _find_refinement_pairs(
-    candidate_filenames: set[str], comp_count_lookup: dict[str, int]
+def _get_pair_from_chains(
+    chain_a: list[str], chain_b: list[str], comp_count_lookup: dict[str, int]
 ) -> tuple[str, str] | None:
-    """Loop 2: Refinement inside a component after collapsible/merge work is exhausted."""
-    global _last_pair_metadata
-    component_count = len(crystal_graph.chain_members_by_component)
-    if component_count <= 1:
-        chain_heights = sorted(crystal_graph.nodes_by_height.keys())
-        comparison_counts = sorted(set(comp_count_lookup[n] for n in candidate_filenames))
-        component_size = (
-            len(next(iter(crystal_graph.chain_members_by_component.values())))
-            if crystal_graph.chain_members_by_component
-            else len(candidate_filenames)
-        )
-        for target_comparison_count in comparison_counts:
-            for target_chain_height in chain_heights:
-                nodes_at_chain = [
-                    n
-                    for n in candidate_filenames
-                    if comp_count_lookup[n] <= target_comparison_count
-                    and crystal_graph.height[n] <= target_chain_height
-                ]
-                if len(nodes_at_chain) < 2:
-                    continue
+    """Select a pair of nodes from two chains by identifying the largest gaps between shared points."""
+    key = (tuple(chain_a), tuple(chain_b))
+    next_idx = _chain_pair_progress.get(key, 0)
 
-                pair = _find_refinement_pair_in_component(
-                    nodes_at_chain,
-                    comp_count_lookup,
-                )
-                if not pair:
-                    continue
+    # 1. Find shared nodes and their indices
+    cb_set = set(chain_b)
+    common = [n for n in chain_a if n in cb_set]
 
-                _last_pair_metadata = {
-                    "pair_type": PAIR_TYPE_REFINEMENT,
-                    "chain_level": target_chain_height,
-                    "component_size": component_size,
-                    "left_comp_count": comp_count_lookup[pair[0]],
-                    "right_comp_count": comp_count_lookup[pair[1]],
-                }
-                logger.info(
-                    f"[NEXT-PAIR] Loop=2 Sub=single_component_refinement "
-                    f"ComparisonCount={target_comparison_count} ChainHeight={target_chain_height} "
-                    f"Pair={pair} LeftComparisonCount={comp_count_lookup[pair[0]]} "
-                    f"RightComparisonCount={comp_count_lookup[pair[1]]}"
-                )
-                return pair
+    idx_a = {n: i for i, n in enumerate(chain_a)}
+    idx_b = {n: i for i, n in enumerate(chain_b)}
+
+    # 2. Identify waypoints (shared nodes) and boundary points
+    waypoints = []
+    for n in common:
+        waypoints.append((idx_a[n], idx_b[n]))
+
+    # If they don't share start/end, add them as boundaries
+    if not waypoints:
+        waypoints = [(0, 0), (len(chain_a) - 1, len(chain_b) - 1)]
+    else:
+        # Ensure we cover the head and tail of the chains
+        if waypoints[0][0] > 0 or waypoints[0][1] > 0:
+            waypoints.insert(0, (0, 0))
+        if waypoints[-1][0] < len(chain_a) - 1 or waypoints[-1][1] < len(chain_b) - 1:
+            waypoints.append((len(chain_a) - 1, len(chain_b) - 1))
+
+    # 3. Identify gaps between waypoints
+    gaps = []
+    for i in range(len(waypoints) - 1):
+        w1 = waypoints[i]
+        w2 = waypoints[i + 1]
+
+        # Gap size is the number of unshared nodes in both chains
+        size_a = w2[0] - w1[0] - 1
+        size_b = w2[1] - w1[1] - 1
+
+        if size_a > 0 or size_b > 0:
+            gaps.append({"w1": w1, "w2": w2, "size": size_a + size_b})
+
+    if not gaps:
         return None
 
-    component_sizes = {
-        comp_id: len(members)
-        for comp_id, members in crystal_graph.chain_members_by_component.items()
-    }
-    sorted_component_sizes = sorted(set(component_sizes.values()))
-    chain_heights = sorted(crystal_graph.nodes_by_height.keys())
-    comparison_counts = sorted(set(comp_count_lookup.values()))
+    # 4. Pick node in the largest gap
+    gaps.sort(key=lambda x: x["size"], reverse=True)
 
-    for target_comparison_count in comparison_counts:
-        for target_component_size in sorted_component_sizes:
-            for target_chain_height in chain_heights:
-                nodes_at_comp_and_chain = [
-                    n
-                    for n in candidate_filenames
-                    if comp_count_lookup[n] <= target_comparison_count
-                    and component_sizes[
-                        crystal_graph.component_by_filename[n]
-                    ]
-                    <= target_component_size
-                    and crystal_graph.height[n] <= target_chain_height
-                ]
-                if not nodes_at_comp_and_chain:
-                    continue
+    # Use next_idx to rotate through gaps if needed (simple rotation for now)
+    gap = gaps[next_idx % len(gaps)]
+    _chain_pair_progress[key] = next_idx + 1
 
-                pair = _find_refinement_pair_in_component(
-                    nodes_at_comp_and_chain,
-                    comp_count_lookup,
-                )
-                if pair:
-                    comp_a = crystal_graph.component_by_filename[pair[0]]
-                    comp_b = crystal_graph.component_by_filename[pair[1]]
-                    same_comp = "same" if comp_a == comp_b else "diff"
-                    _last_pair_metadata = {
-                        "pair_type": PAIR_TYPE_REFINEMENT,
-                        "chain_level": target_chain_height,
-                        "component_size": target_component_size,
-                        "left_comp_count": comp_count_lookup[pair[0]],
-                        "right_comp_count": comp_count_lookup[pair[1]],
-                    }
-                    logger.info(
-                        f"[NEXT-PAIR] Loop=2 Sub=refinement ComparisonCount={target_comparison_count} ComponentSize={target_component_size} ChainHeight={target_chain_height} Pair={pair} SameComponent={same_comp} LeftComparisonCount={comp_count_lookup[pair[0]]} RightComparisonCount={comp_count_lookup[pair[1]]}"
-                    )
-                    return pair
+    w1, w2 = gap["w1"], gap["w2"]
+
+    # Pick a node from the gap (trying to find an uncompared one or just the middle)
+    if (w2[0] - w1[0]) >= (w2[1] - w1[1]):
+        target_idx = w1[0] + (w2[0] - w1[0]) // 2
+        node_a = chain_a[target_idx]
+        target_idx_b = w1[1] + (w2[1] - w1[1]) // 2
+        node_b = chain_b[target_idx_b]
+        return (node_a, node_b)
+    else:
+        target_idx = w1[1] + (w2[1] - w1[1]) // 2
+        node_b = chain_b[target_idx]
+        target_idx_a = w1[0] + (w2[0] - w1[0]) // 2
+        node_a = chain_a[target_idx_a]
+        return (node_a, node_b)
+
+
+def _get_prioritized_chain_pairs() -> tuple[list[str], list[str]] | None:
+    """Find the two shortest chains in the graph that are not in the LRU cache.
+    Returns a tuple of (chain_a, chain_b) or None.
+    """
+    start_time = time.time()
+
+    # 1. Get all chains from the graph
+    all_chain_proxies = crystal_graph.get_all_chains()
+    if not all_chain_proxies or len(all_chain_proxies) < 2:
+        return None
+
+    # Maintain LRU cache size: max 1/4 of total chains so 3/4 remain available
+    max_chain_cache = max(2, len(all_chain_proxies) // 4)
+    while len(_chain_lru_cache) > max_chain_cache:
+        _chain_lru_cache.popitem(last=False)
+
+    # 2. Extract raw nodes and filter by LRU
+    # PERFORMANCE: Accessing _nodes directly to avoid proxy overhead
+    available_chains = []
+    for proxy in all_chain_proxies:
+        nodes = proxy._nodes
+        if not nodes:
+            continue
+
+        # Check if this chain (as a tuple) is in our recently used cache
+        if tuple(nodes) in _chain_lru_cache:
+            continue
+
+        available_chains.append(nodes)
+
+    if len(available_chains) < 2:
+        # If we filtered too many, just take the shortest ones regardless of LRU
+        # (to avoid getting stuck), or just return None if we really want strict LRU.
+        # Following "must be the 2 shortest chains (that are not on the lru chain cache)"
+        return None
+
+    # 3. Sort by length (shortest first)
+    available_chains.sort(key=len)
+
+    # 4. Return the 2 shortest
+    res = (available_chains[0], available_chains[1])
+
+    logger.debug(
+        f"[TIMER] _get_prioritized_chain_pairs (Simplified) took {time.time() - start_time:.4f}s"
+    )
+    return res
+
+
+def _find_valid_refinement_pair(
+    chain_pair: tuple[list[str], list[str]], comp_count_lookup: dict[str, int]
+) -> tuple[str, str] | None:
+    """Part 2 of Loop 2: Get a node pair from the selected two chains."""
+    global _last_pair_metadata
+    start_time = time.time()
+
+    ca, cb = chain_pair
+    pair = _get_pair_from_chains(ca, cb, comp_count_lookup)
+    if pair:
+        # Successfully found a refinement pair
+        _update_lru(_chain_lru_cache, tuple(ca))
+        _update_lru(_chain_lru_cache, tuple(cb))
+        _update_lru(_node_lru_cache, pair[0])
+        _update_lru(_node_lru_cache, pair[1])
+
+        _last_pair_metadata = {
+            "pair_type": PAIR_TYPE_REFINEMENT,
+            "chain_a": tuple(ca),
+            "chain_b": tuple(cb),
+            "chain_len_a": len(ca),
+            "chain_len_b": len(cb),
+            "left_comp_count": comp_count_lookup.get(pair[0], 0),
+            "right_comp_count": comp_count_lookup.get(pair[1], 0),
+        }
+        logger.info(
+            f"[NEXT-PAIR] Loop=2 Sub=chain_refinement "
+            f"ChainLengths=({len(ca)},{len(cb)}) "
+            f"Pair={pair} "
+            f"LeftCompCount={comp_count_lookup.get(pair[0], 0)} "
+            f"RightCompCount={comp_count_lookup.get(pair[1], 0)}"
+        )
+        logger.debug(
+            f"[TIMER] _find_valid_refinement_pair took {time.time() - start_time:.4f}s"
+        )
+        return pair
+
+    logger.debug(
+        f"[TIMER] _find_valid_refinement_pair (no gap) took {time.time() - start_time:.4f}s"
+    )
     return None
+
+
+def _find_refinement_pairs(comp_count_lookup: dict[str, int]) -> tuple[str, str] | None:
+    """Loop 2: Chain refinement within a single graph component."""
+    start_time = time.time()
+
+    chain_pair = _get_prioritized_chain_pairs()
+    if not chain_pair:
+        return None
+
+    pair = _find_valid_refinement_pair(chain_pair, comp_count_lookup)
+
+    logger.debug(
+        f"[TIMER] _find_refinement_pairs TOTAL took {time.time() - start_time:.4f}s"
+    )
+    return pair
 
 
 def _find_score_range_pairs(
@@ -806,17 +895,19 @@ def _find_score_range_pairs(
                 a, b = nodes_within_score_range[i], nodes_within_score_range[j]
                 if (
                     not crystal_graph.are_in_same_path(a, b)
-                    or crystal_graph.component_by_filename[a] is None
+                    or crystal_graph._chain._node_component[a] is None
                 ):
                     pair = (a, b)
                     score_a = nodes_by_score[a]
                     score_b = nodes_by_score[b]
-                    comp_a = crystal_graph.component_by_filename[a]
-                    comp_b = crystal_graph.component_by_filename[b]
+                    comp_a = crystal_graph._chain._node_component[a]
+                    comp_b = crystal_graph._chain._node_component[b]
                     same_comp = (
                         "same"
                         if comp_a == comp_b
-                        else "diff" if comp_a and comp_b else "none"
+                        else "diff"
+                        if comp_a and comp_b
+                        else "none"
                     )
                     _last_pair_metadata = {
                         "pair_type": "score_range",
@@ -849,8 +940,8 @@ def _find_loose_pairs(
         if len(nodes_with_comparison_count) >= 2:
             nodes_with_comparison_count.sort(key=lambda n: comp_count_lookup[n])
             pair = (nodes_with_comparison_count[0], nodes_with_comparison_count[1])
-            comp_a = crystal_graph.component_by_filename[pair[0]]
-            comp_b = crystal_graph.component_by_filename[pair[1]]
+            comp_a = crystal_graph._chain._node_component[pair[0]]
+            comp_b = crystal_graph._chain._node_component[pair[1]]
             same_comp = (
                 "same" if comp_a == comp_b else "diff" if comp_a and comp_b else "none"
             )
@@ -887,7 +978,7 @@ def _filter_excluded_images(
 def _get_comparison_graph(all_images: list[dict[str, Any]]) -> "CrystalGraph":
     """Step 3: Get comparison graph data needed for filtering. Uses the global crystal_graph instance."""
     if crystal_graph.is_cache_stale():
-        crystal_graph.build_from_database(images=all_images, include_transitive=False)
+        crystal_graph.rebuild_from_database(images=all_images, include_transitive=False)
     return crystal_graph
 
 
@@ -949,12 +1040,12 @@ def _find_collapsable_pair_at_height(
     bottom_by_component: dict[int, list[str]] = defaultdict(list)
 
     for n in nodes_at_height:
-        comp_id = crystal_graph.component_by_filename[n]
+        comp_id = crystal_graph._chain._node_component[n]
         if comp_id is None:
             continue
-        if not crystal_graph.better[n]:
+        if not crystal_graph._chain._better_than[n]:
             top_by_component[comp_id].append(n)
-        if not crystal_graph.worse[n]:
+        if not crystal_graph._chain._worse_than[n]:
             bottom_by_component[comp_id].append(n)
 
     # Collect all candidate collapsible pairs with their priority score
@@ -1009,7 +1100,7 @@ def _find_collapsable_pair_at_height(
 #     # Group available nodes by component
 #     comp_to_nodes: dict[int, list[str]] = defaultdict(list)
 #     for n in nodes_at_height:
-#         comp_id = crystal_graph.component_by_filename[n]
+#         comp_id = crystal_graph._chain._node_component[n]
 #         if comp_id is not None:
 #             comp_to_nodes[comp_id].append(n)
 
@@ -1020,12 +1111,12 @@ def _find_collapsable_pair_at_height(
 #     candidate_pairs: list[tuple[int, int, str, str]] = []
 
 #     def get_extremes(cid):
-#         members = crystal_graph.chain_members_by_component.get(cid, [])
+#         members = crystal_graph._chain._component_members.get(cid, [])
 #         tops = [
-#             n for n in members if n in node_set and not crystal_graph.better[n]
+#             n for n in members if n in node_set and not crystal_graph._chain._better_than[n]
 #         ]
 #         bottoms = [
-#             n for n in members if n in node_set and not crystal_graph.worse[n]
+#             n for n in members if n in node_set and not crystal_graph._chain._worse_than[n]
 #         ]
 #         return tops, bottoms
 
@@ -1079,12 +1170,12 @@ def _find_collapsable_pair_by_extremes(
     bottom_by_component: dict[int, list[str]] = defaultdict(list)
 
     for n in nodes_at_height:
-        comp_id = crystal_graph.component_by_filename[n]
+        comp_id = crystal_graph._chain._node_component[n]
         if comp_id is None:
             continue
-        if not crystal_graph.better[n]:
+        if not crystal_graph._chain._better_than[n]:
             top_by_component[comp_id].append(n)
-        if not crystal_graph.worse[n]:
+        if not crystal_graph._chain._worse_than[n]:
             bottom_by_component[comp_id].append(n)
 
     # Use requested extreme first
@@ -1138,35 +1229,34 @@ def _find_collapsable_pair_by_extremes(
                     if group_dict is bottom_by_component:
                         same_extreme_higher_nodes = [
                             n
-                            for n in crystal_graph.chain_members_by_component[comp_id]
+                            for n in crystal_graph._chain._component_members[comp_id]
                             if n != target_node
-                            and (candidate_filenames is None or n in candidate_filenames)
+                            and (
+                                candidate_filenames is None or n in candidate_filenames
+                            )
                             and comp_count_lookup[n] > target_count
-                            and not crystal_graph.worse[n]
+                            and not crystal_graph._chain._worse_than[n]
                         ]
                     else:
                         same_extreme_higher_nodes = [
                             n
-                            for n in crystal_graph.chain_members_by_component[comp_id]
+                            for n in crystal_graph._chain._component_members[comp_id]
                             if n != target_node
-                            and (candidate_filenames is None or n in candidate_filenames)
+                            and (
+                                candidate_filenames is None or n in candidate_filenames
+                            )
                             and comp_count_lookup[n] > target_count
-                            and not crystal_graph.better[n]
+                            and not crystal_graph._chain._better_than[n]
                         ]
 
                     same_extreme_higher_nodes.sort(
                         key=lambda n: (
                             comp_count_lookup[n],
-                            abs(
-                                comp_count_lookup[n]
-                                - comp_count_lookup[target_node]
-                            ),
+                            abs(comp_count_lookup[n] - comp_count_lookup[target_node]),
                         )
                     )
                     for higher_node in same_extreme_higher_nodes:
-                        if not crystal_graph.are_in_same_path(
-                            target_node, higher_node
-                        ):
+                        if not crystal_graph.are_in_same_path(target_node, higher_node):
                             count_a: int = comp_count_lookup[target_node]
                             count_b: int = comp_count_lookup[higher_node]
                             candidate_pairs.append(
@@ -1227,7 +1317,7 @@ def _find_merging_pair_by_extremes(
     node_set: set[str] = set(nodes_at_height)
     comp_to_nodes: dict[int, list[str]] = defaultdict(list)
     for n in nodes_at_height:
-        comp_id = crystal_graph.component_by_filename[n]
+        comp_id = crystal_graph._chain._node_component[n]
         if comp_id is not None:
             comp_to_nodes[comp_id].append(n)
 
@@ -1238,12 +1328,18 @@ def _find_merging_pair_by_extremes(
     candidate_pairs: list[tuple[int, int, str, str]] = []
 
     def get_extremes_for_comp(cid):
-        members = crystal_graph.chain_members_by_component[cid]
+        members = crystal_graph._chain._component_members[cid]
         tops = [
-            n for n in members if n in node_set and not crystal_graph.better[n]
+            n
+            for n in members
+            if n in node_set
+            and not crystal_graph.get_node(n).get_links(better_than=True)
         ]
         bottoms = [
-            n for n in members if n in node_set and not crystal_graph.worse[n]
+            n
+            for n in members
+            if n in node_set
+            and not crystal_graph.get_node(n).get_links(worse_than=True)
         ]
         return tops, bottoms
 
@@ -1257,34 +1353,26 @@ def _find_merging_pair_by_extremes(
             if prefer_bottom:
                 for a in bottoms_a:
                     for b in bottoms_b:
-                        count_a, count_b = comp_count_lookup[
-                            a
-                        ], comp_count_lookup[b]
+                        count_a, count_b = comp_count_lookup[a], comp_count_lookup[b]
                         candidate_pairs.append(
                             (count_a + count_b, abs(count_a - count_b), a, b)
                         )
                 for a in tops_a:
                     for b in tops_b:
-                        count_a, count_b = comp_count_lookup[
-                            a
-                        ], comp_count_lookup[b]
+                        count_a, count_b = comp_count_lookup[a], comp_count_lookup[b]
                         candidate_pairs.append(
                             (count_a + count_b, abs(count_a - count_b), a, b)
                         )
             else:
                 for a in tops_a:
                     for b in tops_b:
-                        count_a, count_b = comp_count_lookup[
-                            a
-                        ], comp_count_lookup[b]
+                        count_a, count_b = comp_count_lookup[a], comp_count_lookup[b]
                         candidate_pairs.append(
                             (count_a + count_b, abs(count_a - count_b), a, b)
                         )
                 for a in bottoms_a:
                     for b in bottoms_b:
-                        count_a, count_b = comp_count_lookup[
-                            a
-                        ], comp_count_lookup[b]
+                        count_a, count_b = comp_count_lookup[a], comp_count_lookup[b]
                         candidate_pairs.append(
                             (count_a + count_b, abs(count_a - count_b), a, b)
                         )
@@ -1304,7 +1392,7 @@ def _find_refinement_pair_in_component(
     """Find a same-component refinement pair that is not already handled by collapsible logic."""
     component_groups: dict[int, list[str]] = defaultdict(list)
     for node in nodes_at_comp_and_chain:
-        comp_id = crystal_graph.component_by_filename[node]
+        comp_id = crystal_graph._chain._node_component[node]
         if comp_id is not None:
             component_groups[comp_id].append(node)
 
@@ -1321,8 +1409,8 @@ def _find_refinement_pair_in_component(
             members,
             key=lambda n: (
                 comp_count_lookup[n],
-                crystal_graph.height[n],
-                float(crystal_graph.images[n]["score"]),
+                crystal_graph._chain._chain_length[n],
+                float(crystal_graph._images[n]["score"]),
             ),
         )
 
@@ -1335,22 +1423,22 @@ def _find_refinement_pair_in_component(
                     continue
 
                 both_top = (
-                    not crystal_graph.better[a]
-                    and not crystal_graph.better[b]
+                    not crystal_graph._chain._better_than[a]
+                    and not crystal_graph._chain._better_than[b]
                 )
                 both_bottom = (
-                    not crystal_graph.worse[a]
-                    and not crystal_graph.worse[b]
+                    not crystal_graph._chain._worse_than[a]
+                    and not crystal_graph._chain._worse_than[b]
                 )
                 if both_top or both_bottom:
                     continue
 
                 count_a = comp_count_lookup[a]
                 count_b = comp_count_lookup[b]
-                height_a = crystal_graph.height[a]
-                height_b = crystal_graph.height[b]
-                score_a = float(crystal_graph.images[a]["score"])
-                score_b = float(crystal_graph.images[b]["score"])
+                height_a = crystal_graph._chain._chain_length[a]
+                height_b = crystal_graph._chain._chain_length[b]
+                score_a = float(crystal_graph._images[a]["score"])
+                score_b = float(crystal_graph._images[b]["score"])
 
                 candidate_pairs.append(
                     (
@@ -1384,16 +1472,16 @@ def _find_cross_component_progression_pair(
     candidate_pairs: list[tuple[int, int, int, int, str, str]] = []
 
     for node in target_nodes:
-        node_comp = crystal_graph.component_by_filename[node]
-        node_is_top = not crystal_graph.better[node]
-        node_is_bottom = not crystal_graph.worse[node]
-        node_height = crystal_graph.height[node]
+        node_comp = crystal_graph._chain._node_component[node]
+        node_is_top = not crystal_graph._chain._better_than[node]
+        node_is_bottom = not crystal_graph._chain._worse_than[node]
+        node_height = crystal_graph._chain._chain_length[node]
 
         for partner in candidate_filenames:
             if partner == node:
                 continue
 
-            partner_comp = crystal_graph.component_by_filename[partner]
+            partner_comp = crystal_graph._chain._node_component[partner]
             if partner_comp == node_comp:
                 continue
 
@@ -1401,8 +1489,8 @@ def _find_cross_component_progression_pair(
             if partner_count <= target_count:
                 continue
 
-            partner_is_top = not crystal_graph.better[partner]
-            partner_is_bottom = not crystal_graph.worse[partner]
+            partner_is_top = not crystal_graph._chain._better_than[partner]
+            partner_is_bottom = not crystal_graph._chain._worse_than[partner]
             same_extreme = (node_is_top and partner_is_top) or (
                 node_is_bottom and partner_is_bottom
             )
@@ -1416,8 +1504,8 @@ def _find_cross_component_progression_pair(
                 (
                     partner_count,
                     abs(partner_count - target_count),
-                    abs(crystal_graph.height[partner] - node_height),
-                    len(crystal_graph.chain_members_by_component[partner_comp]),
+                    abs(crystal_graph._chain._chain_length[partner] - node_height),
+                    len(crystal_graph._chain._component_members[partner_comp]),
                     node,
                     partner,
                 )

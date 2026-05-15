@@ -10,21 +10,21 @@ from shared.graph.crystal_graph import CrystalGraph
 def test_build_empty_graph():
     """Test building a graph with no comparisons."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[{"filename": "img_a"}, {"filename": "img_b"}],
         comparisons=[],
     )
 
-    # Isolated nodes form chains of length 1
-    assert graph.get_max_height() == 1
-    assert len(graph.get_top_nodes()) == 2
-    assert len(graph.get_bottom_nodes()) == 2
+    # Isolated nodes form chains of length 0 (0 edges)
+    assert max(graph._chain._chain_length.values(), default=0) == 0
+    assert len(graph._chain._top_nodes) == 2
+    assert len(graph._chain._bottom_nodes) == 2
 
 
 def test_single_comparison():
     """Test graph with one comparison."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[{"filename": "img_a"}, {"filename": "img_b"}],
         comparisons=[
             {
@@ -35,12 +35,20 @@ def test_single_comparison():
         ],
     )
 
-    info_a = graph.get_image_info("img_a")
-    info_b = graph.get_image_info("img_b")
+    info_a = {
+        "height": graph._chain._chain_length.get("img_a", 0),
+        "better": graph._chain._better_than.get("img_a", set()),
+        "worse": graph._chain._worse_than.get("img_a", set()),
+    }
+    info_b = {
+        "height": graph._chain._chain_length.get("img_b", 0),
+        "better": graph._chain._better_than.get("img_b", set()),
+        "worse": graph._chain._worse_than.get("img_b", set()),
+    }
 
-    # Chain: a->b, length 2. Both in chain, height 2.
-    assert info_a["height"] == 2
-    assert info_b["height"] == 2
+    # Chain: a->b, 1 edge. Both have chain_length 1.
+    assert info_a["height"] == 1
+    assert info_b["height"] == 1
     assert not info_a["better"]  # a has no betters
     assert "img_a" in info_b["better"]  # b's better is a
     assert "img_b" in info_a["worse"]
@@ -49,7 +57,7 @@ def test_single_comparison():
 def test_multiple_comparisons_chain():
     """Test a chain: img_a beats img_b, img_b beats img_c."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -69,20 +77,32 @@ def test_multiple_comparisons_chain():
         ],
     )
 
-    info_a = graph.get_image_info("img_a")
-    info_b = graph.get_image_info("img_b")
-    info_c = graph.get_image_info("img_c")
+    info_a = {
+        "height": graph._chain._chain_length.get("img_a", 0),
+        "better": graph._chain._better_than.get("img_a", set()),
+        "worse": graph._chain._worse_than.get("img_a", set()),
+    }
+    info_b = {
+        "height": graph._chain._chain_length.get("img_b", 0),
+        "better": graph._chain._better_than.get("img_b", set()),
+        "worse": graph._chain._worse_than.get("img_b", set()),
+    }
+    info_c = {
+        "height": graph._chain._chain_length.get("img_c", 0),
+        "better": graph._chain._better_than.get("img_c", set()),
+        "worse": graph._chain._worse_than.get("img_c", set()),
+    }
 
-    # Chain a->b->c, length 3. All height 3.
-    assert info_a["height"] == 3
-    assert info_b["height"] == 3
-    assert info_c["height"] == 3
+    # Chain a->b->c, 2 edges. All chain_length 2.
+    assert info_a["height"] == 2
+    assert info_b["height"] == 2
+    assert info_c["height"] == 2
 
 
 def test_get_images_by_height():
     """Test retrieving images at a specific height."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -102,14 +122,14 @@ def test_get_images_by_height():
         ],
     )
 
-    # All in chain of length 3, so height 3
-    assert graph.get_images_by_height(3) == ["img_a", "img_b", "img_c"]
+    # All in chain of 2 edges, so chain_length 2
+    assert set(graph._chain._nodes_by_length.get(2, [])) == {"img_a", "img_b", "img_c"}
 
 
 def test_top_and_bottom_nodes():
     """Test identification of top and bottom nodes."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -124,8 +144,8 @@ def test_top_and_bottom_nodes():
         ],
     )
 
-    top_nodes = graph.get_top_nodes()
-    bottom_nodes = graph.get_bottom_nodes()
+    top_nodes = graph._chain._top_nodes
+    bottom_nodes = graph._chain._bottom_nodes
 
     assert "img_a" in top_nodes
     assert "img_c" in top_nodes  # img_c never compared, so no betters
@@ -136,7 +156,7 @@ def test_top_and_bottom_nodes():
 def test_graph_stats():
     """Test graph statistics generation."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -153,13 +173,13 @@ def test_graph_stats():
     stats = graph.get_graph_stats()
     assert stats["total_images"] == 2
     assert stats["total_comparisons"] == 1
-    assert stats["max_height"] == 2
+    assert stats["longest_chain_depth"] == 1
 
 
 def test_get_all_heights():
     """Test getting all height levels."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -179,27 +199,27 @@ def test_get_all_heights():
         ],
     )
 
-    all_heights = graph.get_all_heights()
-    assert 3 in all_heights
-    assert len(all_heights[3]) == 3
+    all_heights = graph._chain._nodes_by_length
+    assert 2 in all_heights
+    assert len(all_heights[2]) == 3
 
 
 def test_unknown_image_info():
     """Test getting info for unknown image returns None."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[{"filename": "img_a"}],
         comparisons=[],
     )
 
-    info = graph.get_image_info("nonexistent")
+    info = graph._chain._chain_length.get("nonexistent")
     assert info is None
 
 
 def test_are_in_same_path_directed():
     """Test are_in_same_path with directed edges."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -231,7 +251,7 @@ def test_are_in_same_path_directed():
 def test_are_in_same_path_not_directed():
     """Test that undirected connection returns False if no directed path."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -258,7 +278,7 @@ def test_are_in_same_path_not_directed():
 def test_cache_info():
     """Test cache info and staleness tracking."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[{"filename": "img_a"}],
         comparisons=[],
     )
@@ -272,7 +292,7 @@ def test_cache_info():
 def test_multiple_betters():
     """Test node with multiple betters."""
     graph = CrystalGraph()
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[
             {"filename": "img_a"},
             {"filename": "img_b"},
@@ -292,7 +312,11 @@ def test_multiple_betters():
         ],
     )
 
-    info_c = graph.get_image_info("img_c")
+    info_c = {
+        "height": graph._chain._chain_length.get("img_c", 0),
+        "better": graph._chain._better_than.get("img_c", set()),
+        "worse": graph._chain._worse_than.get("img_c", set()),
+    }
     assert "img_a" in info_c["better"]
     assert "img_b" in info_c["better"]
     assert len(info_c["better"]) == 2
@@ -328,15 +352,15 @@ def test_user_example_heights():
         {"filename_a": "e", "filename_b": "f", "winner": "e"},
         {"filename_a": "c", "filename_b": "g", "winner": "c"},
     ]
-    graph.build_from_database(images=images, comparisons=comparisons)
+    graph.rebuild_from_database(images=images, comparisons=comparisons)
 
-    assert graph.get_image_info("c")["height"] == 6
-    assert graph.get_image_info("g")["height"] == 4
-    assert graph.get_image_info("f")["height"] == 6
-    assert graph.get_image_info("a")["height"] == 6
-    assert graph.get_image_info("b")["height"] == 6
-    assert graph.get_image_info("d")["height"] == 6
-    assert graph.get_image_info("e")["height"] == 6
+    assert graph._chain._chain_length.get("c", 0) == 5
+    assert graph._chain._chain_length.get("g", 0) == 3
+    assert graph._chain._chain_length.get("f", 0) == 5
+    assert graph._chain._chain_length.get("a", 0) == 5
+    assert graph._chain._chain_length.get("b", 0) == 5
+    assert graph._chain._chain_length.get("d", 0) == 5
+    assert graph._chain._chain_length.get("e", 0) == 5
 
 
 def test_user_example_same_path():
@@ -360,7 +384,7 @@ def test_user_example_same_path():
         {"filename_a": "e", "filename_b": "f", "winner": "e"},
         {"filename_a": "c", "filename_b": "g", "winner": "c"},
     ]
-    graph.build_from_database(
+    graph.rebuild_from_database(
         images=[{"filename": img} for img in images],
         comparisons=comparisons,
     )
@@ -385,7 +409,7 @@ def test_user_example_same_path():
         {"filename_a": "b", "filename_b": "f", "winner": "b"},
         {"filename_a": "f", "filename_b": "g", "winner": "f"},
     ]
-    graph2.build_from_database(
+    graph2.rebuild_from_database(
         images=[{"filename": img} for img in images2],
         comparisons=comparisons2,
     )
@@ -410,25 +434,25 @@ def test_component_detection():
         {"filename_a": "c", "filename_b": "d", "winner": "c"},
         # a-b and c-d are separate components
     ]
-    graph.build_from_database(images=images, comparisons=comparisons)
+    graph.rebuild_from_database(images=images, comparisons=comparisons)
 
     # Should have 3 components: [a, b], [c, d], [e]
-    assert len(graph.chain_members_by_component) == 3
+    assert len(graph._chain._component_members) == 3
 
     # Check that a and b are in the same component
-    comp_a = graph.component_by_filename.get("a")
-    comp_b = graph.component_by_filename.get("b")
+    comp_a = graph._chain._node_component.get("a")
+    comp_b = graph._chain._node_component.get("b")
     assert comp_a == comp_b
 
     # Check that c and d are in the same component
-    comp_c = graph.component_by_filename.get("c")
-    comp_d = graph.component_by_filename.get("d")
+    comp_c = graph._chain._node_component.get("c")
+    comp_d = graph._chain._node_component.get("d")
     assert comp_c == comp_d
 
     # Check that a and c are in different components
     assert comp_a != comp_c
 
     # Check that e is in its own component
-    comp_e = graph.component_by_filename.get("e")
+    comp_e = graph._chain._node_component.get("e")
     assert comp_e is not None
-    assert len(graph.chain_members_by_component[comp_e]) == 1
+    assert len(graph._chain._component_members[comp_e]) == 1

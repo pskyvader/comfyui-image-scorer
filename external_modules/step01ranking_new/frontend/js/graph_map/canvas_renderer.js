@@ -15,7 +15,7 @@ class CanvasGraphRenderer {
         this.ctx = this.canvas.getContext("2d", { alpha: true });
         this.nodes = [];
         this.links = [];
-        this.profile = null;
+        this.profile = {};
         this.transform = d3.zoomIdentity;
         this.selectedIds = new Set();
         this.pendingFrame = 0;
@@ -32,22 +32,20 @@ class CanvasGraphRenderer {
             arrowCap: 0,
             zoom: 1,
         };
-        this.dpr = Math.max(1, window.devicePixelRatio || 1);
+        this.dpr = window.devicePixelRatio;
         this.worldBounds = null;
-        this.resize();
+        this._tickCount = 0;
     }
 
-    render({ nodes, links, profile, selectedIds, world }) {
+    render({ nodes, links, profile, selectedIds, world, initialNodeCount }) {
         this.nodes = nodes;
         this.links = links;
         this.profile = profile;
         this.selectedIds = new Set(selectedIds);
         this.world = world;
         this.worldBounds = world ? { x: world.x, y: world.y, width: world.width, height: world.height } : null;
-        this.visibleNodeCount = profile.progressiveReveal ? 0 : nodes.length;
-        this.visibleLinkCount = profile.progressiveReveal ? 0 : links.length;
-        this.nodeBatchSize = Math.max(800, Math.ceil(nodes.length / 12));
-        this.linkBatchSize = Math.max(1500, Math.ceil(links.length / 12));
+        this.visibleNodeCount = initialNodeCount || 0;
+        this.visibleLinkCount = 0;
         this.worldBoundsFrozen = false;
         this.requestRender();
     }
@@ -69,7 +67,7 @@ class CanvasGraphRenderer {
                     maxY = n.y;
                 }
             }
-            const wb = MAP_WORLD_BOUNDS;
+            const wb = RENDER.bounds;
             const padding = wb.padding;
             this.worldBounds = { x: minX - padding, y: minY - padding, width: (maxX - minX) + padding * 2, height: (maxY - minY) + padding * 2 };
             this.worldBoundsFrozen = true;
@@ -88,7 +86,7 @@ class CanvasGraphRenderer {
     }
 
     setDetailLevel(detailLevel) {
-        this.detailLevel = detailLevel || this.detailLevel;
+        this.detailLevel = detailLevel;
         this.requestRender();
     }
 
@@ -98,7 +96,7 @@ class CanvasGraphRenderer {
     }
 
     hitTest(event) {
-        if (!this.profile?.enablePointerHits) {
+        if (!CONTROLS.enablePointerHits) {
             return null;
         }
 
@@ -112,11 +110,11 @@ class CanvasGraphRenderer {
             [px, py] = d3.pointer(event, this.svg.node());
         }
 
-        const scale = Math.max(this.transform.k, MAP_ZOOM.minScale);
+        const scale = Math.max(this.transform.k, CAMERA.minScale);
         const worldX = (px - this.transform.x) / scale;
         const worldY = (py - this.transform.y) / scale;
 
-        const padding = MAP_DETAIL.hitTestPadding / scale;
+        const padding = RENDER.viewport.hitTestPadding / scale;
         let bestNode = null;
         let bestDistanceSq = Infinity;
 
@@ -138,8 +136,8 @@ class CanvasGraphRenderer {
     }
 
     resize() {
-        const width = this.container.clientWidth || 800;
-        const height = this.container.clientHeight || 600;
+        const width = this.container.clientWidth;
+        const height = this.container.clientHeight;
         this.canvas.width = Math.round(width * this.dpr);
         this.canvas.height = Math.round(height * this.dpr);
         this.canvas.style.width = `${width}px`;
@@ -168,19 +166,14 @@ class CanvasGraphRenderer {
         this.ctx.translate(this.transform.x, this.transform.y);
         this.ctx.scale(this.transform.k, this.transform.k);
 
-        if (this.profile.progressiveReveal) {
-            this.visibleNodeCount = Math.min(this.nodes.length, this.visibleNodeCount + this.nodeBatchSize);
-            this.visibleLinkCount = Math.min(this.links.length, this.visibleLinkCount + this.linkBatchSize);
-        }
-
-        const viewport = this.getViewportBounds(MAP_DETAIL.viewportPadding / Math.max(this.transform.k, MAP_ZOOM.minScale));
+        const viewport = this.getViewportBounds(CAMERA.viewportPadding / Math.max(this.transform.k, CAMERA.minScale));
         this.drawLinks(viewport);
         this.drawNodes();
         this.drawSelectedNodes();
         this.drawNodeDetails(viewport);
 
         if (this.worldBounds) {
-            const wbc = MAP_WORLD_BOUNDS;
+            const wbc = RENDER.bounds;
             const wb = this.worldBounds;
             this.ctx.strokeStyle = wbc.strokeColor;
             this.ctx.lineWidth = wbc.lineWidth / this.transform.k;
@@ -190,9 +183,6 @@ class CanvasGraphRenderer {
             this.ctx.setLineDash([]);
         }
 
-        if (this.visibleNodeCount < this.nodes.length || this.visibleLinkCount < this.links.length) {
-            this.requestRender();
-        }
     }
 
     drawLinks(viewport) {
@@ -201,14 +191,29 @@ class CanvasGraphRenderer {
         }
 
         const visibleLinks = Math.min(this.visibleLinkCount, this.links.length);
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeStyle = "#ffffff";
+        const visibleNodeIds = new Set();
+        for (let i = 0; i < this.visibleNodeCount; i++) {
+            visibleNodeIds.add(this.nodes[i].id);
+        }
+
+        this.ctx.lineWidth = RENDER.link.linkLineWidth;
+        this.ctx.strokeStyle = RENDER.link.linkColor;
+
+        const maxVisualDist = RENDER.link.linkOpacityMaxDist;
 
         if (!this.profile.usePerLinkOpacity) {
-            this.ctx.globalAlpha = this.profile.linkGlobalOpacity;
+            this.ctx.globalAlpha = RENDER.link.linkOpacityMax;
             this.ctx.beginPath();
             for (let i = 0; i < visibleLinks; i++) {
                 const link = this.links[i];
+                if (!visibleNodeIds.has(link.source.id) || !visibleNodeIds.has(link.target.id)) {
+                    continue;
+                }
+                const dx = link.target.x - link.source.x;
+                const dy = link.target.y - link.source.y;
+                if ((dx * dx + dy * dy) > maxVisualDist * maxVisualDist) {
+                    continue;
+                }
                 const midX = (link.source.x + link.target.x) / 2;
                 const midY = (link.source.y + link.target.y) / 2;
                 this.ctx.moveTo(link.source.x, link.source.y);
@@ -228,16 +233,25 @@ class CanvasGraphRenderer {
             const source = link.source;
             const target = link.target;
 
-            if (!this.isNodeInViewport(source, viewport, 10) && !this.isNodeInViewport(target, viewport, 10)) {
+            if (!visibleNodeIds.has(source.id) || !visibleNodeIds.has(target.id)) {
+                continue;
+            }
+
+            if (!this.isNodeInViewport(source, viewport, RENDER.link.linkViewportPadding) && !this.isNodeInViewport(target, viewport, RENDER.link.linkViewportPadding)) {
                 continue;
             }
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const distSq = dx * dx + dy * dy;
+            if (distSq > maxVisualDist * maxVisualDist) {
+                continue;
+            }
+            const dist = Math.sqrt(distSq);
 
-            const maxDist = 600;
-            const opacity = Math.max(0.1, Math.min(1.0, 1 - (dist / maxDist)));
+            const minDist = RENDER.link.linkOpacityMinDist;
+            const maxDist = RENDER.link.linkOpacityMaxDist;
+            const opacity = RENDER.link.linkOpacityMax - t * (RENDER.link.linkOpacityMax - RENDER.link.linkOpacityMin);
 
             this.ctx.globalAlpha = opacity;
             this.ctx.beginPath();
@@ -260,7 +274,7 @@ class CanvasGraphRenderer {
         let fill = "";
         this.ctx.globalAlpha = 1;
         const k = this.transform.k;
-        const minR = MAP_NODES.minScreenRadius / k;
+        const minR = RENDER.node.minScreenRadius / k;
 
         for (let i = 0; i < visibleNodes; i++) {
             const node = this.nodes[i];
@@ -284,10 +298,10 @@ class CanvasGraphRenderer {
         }
 
         const visibleNodes = Math.min(this.visibleNodeCount, this.nodes.length);
-        this.ctx.lineWidth = MAP_NODES.selectedLineWidth;
-        this.ctx.strokeStyle = MAP_VISUALS.highlightColor;
+        this.ctx.lineWidth = RENDER.node.selectedLineWidth;
+        this.ctx.strokeStyle = RENDER.node.highlightColor;
         const k = this.transform.k;
-        const minR = MAP_NODES.minScreenRadius / k;
+        const minR = RENDER.node.minScreenRadius / k;
 
         for (let i = 0; i < visibleNodes; i++) {
             const node = this.nodes[i];
@@ -311,14 +325,14 @@ class CanvasGraphRenderer {
         const visibleNodes = Math.min(this.visibleNodeCount, this.nodes.length);
 
         if (this.detailLevel.showNodeBorders) {
-            this.ctx.strokeStyle = MAP_NODES.borderStroke;
-            this.ctx.lineWidth = MAP_NODES.borderLineWidth;
+            this.ctx.strokeStyle = RENDER.node.borderStroke;
+            this.ctx.lineWidth = RENDER.node.borderLineWidth;
             const k = this.transform.k;
-            const minR = MAP_NODES.minScreenRadius / k;
+            const minR = RENDER.node.minScreenRadius / k;
             for (let i = 0; i < visibleNodes; i++) {
                 const node = this.nodes[i];
                 const r = Math.max(node._radius, minR);
-                if (!this.isNodeInViewport(node, viewport, r + MAP_DETAIL.nodeBorderViewportPadding)) {
+                if (!this.isNodeInViewport(node, viewport, r + RENDER.border.nodeBorderViewportPadding)) {
                     continue;
                 }
                 this.ctx.beginPath();
@@ -327,29 +341,29 @@ class CanvasGraphRenderer {
             }
         }
 
-        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0 || this.transform.k < MAP_ZOOM.labelThreshold) {
+        if (!this.detailLevel.showLabels || this.detailLevel.labelCap <= 0 || this.transform.k < CAMERA.labelThreshold) {
             return;
         }
 
         const labelLimit = Math.min(this.detailLevel.labelCap, visibleNodes);
         let drawn = 0;
-        this.ctx.fillStyle = "rgba(226, 232, 240, 0.92)";
+        this.ctx.fillStyle = RENDER.label.labelColor;
         this.ctx.textBaseline = "middle";
 
         let lastFontSize = -1;
 
         for (let i = 0; i < visibleNodes && drawn < labelLimit; i++) {
             const node = this.nodes[i];
-            const r = Math.max(node._radius, MAP_NODES.minScreenRadius / this.transform.k);
-            if (!this.isNodeInViewport(node, viewport, r + MAP_DETAIL.labelViewportPadding)) {
+            const r = Math.max(node._radius, RENDER.node.minScreenRadius / this.transform.k);
+            if (!this.isNodeInViewport(node, viewport, r + RENDER.label.labelViewportPadding)) {
                 continue;
             }
-            const fontSize = Math.max(MAP_DETAIL.labelFontSizeMin, Math.min(MAP_DETAIL.labelFontSizeMax, Math.round(r * MAP_DETAIL.labelFontSizeMultiplier)));
+            const fontSize = Math.max(RENDER.label.labelFontSizeMin, Math.min(RENDER.label.labelFontSizeMax, Math.round(r * RENDER.label.labelFontSizeMultiplier)));
             if (fontSize !== lastFontSize) {
                 this.ctx.font = `${fontSize}px sans-serif`;
                 lastFontSize = fontSize;
             }
-            this.ctx.fillText(node._shortLabel || node._label || String(node.id), node.x + r + MAP_DETAIL.labelOffset, node.y);
+            this.ctx.fillText(node._shortLabel, node.x + r + RENDER.label.labelOffset, node.y);
             drawn++;
         }
     }
@@ -358,35 +372,43 @@ class CanvasGraphRenderer {
         const visibleLinks = Math.min(this.visibleLinkCount, this.links.length);
         const cap = Math.min(this.detailLevel.arrowCap, visibleLinks);
         let drawn = 0;
-        const minLengthSq = 36;
+            const minLengthSq = RENDER.arrow.arrowMinLengthSq;
 
-        this.ctx.fillStyle = "rgba(248, 250, 252, 0.62)";
+        this.ctx.fillStyle = RENDER.arrow.arrowColor;
         this.ctx.globalAlpha = 1;
+
+        const visibleNodeIds = new Set();
+        for (let i = 0; i < this.visibleNodeCount; i++) {
+            visibleNodeIds.add(this.nodes[i].id);
+        }
 
         for (let i = 0; i < visibleLinks && drawn < cap; i++) {
             const link = this.links[i];
             const source = link.source;
             const target = link.target;
-            if (!this.isNodeInViewport(source, viewport, 12) && !this.isNodeInViewport(target, viewport, 12)) {
+            if (!visibleNodeIds.has(source.id) || !visibleNodeIds.has(target.id)) {
+                continue;
+            }
+            if (!this.isNodeInViewport(source, viewport, RENDER.arrow.arrowViewportPadding) && !this.isNodeInViewport(target, viewport, RENDER.arrow.arrowViewportPadding)) {
                 continue;
             }
 
             const dx = target.x - source.x;
             const dy = target.y - source.y;
             const lenSq = (dx * dx) + (dy * dy);
-            if (lenSq < minLengthSq) {
+            if (lenSq < minLengthSq || lenSq > maxVisualDist * maxVisualDist) {
                 continue;
             }
 
             const midX = (source.x + target.x) * 0.5;
             const midY = (source.y + target.y) * 0.5;
-            this.drawArrowhead(midX - (dx * 0.07), midY - (dy * 0.07), dx, dy, 2.8);
+            this.drawArrowhead(midX - (dx * RENDER.arrow.arrowMidOffsetRatio), midY - (dy * RENDER.arrow.arrowMidOffsetRatio), dx, dy, RENDER.arrow.arrowheadSize);
             drawn++;
         }
     }
 
     drawArrowhead(x, y, dx, dy, size) {
-        const length = Math.sqrt((dx * dx) + (dy * dy)) || 1;
+        const length = Math.sqrt((dx * dx) + (dy * dy));
         const ux = dx / length;
         const uy = dy / length;
         const px = -uy;
@@ -394,14 +416,14 @@ class CanvasGraphRenderer {
 
         this.ctx.beginPath();
         this.ctx.moveTo(x, y);
-        this.ctx.lineTo(x - (ux * size) + (px * size * 0.7), y - (uy * size) + (py * size * 0.7));
-        this.ctx.lineTo(x - (ux * size) - (px * size * 0.7), y - (uy * size) - (py * size * 0.7));
+        this.ctx.lineTo(x - (ux * size) + (px * size * RENDER.arrow.arrowheadWingRatio), y - (uy * size) + (py * size * RENDER.arrow.arrowheadWingRatio));
+        this.ctx.lineTo(x - (ux * size) - (px * size * RENDER.arrow.arrowheadWingRatio), y - (uy * size) - (py * size * RENDER.arrow.arrowheadWingRatio));
         this.ctx.closePath();
         this.ctx.fill();
     }
 
     getViewportBounds(pad = 0) {
-        const scale = Math.max(this.transform.k, MAP_ZOOM.minScale);
+        const scale = Math.max(this.transform.k, CAMERA.minScale);
         const width = this.canvas.width / this.dpr;
         const height = this.canvas.height / this.dpr;
         return {

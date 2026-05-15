@@ -72,13 +72,6 @@ class CompareMode {
         this.cacheElements();
         this.attachEventListeners();
         
-        // Reset pairs on load
-        try {
-            await fetch('/api/v2/ranking/reset', { method: 'POST' });
-        } catch (e) {
-            console.warn("Could not reset pairs:", e);
-        }
-        
         const leftFile = params?.get('left');
         const rightFile = params?.get('right');
 
