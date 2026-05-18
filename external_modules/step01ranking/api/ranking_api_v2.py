@@ -41,16 +41,19 @@ def _count_extreme_nodes_at_level(
     level: int, all_images_dict: dict[str, dict[str, Any]]
 ) -> int:
     """Count top/bottom graph nodes whose comparison count matches a level."""
+    top_nodes = [n.filename for n in crystal_graph.get_all_nodes(only_top=True)]
+    bottom_nodes = [n.filename for n in crystal_graph.get_all_nodes(only_bottom=True)]
+
     return len(
         [
             n
-            for n in crystal_graph._chain._top_nodes
+            for n in top_nodes
             if all_images_dict.get(n, {}).get("comparison_count", 0) == level
         ]
     ) + len(
         [
             n
-            for n in crystal_graph._chain._bottom_nodes
+            for n in bottom_nodes
             if all_images_dict.get(n, {}).get("comparison_count", 0) == level
         ]
     )
@@ -70,30 +73,26 @@ def _get_level_progress_stats(
 
     active_level = base_level
     active_nodes = _count_extreme_nodes_at_level(active_level, all_images_dict)
-    logger.debug(f"[LEVEL] count_extreme level={active_level}: {time.time()-_s:.3f}s"); _s = time.time()
 
     if active_nodes == 0:
+        top_nodes = [n.filename for n in crystal_graph.get_all_nodes(only_top=True)]
+        bottom_nodes = [
+            n.filename for n in crystal_graph.get_all_nodes(only_bottom=True)
+        ]
         extreme_counts = [
             all_images_dict.get(n, {}).get("comparison_count", 0)
-            for n in crystal_graph._chain._top_nodes + crystal_graph._chain._bottom_nodes
+            for n in top_nodes + bottom_nodes
         ]
         if extreme_counts:
             active_level = min(extreme_counts)
             active_nodes = _count_extreme_nodes_at_level(active_level, all_images_dict)
-        logger.debug(f"[LEVEL] fallback level={active_level}: {time.time()-_s:.3f}s"); _s = time.time()
 
     next_level_count = _count_extreme_nodes_at_level(active_level + 1, all_images_dict)
-    logger.debug(f"[LEVEL] count_extreme level={active_level+1}: {time.time()-_s:.3f}s"); _s = time.time()
 
-    _comp_s = time.time()
-    total_components = len(crystal_graph._chain._component_members)
-    logger.debug(f"[LEVEL] component_members: {time.time()-_comp_s:.4f}s")
-    _chain_s = time.time()
-    total_chains = crystal_graph._chain.get_min_chain_count()
-    logger.debug(f"[LEVEL] min_chain_count (cached): {time.time()-_chain_s:.4f}s")
-    _top_s = time.time()
-    total_top_nodes = len(crystal_graph._chain._top_nodes)
-    logger.debug(f"[LEVEL] top_nodes: {time.time()-_top_s:.4f}s")
+    stats = crystal_graph.get_graph_stats()
+    total_components = stats.get("total_components", 0)
+    total_chains = stats.get("total_chains", 0)
+    total_top_nodes = stats.get("top_nodes_count", 0)
 
     result = {
         "base_level": base_level,
@@ -104,7 +103,7 @@ def _get_level_progress_stats(
         "total_chains": total_chains,
         "total_top_nodes": total_top_nodes,
     }
-    logger.debug(f"[LEVEL] level_stats done: {time.time()-_s:.3f}s")
+    logger.debug(f"[LEVEL] level_stats done: {time.time() - _s:.3f}s")
     return result
 
 
@@ -117,7 +116,8 @@ def get_status():
     _s = _t
     all_images = get_all_images()
     total = len(all_images)
-    logger.info(f"[STATUS] get_all_images: {time.time()-_s:.3f}s"); _s = time.time()
+
+    _s = time.time()
 
     if total == 0:
         return jsonify(
@@ -145,11 +145,13 @@ def get_status():
 
     min_images = int(config["ranking"]["lru_size"])
     skipped_count = get_skipped_comparison_count()
-    logger.info(f"[STATUS] comp/rank/skip calcs: {time.time()-_s:.3f}s"); _s = time.time()
+
+    _s = time.time()
 
     level_stats = _get_level_progress_stats(all_images)
-    logger.info(f"[STATUS] level_stats: {time.time()-_s:.3f}s"); _s = time.time()
 
+    _s = time.time()
+    logger.info(f"[STATUS] TOTAL: {time.time() - _t:.3f}s")
 
     return jsonify(
         {
@@ -169,8 +171,6 @@ def get_status():
             "base_level": level_stats["base_level"],
         }
     )
-
-    logger.info(f"[STATUS] TOTAL: {time.time()-_t:.3f}s")
 
 
 @ranking_bp.route("/next-pair", methods=["GET"])
@@ -206,7 +206,7 @@ def get_next_pair():
         )
 
     max_retries = 20
-    logger.debug(f"[NEXT-PAIR] Excluded set: {len(excluded_files_set)} images")
+
     exclusion_variants: list[set[str]] = []
     for variant in (
         set(recent_files_ordered),
@@ -219,19 +219,12 @@ def get_next_pair():
 
     for variant_index, base_excluded_set in enumerate(exclusion_variants, start=1):
         local_excluded_files_set = set(base_excluded_set)
-        logger.debug(
-            f"[NEXT-PAIR] Trying exclusion variant {variant_index}/{len(exclusion_variants)} with {len(local_excluded_files_set)} images"
-        )
 
         for attempt in range(max_retries):
             pair = merge_sort_ranker.select_pair_for_comparison(
-                exclude_set=local_excluded_files_set,
-                exclude_chains=excluded_chains_set
+                exclude_set=local_excluded_files_set, exclude_chains=excluded_chains_set
             )
             if not pair:
-                logger.debug(
-                    f"[NEXT-PAIR] No pair found after {attempt+1} attempts for variant {variant_index}"
-                )
                 break
 
             filename_a, filename_b = pair
@@ -240,14 +233,10 @@ def get_next_pair():
                 filename_a in local_excluded_files_set
                 or filename_b in local_excluded_files_set
             ):
-                logger.debug(
-                    f"[NEXT-PAIR] Retry: {filename_a} or {filename_b} in excluded set"
-                )
                 local_excluded_files_set.update([filename_a, filename_b])
                 continue
 
             if filename_a == filename_b:
-                logger.debug(f"[NEXT-PAIR] Retry: same image {filename_a}")
                 local_excluded_files_set.add(filename_a)
                 continue
 
@@ -269,14 +258,17 @@ def get_next_pair():
 
                     # Update chains cache if it was a refinement pair
                     pair_meta = merge_sort_ranker.get_last_pair_metadata()
-                    if pair_meta.get("pair_type") == merge_sort_ranker.PAIR_TYPE_REFINEMENT:
+                    if (
+                        pair_meta.get("pair_type")
+                        == merge_sort_ranker.PAIR_TYPE_REFINEMENT
+                    ):
                         chain_a = pair_meta.get("chain_a")
                         chain_b = pair_meta.get("chain_b")
                         if chain_a:
                             processor.recent_chains.append(chain_a)
                         if chain_b:
                             processor.recent_chains.append(chain_b)
-                        
+
                         if len(processor.recent_chains) >= lru_size:
                             for _ in range(int(len(processor.recent_chains) * 0.75)):
                                 processor.recent_chains.pop()
@@ -296,32 +288,33 @@ def get_next_pair():
             level_stats = _get_level_progress_stats(all_images_for_stats)
 
             # Compute chain_length (height) and component_size for each image
-            height_a = crystal_graph._chain._chain_length.get(filename_a, 0)
-            height_b = crystal_graph._chain._chain_length.get(filename_b, 0)
-            comp_id_a = crystal_graph._chain._node_component.get(filename_a)
-            comp_id_b = crystal_graph._chain._node_component.get(filename_b)
-            comp_size_a = (
-                len(crystal_graph._chain._component_members.get(comp_id_a, []))
-                if comp_id_a is not None
-                else 1
-            )
-            comp_size_b = (
-                len(crystal_graph._chain._component_members.get(comp_id_b, []))
-                if comp_id_b is not None
-                else 1
-            )
+            node_a = crystal_graph.get_node(filename_a)
+            node_b = crystal_graph.get_node(filename_b)
+
+            chains_a = node_a.get_chain(only_main=True) if node_a else []
+            height_a = chains_a[0].length if chains_a else 0
+
+            chains_b = node_b.get_chain(only_main=True) if node_b else []
+            height_b = chains_b[0].length if chains_b else 0
+
+            comp_a = crystal_graph.get_component(node_id=filename_a)
+            comp_b = crystal_graph.get_component(node_id=filename_b)
+
+            comp_id_a = comp_a.id if comp_a else None
+            comp_id_b = comp_b.id if comp_b else None
+            comp_size_a = comp_a.size if comp_a else 1
+            comp_size_b = comp_b.size if comp_b else 1
 
             # Count top/bottom nodes in each image's component (for debug)
-            def _count_extremes(comp_id):
-                if comp_id is None:
+            def _count_extremes(comp_proxy):
+                if not comp_proxy:
                     return {"top": 0, "bottom": 0}
-                members = crystal_graph._chain._component_members.get(comp_id, [])
-                top = sum(1 for m in members if not crystal_graph._chain._better_than.get(m, []))
-                bottom = sum(1 for m in members if not crystal_graph._chain._worse_than.get(m, []))
+                top = sum(1 for m in comp_proxy.nodes if m.is_top())
+                bottom = sum(1 for m in comp_proxy.nodes if m.is_bottom())
                 return {"top": top, "bottom": bottom}
 
-            extremes_a = _count_extremes(comp_id_a)
-            extremes_b = _count_extremes(comp_id_b)
+            extremes_a = _count_extremes(comp_a)
+            extremes_b = _count_extremes(comp_b)
 
             return jsonify(
                 {
@@ -333,8 +326,8 @@ def get_next_pair():
                         "chain_length": height_a,
                         "component_size": comp_size_a,
                         "component_id": comp_id_a,
-                        "is_top": len(crystal_graph._chain._better_than.get(filename_a, [])) == 0,
-                        "is_bottom": len(crystal_graph._chain._worse_than.get(filename_a, [])) == 0,
+                        "is_top": node_a.is_top() if node_a else True,
+                        "is_bottom": node_a.is_bottom() if node_a else True,
                     },
                     "right": {
                         "filename": data_b["filename"],
@@ -344,8 +337,8 @@ def get_next_pair():
                         "chain_length": height_b,
                         "component_size": comp_size_b,
                         "component_id": comp_id_b,
-                        "is_top": len(crystal_graph._chain._better_than.get(filename_b, [])) == 0,
-                        "is_bottom": len(crystal_graph._chain._worse_than.get(filename_b, [])) == 0,
+                        "is_top": node_b.is_top() if node_b else True,
+                        "is_bottom": node_b.is_bottom() if node_b else True,
                     },
                     "collapsable": merge_sort_ranker.is_collapsable_pair(
                         filename_a, filename_b
@@ -362,13 +355,16 @@ def get_next_pair():
                         "right_component_size": comp_size_b,
                         "left_comp_count": pair_meta.get("left_comp_count", 0),
                         "right_comp_count": pair_meta.get("right_comp_count", 0),
+                        "refinement_details": pair_meta.get("refinement_details"),
                     },
                     "debug": {
                         "score_diff": round(abs(data_a["score"] - data_b["score"]), 4),
                         "left_extremes": extremes_a,
                         "right_extremes": extremes_b,
-                        "max_graph_height": max(crystal_graph._chain._chain_length.values()) if crystal_graph._chain._chain_length else 0,
-                        "total_components": len(crystal_graph._chain._component_members),
+                        "max_graph_height": crystal_graph.get_graph_stats().get(
+                            "longest_chain_depth", 0
+                        ),
+                        "total_components": level_stats["total_components"],
                     },
                     "global_stats": {
                         "total_images": total_images_stats,
@@ -393,13 +389,14 @@ def reset_ranking_queue():
     """
     Reset the comparison queue state.
     """
-    logger.info("[RESET] Client requested ranking queue reset.")
+
     try:
         from server import image_processor
 
         if image_processor:
             with image_processor.recent_lock:
-                image_processor.recent_images.clear(); image_processor.recent_chains.clear()
+                image_processor.recent_images.clear()
+                image_processor.recent_chains.clear()
                 logger.info("[RESET] Cleared processor recent images LRU queue.")
         return jsonify({"status": "success", "message": "Ranking queue reset."})
     except Exception as e:
@@ -428,8 +425,6 @@ def submit_comparison():
     filename_a = data.get("filename_a")
     filename_b = data.get("filename_b")
     winner = data.get("winner")
-
-    logger.info(f"[SUBMIT] Received: {filename_a} vs {filename_b}, winner: {winner}")
 
     if not all([filename_a, filename_b, winner]):
         return jsonify({"error": "Missing required fields"}), 400
@@ -491,59 +486,61 @@ def get_graph_data():
     try:
         from shared.graph import crystal_graph
 
-        logger.info("Generating graph data...")
-
         # Rebuild only if stale (apply_comparison keeps it fresh)
         if crystal_graph.is_cache_stale():
             crystal_graph.rebuild_from_database()
-            logger.info("Graph was stale, rebuilt from database")
-        else:
-            logger.info("Graph is fresh, using in-memory data")
 
-        logger.info(
-            f"Graph data: {len(crystal_graph._images)} nodes, {len(crystal_graph._comparisons)} comparisons, "
-            f"{len(crystal_graph._chain._component_members)} components"
-        )
+        stats = crystal_graph.get_graph_stats()
 
-        logger.info(f"Components: {len(crystal_graph._chain._component_members)}")
+        # Pre-calculate heights to avoid O(N^3) chain loops for all 26,000 images
+        node_to_height = {}
+        for proxy in crystal_graph.get_all_chains():
+            for node_proxy in proxy.nodes:
+                filename = node_proxy.filename
+                if (
+                    filename not in node_to_height
+                    or proxy.length > node_to_height[filename]
+                ):
+                    node_to_height[filename] = proxy.length
 
         # Prepare simplified nodes and edges for frontend visualization
         nodes = []
-        for filename, img_data in crystal_graph._images.items():
+        all_nodes = crystal_graph.get_all_nodes()
+        all_images_db = get_all_images()
+        img_dict = {img["filename"]: img for img in all_images_db}
+
+        for node in all_nodes:
+            filename = node.filename
+            img_data = img_dict.get(filename)
+            comp = node.get_component()
+
             nodes.append(
                 {
                     "id": filename,
-                    "score": (
-                        round(img_data["score"], 4)
-                        if img_data and img_data.get("score") is not None
-                        else 0.5
-                    ),
-                    "confidence": (
-                        round(img_data["confidence"], 4)
-                        if img_data and img_data.get("confidence") is not None
-                        else 0.0
-                    ),
-                    "height": crystal_graph._chain._chain_length.get(filename, 0),
-                    "component": crystal_graph._chain._node_component.get(filename),
-                    "comparison_count": img_data["comparison_count"],
-                    "is_top": len(crystal_graph._chain._better_than.get(filename, [])) == 0,
-                    "is_bottom": len(crystal_graph._chain._worse_than.get(filename, [])) == 0,
+                    "score": round(img_data["score"], 4) if img_data else 0.5,
+                    "confidence": round(img_data["confidence"], 4) if img_data else 0.0,
+                    "height": node_to_height.get(filename, 0),
+                    "component": comp.id if comp else None,
+                    "comparison_count": img_data["comparison_count"] if img_data else 0,
+                    "is_top": node.is_top(),
+                    "is_bottom": node.is_bottom(),
                 }
             )
 
         edges = []
-        for comp in crystal_graph._comparisons:
-            winner = comp["winner"]
-            filename_a = comp["filename_a"]
-            filename_b = comp["filename_b"]
-            loser = filename_b if winner == filename_a else filename_a
+        for winner, loser in crystal_graph.get_all_links():
             edges.append(
                 {
-                    "source": winner,
-                    "target": loser,
-                    "weight": float(comp.get("weight", 1.0) or 1.0),
+                    "source": winner.filename,
+                    "target": loser.filename,
+                    "weight": 1.0,
                 }
             )
+
+        all_components = crystal_graph.get_all_components()
+        component_members = {
+            comp.id: [n.filename for n in comp.nodes] for comp in all_components
+        }
 
         logger.info(
             f"Serialization complete. Returning {len(nodes)} nodes and {len(edges)} edges."
@@ -552,12 +549,12 @@ def get_graph_data():
             {
                 "nodes": nodes,
                 "edges": edges,
-                "components": crystal_graph._chain._component_members,
+                "components": component_members,
                 "stats": {
                     "total_nodes": len(nodes),
                     "total_edges": len(edges),
-                    "total_components": len(crystal_graph._chain._component_members),
-                    "total_chains": crystal_graph._chain.get_min_chain_count(),
+                    "total_components": len(all_components),
+                    "total_chains": stats.get("total_chains", 0),
                 },
             }
         )
@@ -575,7 +572,6 @@ def register_ranking_routes(app) -> None:
 def sync_all_to_json():
     """Sync all current DB scores/confidence to their JSON files (Backup)."""
     try:
-
         images = get_all_images()
         count = 0
         errors = 0

@@ -88,7 +88,7 @@ def add_image(
             pass
         return True
     except Exception as e:
-        logger.error(f"Error adding image {filename}: {e}")
+        pass
         return False
 
 
@@ -104,7 +104,7 @@ def update_image_tags(filename: str, prompt_tags: str) -> bool:
         _cache_invalidate(filename)
         return True
     except Exception as e:
-        logger.error(f"Error updating tags for {filename}: {e}")
+        pass
         return False
 
 
@@ -138,7 +138,8 @@ def get_image(filename: str) -> dict[str, Any] | None:
                     pass
                 return result
     except Exception as e:
-        logger.error(f"Error getting image {filename}: {e}")
+        pass
+
     return None
 
 
@@ -162,7 +163,7 @@ def update_image_score(filename: str, score: float) -> bool:
             pass
         return True
     except Exception as e:
-        logger.error(f"Error updating score for {filename}: {e}")
+        pass
         return False
 
 
@@ -199,8 +200,8 @@ def update_image_confidence(
             pass
         return True
     except Exception as e:
-        logger.error(f"Error updating confidence for {filename}: {e}")
-        return False
+        pass
+    return False
 
 
 def update_image_score_confidence(
@@ -225,7 +226,7 @@ def update_image_score_confidence(
             pass
         return True
     except Exception as e:
-        logger.error(f"Error updating score/confidence for {filename}: {e}")
+        pass
         return False
 
 
@@ -236,8 +237,8 @@ def get_all_images() -> list[dict[str, Any]]:
             rows = conn.execute("SELECT * FROM images").fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"Error getting all images: {e}")
-        return []
+        pass
+    return []
 
 
 def get_images_by_tier(tier: int) -> list[dict[str, Any]]:
@@ -256,7 +257,6 @@ def get_images_by_tier(tier: int) -> list[dict[str, Any]]:
             ).fetchall()
             return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"Error getting images for tier {tier}: {e}")
         return []
 
 
@@ -267,8 +267,8 @@ def get_image_count() -> int:
             row = conn.execute("SELECT COUNT(*) as cnt FROM images").fetchone()
             return row["cnt"] if row else 0
     except Exception as e:
-        logger.error(f"Error getting image count: {e}")
-        return 0
+        pass
+    return 0
 
 
 def get_scored_images(
@@ -293,7 +293,6 @@ def get_scored_images(
             ).fetchall()
             return [dict(row) for row in rows], total
     except Exception as e:
-        logger.error(f"Error getting scored images: {e}")
         return [], 0
 
 
@@ -310,5 +309,5 @@ def delete_image(filename: str) -> bool:
         _cache_invalidate(filename)
         return cur.rowcount > 0
     except Exception as e:
-        logger.error(f"Error deleting image {filename}: {e}")
-        return False
+        pass
+    return False

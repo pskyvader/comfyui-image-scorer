@@ -328,12 +328,12 @@ def run_rebuild_scores_from_db() -> dict[str, int]:
     logger.info("Starting scores rebuild from database...")
 
     try:
-        from external_modules.step01ranking_new.database.images_table import (
+        from external_modules.step01ranking.database.images_table import (
             get_all_images,
         )
     except ImportError:
         logger.error(
-            "Could not import database module. Make sure external_modules.step01ranking_new is accessible."
+            "Could not import database module. Make sure external_modules.step01ranking is accessible."
         )
         return {"total": 0, "updated": 0, "missing": 0}
 
@@ -363,9 +363,7 @@ def run_rebuild_scores_from_db() -> dict[str, int]:
             updated_count += 1
         else:
             # Fallback to old score if not in DB
-            old_score = (
-                old_scores_list[idx] if idx < len(old_scores_list) else 3.0
-            )
+            old_score = old_scores_list[idx] if idx < len(old_scores_list) else 3.0
             new_scores_list.append(old_score)
             missing_count += 1
             logger.debug(

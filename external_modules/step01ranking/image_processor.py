@@ -196,7 +196,6 @@ class ImageProcessor:
                 with self.processed_lock:
                     self.processed_images.add(filename)
                 msg = f"Skipping {filename}: No JSON companion found at {json_path}"
-                logger.debug(msg)
                 return False, msg, None, None, False, None
 
             # Check if image already processed
@@ -237,14 +236,11 @@ class ImageProcessor:
                                 break
 
             except Exception as e:
-                logger.warning(f"Error reading JSON for {filename}: {e}")
+                pass
                 json_data = None
 
             if json_data is None:
-                logger.info(
-                    f"No JSON metadata for {filename}, creating default metadata with score {new_score}"
-                )
-
+                pass
             # Clean/normalize metadata into top-level shape and ensure ranking keys exist
             cleaned_json = self.clean_json_metadata(
                 json_data, default_score=new_score, filename=filename
@@ -322,33 +318,22 @@ class ImageProcessor:
                         if json_path.exists():
                             moved_ok = safe_move(json_path, dest_json)
                             if moved_ok:
-                                logger.info(
-                                    f"Moved JSON to existing image: {dest_json.name}"
-                                )
+                                pass
                             else:
                                 # If move failed but dest_json exists, treat as success
                                 if dest_json.exists():
-                                    logger.info(
-                                        f"JSON already exists at dest: {dest_json.name}"
-                                    )
+                                    pass
                                 else:
-                                    logger.warning(
-                                        f"Failed to move JSON to dest for duplicate {filename}"
-                                    )
+                                    pass
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to move JSON to dest for duplicate {filename}: {e}"
-                        )
-
+                        pass
                     try:
                         if image_path.exists():
+                            pass
                             image_path.unlink()
-                            logger.info(f"Removed duplicate source image: {filename}")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to remove duplicate source image {filename}: {e}"
-                        )
 
+                    except Exception as e:
+                        pass
                     # Mark as processed and record association with existing file
                     with self.processed_lock:
                         self.processed_images.add(dest_image.name)
@@ -376,7 +361,7 @@ class ImageProcessor:
             # Move image and JSON together. If a failure occurs we attempt a
             # best-effort rollback so the source is left in a consistent state.
             if not image_path.exists():
-                logger.error(f"Source file not found before move: {image_path}")
+
                 return False, f"Source not found: {image_path}", None, None, False
 
             moved_image = False
@@ -384,7 +369,7 @@ class ImageProcessor:
             try:
                 image_moved = safe_move(image_path, dest_image)
                 if not image_moved:
-                    logger.error(f"Failed to move image {filename} to {dest_image}")
+
                     return False, f"Image move failed", None, None, False
                 moved_image = True
 
@@ -396,28 +381,24 @@ class ImageProcessor:
                             if dest_image.exists() and not image_path.exists():
                                 safe_move(dest_image, image_path)
                         except Exception as e2:
-                            logger.error(f"Rollback failed for image {filename}: {e2}")
-                        logger.error(
-                            f"Failed to move JSON for {filename}, rolled back image"
-                        )
+                            pass
                         return False, f"JSON move failed", None, None, False
                     moved_json = True
 
                 # logger.info(f"Moved image+json: {filename} -> {dest_dir}")
             except Exception as e:
-                logger.error(f"Failed to move image/json {filename}: {e}")
+
                 # Attempt rollback
                 try:
                     if moved_image and dest_image.exists() and not image_path.exists():
                         safe_move(dest_image, image_path)
                 except Exception as e2:
-                    logger.error(f"Rollback failed for image {filename}: {e2}")
+                    pass
                 try:
                     if moved_json and dest_json.exists() and not json_path.exists():
                         safe_move(dest_json, json_path)
                 except Exception as e2:
-                    logger.error(f"Rollback failed for JSON {filename}: {e2}")
-
+                    pass
                 return False, f"Move failed: {e}", None, None, False, None
 
             # Mark as processed and return
@@ -448,8 +429,7 @@ class ImageProcessor:
                 f"Synchronized {len(self.processed_images)} processed images from database."
             )
         except Exception as e:
-            logger.error(f"Failed to sync processed images from DB: {e}")
-
+            pass
     def add_to_database(
         self,
         filename: str,
@@ -522,11 +502,9 @@ class ImageProcessor:
 
             # Step 1: Fast count if not done yet
             if self.total_discovered == 0:
-                logger.info("[SCANNER] Running initial fast discovery...")
+
                 self.get_fast_total_count(source_dir)
-                logger.info(
-                    f"[SCANNER] Total images discovered: {self.total_discovered}"
-                )
+
 
             # Step 2: Find the next batch of files not in memory
             # Get exclude roots
@@ -538,7 +516,7 @@ class ImageProcessor:
 
             # Step 2: Find all files not in memory and pick the oldest ones
             candidates = []
-            logger.info("[SCANNER] Searching for new images...")
+
 
             # Optimized search using os.walk with directory pruning
             for root, dirs, files in os.walk(source_path):
@@ -556,7 +534,7 @@ class ImageProcessor:
                         candidates.append(root_path / f)
 
             if not candidates:
-                logger.info("[SCANNER] No more new images to process.")
+
                 return {"status": "complete", "added": 0}
 
             # Sort candidates by modification time (newest first) so we can preserve the most recent ones
@@ -570,21 +548,18 @@ class ImageProcessor:
 
                 candidates.sort(key=get_mtime, reverse=True)
             except Exception as e:
-                logger.warning(f"Failed to sort candidates by mtime: {e}")
+                pass
+
 
             # Reserve newest images to help ComfyUI keep its numbering sequence
             reserve_count = self.reserve_count
-            if len(candidates) <= reserve_count:
-                logger.info(
-                    f"[SCANNER] Reserved {len(candidates)} recent images (below threshold of {reserve_count})."
-                )
+            if len(candidates) < reserve_count:
+                pass
                 return {"status": "complete", "added": 0, "message": "Images reserved"}
 
             # Take the oldest ones after skipping the newest images
             batch_files = candidates[reserve_count : reserve_count + batch_size]
-            logger.info(
-                f"[SCANNER] Processing {len(batch_files)} images (skipping {reserve_count} newest)."
-            )
+
 
             # Step 3: Process the batch
             stats = {"processed": 0, "added": 0, "errors": 0, "failed": []}
@@ -644,22 +619,20 @@ class ImageProcessor:
                             else:
                                 with self.processed_lock:
                                     if "Already processed" not in message:
-                                        stats["errors"] += 1
-                                        stats["failed"].append(f"{filename}: {message}")
+                                        if stats["errors"] < 5:
+                                            pass
+                                        elif stats["errors"] == 5:
+                                            stats["failed"].append(f"{filename}: {message}")
                                         # Log the first few errors to avoid spam but give info
                                         if stats["errors"] < 5:
-                                            logger.warning(
-                                                f"Failed to process {filename}: {message}"
-                                            )
-                                        elif stats["errors"] == 5:
-                                            logger.warning(
-                                                "Further batch errors suppressed..."
-                                            )
+                                            pass
+
+
 
                             pbar.update(1)
                             pbar.set_postfix(file=filename[:15], added=stats["added"])
                         except Exception as e:
-                            logger.error(f"Worker error for {filename}: {e}")
+
                             pbar.update(1)
 
             logger.info(
@@ -683,7 +656,7 @@ class ImageProcessor:
 
         ranked_root = get_ranked_root()
         if not ranked_root.exists():
-            logger.warning(f"Ranked folder not found: {ranked_root}")
+
             return {"recovered": 0, "skipped": 0, "errors": 0}
 
         # Step 0: Reorganize loose files into subfolders if precision folders exist
@@ -696,7 +669,7 @@ class ImageProcessor:
             if p.is_file() and p.suffix.lower() in self.image_extensions
         ]
 
-        logger.info(f"Found {len(image_files)} images in ranked folder")
+
 
         stats = {"recovered": 0, "skipped": 0, "synced_history": 0, "errors": 0}
 
@@ -746,17 +719,16 @@ class ImageProcessor:
                     pbar.set_postfix(sync=stats["synced_history"], err=stats["errors"])
 
         # Phase 3: Deduplicate comparisons (relaxed matching by pair+winner, not exact timestamp)
-        logger.info("[DATABASE] Phase 3: Deduplicating comparison history...")
+
         try:
             dedup_count = deduplicate_comparisons()
             stats["deduplicated"] = dedup_count
-            logger.info(f"[DATABASE] Removed {dedup_count} duplicate comparisons")
-        except Exception as e:
-            logger.debug(f"Deduplication failed: {e}")
 
+        except Exception as e:
+            pass
         # Phase 4: Fix comparison_count for ALL images from actual DB counts
         # This ensures counts are correct even if JSON was missing history or Phase 2 didn't run
-        logger.info("[DATABASE] Phase 4: Fixing comparison counts...")
+
 
         all_images = db_get_all_images()
         fixed_count = 0
@@ -781,7 +753,7 @@ class ImageProcessor:
                     except Exception:
                         pass
                 pbar.update(1)
-        logger.info(f"[DATABASE] Fixed comparison_count for {fixed_count} images")
+
 
         logger.info(
             f"Database rebuild complete: recovered={stats['recovered']}, "

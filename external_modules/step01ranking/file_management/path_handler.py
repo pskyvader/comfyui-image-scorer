@@ -109,7 +109,7 @@ def append_comparison_history_to_json(
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        logger.exception(f"Failed to read JSON metadata for {filename}: {e}")
+        pass
         return False
 
     # Rebuild comparison history entirely from database
@@ -162,7 +162,7 @@ def append_comparison_history_to_json(
         target_divisor = sum(0.5 ** (i / 9.0) for i in range(target_comparisons))
         data["confidence"] = min(1.0, total_weight / target_divisor)
     except Exception as e:
-        logger.exception(f"Failed to recalculate confidence for {filename}: {e}")
+        pass
 
     # Write JSON first
     try:
@@ -189,11 +189,10 @@ def append_comparison_history_to_json(
                 except PermissionError as e:
                     if attempt < max_retries - 1:
                         wait_time = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s, 4s
-                        logger.debug(f"File locked, retrying in {wait_time}s: {filename}")
                         time.sleep(wait_time)
                     else:
                         # Move failed but JSON was updated - log and continue
-                        logger.warning(f"Could not move file after {max_retries} attempts: {filename}")
+                        pass
                         return True
             # Update path reference for future operations
             img_path = target_path

@@ -18,7 +18,7 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 if __name__ == "__main__":
     if __package__ is None:
-        __package__ = "external_modules.step01ranking_new"
+        __package__ = "external_modules.step01ranking"
 
 
 # Now import Flask and API modules
@@ -51,12 +51,9 @@ logger = app.logger
 app.config["JSON_SORT_KEYS"] = False
 
 # Register API routes FIRST before any other routes
-logger.debug("Registering API blueprints...")
 register_ranking_routes(app)
 
-logger.debug("Ranking routes registered")
 register_gallery_routes(app)
-logger.debug("Gallery routes registered")
 
 # Global image processor state
 scanner_thread: threading.Thread | None = None
@@ -80,40 +77,23 @@ def start_background_scanner(img_root: str) -> None:
 def startup_worker(img_root: str, sync_existing: bool = False) -> None:
     """Background worker for initialization tasks."""
     # Step 1: Initialize score folders
-    logger.info("[1/3] Initializing score folder structure...")
     if not ensure_tier_structure():
-        logger.error("Failed to initialize folder structure")
         return
-    logger.info("  [OK] Folder structure ready")
 
     # Step 2: Rebuild database from existing ranked images
     if sync_existing:
-        logger.info(
-            "[2/3] Rebuilding database from existing ranked images (MANUAL SYNC ENABLED)..."
-        )
         image_processor.rebuild_database_from_ranked()
-        logger.info("  [OK] Database rebuild complete")
-    else:
-        logger.info(
-            "[2/3] Skipping automatic database rebuild (use --sync-existing to enable)..."
-        )
 
     # Step 3: Start background scanner for new images
     if img_root:
-        logger.info(f"[3/3] Starting background image scanner (root: {img_root})...")
         # We call it directly here as we are already in a background thread
         scanner_task(img_root)
-    else:
-        logger.info("[3/3] Skipping scanner (no image_root configured)")
 
 
 def init_ranking_system(
     img_root: str | None = None, sync_existing: bool = False
 ) -> bool:
     """Initialize system and trigger background recovery."""
-    logger.info("\n" + "=" * 60)
-    logger.info("RANKING SYSTEM INITIALIZATION (BACKGROUND)")
-    logger.info("=" * 60)
 
     # Trigger background worker for all heavy tasks
     threading.Thread(
@@ -121,7 +101,6 @@ def init_ranking_system(
     ).start()
 
     logger.info("[OK] Background initialization triggered.")
-    logger.info("=" * 60)
     return True
 
 
@@ -158,7 +137,6 @@ def serve_ranked_image(filepath: str):
     # If direct path exists, serve it
     direct_path = ranked_root / filepath_decoded
     if direct_path.exists() and direct_path.is_file():
-        logger.debug(f"Found image at direct path: {direct_path}")
         response = send_file(str(direct_path))
         # Disable caching
         response.headers["Cache-Control"] = (
@@ -173,9 +151,6 @@ def serve_ranked_image(filepath: str):
     found = find_image_path(filename)
     if found:
         found_path = Path(found)
-        logger.debug(
-            f"Serving found image: {found_path} (root:{str(ranked_root)}) (parent: {found_path.parent})"
-        )
         response = send_file(str(found_path))
         response.headers["Cache-Control"] = (
             "no-store, no-cache, must-revalidate, max-age=0"
@@ -252,12 +227,6 @@ def server_error(e):
     return {"error": "Server error"}, 500
 
 
-# Debug: Print all registered routes
-logger.debug("Registered routes:")
-for rule in app.url_map.iter_rules():
-    logger.debug(f"  {rule.rule} -> {rule.endpoint}")
-
-
 def main():
     """Main entry point."""
 
@@ -311,7 +280,6 @@ def main():
 
     if should_init:
         if not init_ranking_system(args.image_root, sync_existing=args.sync_existing):
-            logger.error("Failed to initialize system")
             return 1
 
     # Start server
@@ -320,7 +288,6 @@ def main():
     try:
         app.run(host=args.host, port=args.port, debug=args.debug)
     except KeyboardInterrupt:
-        logger.info("\n\nServer stopped")
         return 0
 
     return 0

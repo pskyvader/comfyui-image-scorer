@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 from typing import Any
 import time
 import logging
+from tqdm import tqdm
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ChainManager:
@@ -41,6 +42,7 @@ class ChainManager:
 
         # -- Caches --
         self._min_chain_cache: list[list[str]] | None = None
+        self._node_to_chains_cache: dict[str, list[tuple[int, list[str]]]] | None = None
 
     # ==================================================================
     # Build (full rebuild from comparison list)
@@ -76,7 +78,9 @@ class ChainManager:
             graph_filenames.add(a)
             graph_filenames.add(b)
 
-        self._all_filenames = all_filenames if all_filenames is not None else graph_filenames
+        self._all_filenames = (
+            all_filenames if all_filenames is not None else graph_filenames
+        )
         self._identify_top_bottom()
         self._calculate_chain_lengths()
         self._build_components()
@@ -99,7 +103,8 @@ class ChainManager:
             self._better_than[loser].append(winner)
         self._adjacency[winner].add(loser)
         self._adjacency[loser].add(winner)
-        _log.info(f"  [APPLY] add_edge: {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(f"  [APPLY] add_edge: {time.time()-_s:.4f}s")
+        _s = time.time()
 
         # Initialize ending/starting for new nodes
         if winner not in self._chain_length_ending:
@@ -118,7 +123,8 @@ class ChainManager:
             self._bottom_nodes.append(loser)
         if not self._better_than[winner] and winner not in self._top_nodes:
             self._top_nodes.append(winner)
-        _log.info(f"  [APPLY] top_bottom: {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(f"  [APPLY] top_bottom: {time.time()-_s:.4f}s")
+        _s = time.time()
 
         # -- 3. Forward propagate longest_starting from winner --
         touched: set[str] = set()
@@ -139,7 +145,10 @@ class ChainManager:
                         if pred not in visited:
                             visited.add(pred)
                             queue.append(pred)
-        _log.info(f"  [APPLY] forward_propagate ({len(touched)} nodes): {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(
+        #     f"  [APPLY] forward_propagate ({len(touched)} nodes): {time.time()-_s:.4f}s"
+        # )
+        _s = time.time()
 
         # -- 4. Backward propagate longest_ending from loser --
         new_ending = 1 + self._chain_length_ending.get(winner, 0)
@@ -159,7 +168,10 @@ class ChainManager:
                         if succ not in visited:
                             visited.add(succ)
                             queue.append(succ)
-        _log.info(f"  [APPLY] backward_propagate ({len(touched)} nodes): {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(
+        #     f"  [APPLY] backward_propagate ({len(touched)} nodes): {time.time()-_s:.4f}s"
+        # )
+        _s = time.time()
 
         # -- 5. Recompute chain_length for touched nodes --
         for node in touched:
@@ -178,7 +190,10 @@ class ChainManager:
                 starting = self._chain_length_starting.get(node, 0)
                 self._chain_length[node] = ending + starting
                 self._nodes_by_length[self._chain_length[node]].append(node)
-        _log.info(f"  [APPLY] recompute_chain_length ({len(touched)} nodes): {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(
+        #     f"  [APPLY] recompute_chain_length ({len(touched)} nodes): {time.time()-_s:.4f}s"
+        # )
+        _s = time.time()
 
         # -- 6. Merge components if different --
         cw = self._node_component.get(winner)
@@ -196,31 +211,33 @@ class ChainManager:
         elif cl is None:
             self._node_component[loser] = cw
             self._component_members[cw].append(loser)
-        _log.info(f"  [APPLY] merge_components: {time.time()-_s:.4f}s"); _s = time.time()
+        # logger.info(f"  [APPLY] merge_components: {time.time()-_s:.4f}s")
+        # _s = time.time()
 
         # -- 7. Bookkeeping --
+        self._db_comparison_count += 1
         self._built_at = datetime.now(timezone.utc)
-        _log.info(f"  [APPLY] TOTAL: {time.time()-_t:.4f}s")
+        logger.info(f"  [APPLY] TOTAL: {time.time()-_t:.4f}s")
 
     def _merge_components(self, keep_id: int, remove_id: int) -> None:
         """Merge two components by absorbing the smaller into the larger."""
-        if len(self._component_members.get(keep_id, [])) < len(self._component_members.get(remove_id, [])):
+        if len(self._component_members.get(keep_id, [])) < len(
+            self._component_members.get(remove_id, [])
+        ):
             keep_id, remove_id = remove_id, keep_id
         for node in self._component_members.get(remove_id, []):
             self._node_component[node] = keep_id
-        self._component_members[keep_id].extend(self._component_members.pop(remove_id, []))
+        self._component_members[keep_id].extend(
+            self._component_members.pop(remove_id, [])
+        )
 
     # ==================================================================
     # Internal build helpers
     # ==================================================================
 
     def _identify_top_bottom(self) -> None:
-        self._top_nodes = [
-            n for n in self._all_filenames if not self._better_than[n]
-        ]
-        self._bottom_nodes = [
-            n for n in self._all_filenames if not self._worse_than[n]
-        ]
+        self._top_nodes = [n for n in self._all_filenames if not self._better_than[n]]
+        self._bottom_nodes = [n for n in self._all_filenames if not self._worse_than[n]]
 
     def _calculate_chain_lengths(self) -> None:
         """Chain length = longest_ending_at + longest_starting_from. Iterative DP."""
@@ -267,6 +284,8 @@ class ChainManager:
             else:
                 self._chain_length[node] = ending + starting
             self._nodes_by_length[self._chain_length[node]].append(node)
+        # Invalidate node-to-chains cache since chains changed
+        self._node_to_chains_cache = None
 
     def _build_components(self) -> None:
         visited: set[str] = set()
@@ -295,7 +314,9 @@ class ChainManager:
         """Pre-compute the min chain cover after build so it's cached for first request."""
         _t = time.time()
         self.compute_min_chains()
-        _log.info(f"[CHAIN] min_chain_count prewarmed ({len(self._min_chain_cache)} chains): {time.time()-_t:.3f}s")
+        logger.info(
+            f"[CHAIN] min_chain_count prewarmed ({len(self._min_chain_cache)} chains): {time.time()-_t:.3f}s"
+        )
 
     # ==================================================================
     # Minimum chain cover
@@ -335,9 +356,11 @@ class ChainManager:
         _t = time.time()
         _s = _t
         depth_from_source = self._compute_depth_from_source()
-        _log.info(f"    [MINCHAIN] depth_from_source: {time.time()-_s:.4f}s"); _s = time.time()
+        logger.info(f"    [MINCHAIN] depth_from_source: {time.time()-_s:.4f}s")
+        _s = time.time()
         depth_to_sink = self._compute_depth_to_sink()
-        _log.info(f"    [MINCHAIN] depth_to_sink: {time.time()-_s:.4f}s"); _s = time.time()
+        logger.info(f"    [MINCHAIN] depth_to_sink: {time.time()-_s:.4f}s")
+        _s = time.time()
         by_depth: dict[int, list[str]] = defaultdict(list)
         for node, d in depth_from_source.items():
             by_depth[d].append(node)
@@ -349,8 +372,11 @@ class ChainManager:
 
         covered: set[str] = set()
         chains: list[list[str]] = []
-        all_sorted = sorted(self._all_filenames, key=lambda n: depth_from_source.get(n, 0))
-        _log.info(f"    [MINCHAIN] setup: {time.time()-_s:.4f}s"); _s = time.time()
+        all_sorted = sorted(
+            self._all_filenames, key=lambda n: depth_from_source.get(n, 0)
+        )
+        logger.info(f"    [MINCHAIN] setup: {time.time()-_s:.4f}s")
+        _s = time.time()
 
         def _count_uncov_downstream(node: str, skip: set[str]) -> int:
             visited: set[str] = set()
@@ -373,7 +399,11 @@ class ChainManager:
                 if node not in covered and _count_uncov_downstream(node, set()) > 0:
                     return node
             for node in all_sorted:
-                if node not in covered and self._worse_than.get(node) and _count_uncov_downstream(node, set()) > 0:
+                if (
+                    node not in covered
+                    and self._worse_than.get(node)
+                    and _count_uncov_downstream(node, set()) > 0
+                ):
                     return node
             for node in all_sorted:
                 if node not in covered:
@@ -395,11 +425,16 @@ class ChainManager:
 
                 def score(n: str) -> tuple[int, int]:
                     return (1 if n not in covered else 0, depth_to_sink.get(n, 0))
+
                 candidates.sort(key=score, reverse=True)
                 if len(candidates) > 1 and score(candidates[0])[0] == 1:
                     best_score = score(candidates[0])
                     tied = [c for c in candidates if score(c) == best_score]
-                    best = max(tied, key=lambda n: _count_uncov_downstream(n, in_chain)) if len(tied) > 1 else tied[0]
+                    best = (
+                        max(tied, key=lambda n: _count_uncov_downstream(n, in_chain))
+                        if len(tied) > 1
+                        else tied[0]
+                    )
                 else:
                     best = candidates[0]
                 cur = best
@@ -407,7 +442,9 @@ class ChainManager:
             if start not in self._top_nodes:
                 cur = start
                 while True:
-                    preds = [p for p in self._better_than.get(cur, []) if p not in in_chain]
+                    preds = [
+                        p for p in self._better_than.get(cur, []) if p not in in_chain
+                    ]
                     if not preds:
                         break
                     best_pred = max(preds, key=lambda p: depth_from_source.get(p, 0))
@@ -432,17 +469,43 @@ class ChainManager:
                         break
             else:
                 chains.append(chain)
-        _log.info(f"    [MINCHAIN] greedy_build ({len(chains)} chains): {time.time()-_s:.4f}s"); _s = time.time()
-        _log.info(f"    [MINCHAIN] TOTAL: {time.time()-_t:.4f}s")
+        logger.info(
+            f"    [MINCHAIN] greedy_build ({len(chains)} chains): {time.time()-_s:.4f}s"
+        )
+        _s = time.time()
+        logger.info(f"    [MINCHAIN] TOTAL: {time.time()-_t:.4f}s")
         return chains
 
     def compute_min_chains(self) -> list[list[str]]:
         if self._min_chain_cache is None:
             self._min_chain_cache = self._do_min_chains()
+            # Pre-compute node-to-chains index when chains are computed
+            self._build_node_to_chains_index()
         return self._min_chain_cache
+
+    def _build_node_to_chains_index(self) -> None:
+        """Build reverse index: node_id -> list of (chain_id, chain) tuples."""
+        if self._min_chain_cache is None:
+            self._node_to_chains_cache = {}
+            return
+        index: dict[str, list[tuple[int, list[str]]]] = {}
+        for i, chain in enumerate(self._min_chain_cache):
+            for node in chain:
+                if node not in index:
+                    index[node] = []
+                index[node].append((i, chain))
+        self._node_to_chains_cache = index
+
+    def _get_node_chains(self, node_id: str) -> list[tuple[int, list[str]]]:
+        """Fast lookup: get all chains containing a node. O(1) after index is built."""
+        # Ensure chains and index are computed
+        if self._node_to_chains_cache is None:
+            self.compute_min_chains()
+        return self._node_to_chains_cache.get(node_id, [])
 
     def _invalidate_min_chain_cache(self) -> None:
         self._min_chain_cache = None
+        self._node_to_chains_cache = None
 
     def get_min_chain_count(self) -> int:
         return len(self.compute_min_chains())
@@ -492,7 +555,9 @@ class ChainManager:
     # ==================================================================
 
     def _can_reach(
-        self, start: str, end: str,
+        self,
+        start: str,
+        end: str,
         skip_edges: set[tuple[str, str]] | None = None,
     ) -> bool:
         if start not in self._all_filenames or end not in self._all_filenames:
@@ -512,7 +577,9 @@ class ChainManager:
         return False
 
     def is_redundant(
-        self, u: str, v: str,
+        self,
+        u: str,
+        v: str,
         skip_edges: set[tuple[str, str]] | None = None,
     ) -> bool:
         if u not in self._all_filenames or v not in self._all_filenames:
@@ -560,6 +627,7 @@ class ChainManager:
 # Proxy classes — lightweight, ephemeral, hold no mutable state
 # ======================================================================
 
+
 class NodeProxy:
     """Represents one image/node in the graph. Created on demand, zero overhead."""
 
@@ -577,10 +645,14 @@ class NodeProxy:
     def is_bottom(self) -> bool:
         return self._node_id in self._chain._bottom_nodes
 
-    def get_links(self, better_than: bool = False, worse_than: bool = False) -> list[NodeProxy]:
+    def get_links(
+        self, better_than: bool = False, worse_than: bool = False
+    ) -> list[NodeProxy]:
         if better_than and worse_than:
-            raise ValueError("A node cannot be simultaneously better than and worse than the same node. "
-                             "Set only one of better_than/worse_than, or neither for all links.")
+            raise ValueError(
+                "A node cannot be simultaneously better than and worse than the same node. "
+                "Set only one of better_than/worse_than, or neither for all links."
+            )
         if not better_than and not worse_than:
             results: list[str] = []
             results.extend(self._chain._better_than.get(self._node_id, []))
@@ -598,16 +670,15 @@ class NodeProxy:
         return unique
 
     def get_chain(self, only_main: bool = True) -> list[ChainProxy]:
-        min_chains = self._chain.compute_min_chains()
-        matching: list[list[str]] = []
-        for c in min_chains:
-            if self._node_id in c:
-                matching.append(c)
+        # Use fast index lookup instead of searching all chains
+        matching: list[tuple[int, list[str]]] = self._chain._get_node_chains(
+            self._node_id
+        )
         if only_main:
             if not matching:
-                return []
-            matching = [max(matching, key=len)]
-        return [ChainProxy(self._chain, i, c) for i, c in enumerate(matching)]
+                raise ValueError(f"Node {self._node_id} is not in any chain")
+            matching = [max(matching, key=lambda x: len(x[1]))]
+        return [ChainProxy(self._chain, i, c) for i, c in matching]
 
     def get_position_in_chain(self) -> int:
         chains = self.get_chain(only_main=True)
@@ -632,7 +703,9 @@ class NodeProxy:
 class ChainProxy:
     """Represents one directed path (chain). Created from min chain cover results."""
 
-    def __init__(self, chain: ChainManager, chain_id: int, node_list: list[str]) -> None:
+    def __init__(
+        self, chain: ChainManager, chain_id: int, node_list: list[str]
+    ) -> None:
         self._chain = chain
         self._id = chain_id
         self._nodes = node_list
@@ -661,7 +734,9 @@ class ChainProxy:
             return None
         return NodeProxy(self._chain, self._nodes[-1])
 
-    def get_nodes(self, only_top: bool = False, only_bottom: bool = False) -> list[NodeProxy]:
+    def get_nodes(
+        self, only_top: bool = False, only_bottom: bool = False
+    ) -> list[NodeProxy]:
         if only_top and only_bottom:
             raise ValueError("only_top and only_bottom cannot both be True")
         if not only_top and not only_bottom:
@@ -706,20 +781,27 @@ class ComponentProxy:
 
     @property
     def nodes(self) -> list[NodeProxy]:
-        return [NodeProxy(self._chain, n) for n in self._chain._component_members.get(self._id, [])]
+        return [
+            NodeProxy(self._chain, n)
+            for n in self._chain._component_members.get(self._id, [])
+        ]
 
     @property
     def size(self) -> int:
         return len(self._chain._component_members.get(self._id, []))
 
     def get_chains(self, minimal_required: bool = True) -> list[ChainProxy]:
-        all_chains = self._chain.compute_min_chains() if minimal_required else self._chain.enumerate_top_chains()
+        all_chains = (
+            self._chain.compute_min_chains()
+            if minimal_required
+            else self._chain.enumerate_top_chains()
+        )
         comp_nodes = set(self._chain._component_members.get(self._id, []))
-        matching: list[list[str]] = []
-        for c in all_chains:
+        matching: list[tuple[int, list[str]]] = []
+        for i, c in enumerate(all_chains):
             if any(n in comp_nodes for n in c):
-                matching.append(c)
-        return [ChainProxy(self._chain, i, c) for i, c in enumerate(matching)]
+                matching.append((i, c))
+        return [ChainProxy(self._chain, i, c) for i, c in matching]
 
     def __repr__(self) -> str:
         return f"ComponentProxy(id={self._id}, size={self.size})"
@@ -728,6 +810,10 @@ class ComponentProxy:
 # ======================================================================
 # CrystalGraph — main public API
 # ======================================================================
+nodeTuple = tuple[NodeProxy, bool]
+chainTuple = tuple[ChainProxy, list[nodeTuple]]
+chainDict = dict[int, chainTuple]
+
 
 class CrystalGraph:
     """Main graph API. All access through get_* methods returning proxy objects."""
@@ -736,6 +822,7 @@ class CrystalGraph:
         self._chain = ChainManager()
         self._images: dict[str, dict[str, Any]] = {}
         self._comparisons: list[dict[str, Any]] = []
+        self._chain_map: dict[int, chainDict] | None = None
 
     # -- Lifecycle ------------------------------------------------------
 
@@ -744,8 +831,12 @@ class CrystalGraph:
         images: list[dict[str, Any]] | None = None,
         comparisons: list[dict[str, Any]] | None = None,
     ) -> None:
-        from external_modules.step01ranking_new.database.images_table import get_all_images
-        from external_modules.step01ranking_new.database.comparisons_table import get_all_comparisons
+        from external_modules.step01ranking.database.images_table import (
+            get_all_images,
+        )
+        from external_modules.step01ranking.database.comparisons_table import (
+            get_all_comparisons,
+        )
 
         if images is None:
             images = get_all_images()
@@ -771,7 +862,10 @@ class CrystalGraph:
     def is_cache_stale(self) -> bool:
         if self._chain._built_at is None:
             return True
-        from external_modules.step01ranking_new.database.comparisons_table import get_total_comparisons
+        from external_modules.step01ranking.database.comparisons_table import (
+            get_total_comparisons,
+        )
+
         return get_total_comparisons() != self._chain._db_comparison_count
 
     # -- Node lookups ---------------------------------------------------
@@ -794,7 +888,9 @@ class CrystalGraph:
 
     # -- Chain lookups --------------------------------------------------
 
-    def get_chain(self, node_id: str | None = None, chain_id: int | None = None) -> ChainProxy | None:
+    def get_chain(
+        self, node_id: str | None = None, chain_id: int | None = None
+    ) -> ChainProxy | None:
         if (node_id is None) == (chain_id is None):
             raise ValueError("Exactly one of node_id or chain_id is required")
         if node_id is not None:
@@ -821,7 +917,9 @@ class CrystalGraph:
     def get_all_sub_chains(
         self, max_chains: int = 20000000, max_depth: int = 50000
     ) -> list[ChainProxy]:
-        raw = self._chain.enumerate_all_chains(max_chains=max_chains, max_depth=max_depth)
+        raw = self._chain.enumerate_all_chains(
+            max_chains=max_chains, max_depth=max_depth
+        )
         return [ChainProxy(self._chain, i, c) for i, c in enumerate(raw)]
 
     # -- Component lookups ----------------------------------------------
@@ -834,7 +932,9 @@ class CrystalGraph:
     ) -> ComponentProxy | None:
         n_specified = sum(1 for x in (node_id, component_id, chain_id) if x is not None)
         if n_specified != 1:
-            raise ValueError("Exactly one of node_id, component_id, or chain_id is required")
+            raise ValueError(
+                "Exactly one of node_id, component_id, or chain_id is required"
+            )
         if node_id is not None:
             cid = self._chain._node_component.get(node_id)
             if cid is None:
@@ -855,7 +955,9 @@ class CrystalGraph:
         return None
 
     def get_all_components(self) -> list[ComponentProxy]:
-        return [ComponentProxy(self._chain, cid) for cid in self._chain._component_members]
+        return [
+            ComponentProxy(self._chain, cid) for cid in self._chain._component_members
+        ]
 
     # -- Links ----------------------------------------------------------
 
@@ -867,7 +969,9 @@ class CrystalGraph:
                 key = (winner, loser)
                 if key not in seen:
                     seen.add(key)
-                    result.append((NodeProxy(self._chain, winner), NodeProxy(self._chain, loser)))
+                    result.append(
+                        (NodeProxy(self._chain, winner), NodeProxy(self._chain, loser))
+                    )
         return result
 
     # -- Stats ----------------------------------------------------------
@@ -882,12 +986,16 @@ class CrystalGraph:
             "longest_chain_depth": max(chain_lens) if chain_lens else 0,
             "top_nodes_count": len(self._chain._top_nodes),
             "bottom_nodes_count": len(self._chain._bottom_nodes),
-            "built_at": self._chain._built_at.isoformat() if self._chain._built_at else None,
+            "built_at": (
+                self._chain._built_at.isoformat() if self._chain._built_at else None
+            ),
         }
 
     def get_cache_info(self) -> dict[str, Any]:
         return {
-            "built_at": self._chain._built_at.isoformat() if self._chain._built_at else None,
+            "built_at": (
+                self._chain._built_at.isoformat() if self._chain._built_at else None
+            ),
             "comparison_count_at_build": self._chain._db_comparison_count,
             "is_stale": self.is_cache_stale(),
         }
@@ -895,7 +1003,9 @@ class CrystalGraph:
     # -- Delegated helpers (used externally) ----------------------------
 
     def is_redundant(
-        self, u: str, v: str,
+        self,
+        u: str,
+        v: str,
         skip_edges: set[tuple[str, str]] | None = None,
     ) -> bool:
         return self._chain.is_redundant(u, v, skip_edges)
@@ -905,6 +1015,59 @@ class CrystalGraph:
 
     def get_collapsable_pairs(self) -> list[tuple[str, str]]:
         return self._chain.get_collapsable_pairs()
+
+    def get_chains_map(self) -> dict[int, chainDict]:
+        if self._chain_map is not None:
+            return self._chain_map
+
+        chains: list[ChainProxy] = crystal_graph.get_all_chains()
+        chain_map: dict[int, list[ChainProxy]] = {}
+        with tqdm(total=len(chains), desc="Mapping chains by length") as pbar:
+            for c in chains:
+                if c.length not in chain_map:
+                    chain_map[c.length] = []
+                chain_map[c.length].append(c)
+                pbar.update(1)
+
+        # sort map by length
+        chain_map = dict(sorted(chain_map.items(), key=lambda item: item[0]))
+
+        all_nodes: list[NodeProxy] = crystal_graph.get_all_nodes()
+
+        main_chains: dict[int, list[str]] = {}
+        with tqdm(all_nodes, desc="Processing nodes") as pbar:
+            for node in all_nodes:
+                chain_id: int = node.get_chain()[0].id
+                if chain_id not in main_chains:
+                    main_chains[chain_id] = []
+                main_chains[chain_id].append(node.filename)
+                pbar.update(1)
+
+        final_map: dict[int, chainDict] = {}
+        # dict [chain_length, dict[chain_id, list[tuple[node, is_main_node]]]]
+        with tqdm(total=len(chains), desc="Building final map") as pbar:
+            for lengths in chain_map:
+                for chain in chain_map[lengths]:
+                    if chain.id not in main_chains:
+                        print(f"Warning: Chain ID {chain.id} not found in main_chains")
+                        continue
+
+                    if chain.length not in final_map:
+                        final_map[chain.length] = {}
+
+                    local_main_chains: list[str] = main_chains[chain.id]
+
+                    final_chain: list[nodeTuple] = []
+                    nodes_in_chain: list[NodeProxy] = chain.get_nodes()
+
+                    for node in nodes_in_chain:
+                        is_main_node: bool = node.filename in local_main_chains
+                        final_chain.append((node, is_main_node))
+
+                    final_map[chain.length][chain.id] = (chain, final_chain)
+                    pbar.update(1)
+        self._chain_map = final_map
+        return self._chain_map
 
 
 crystal_graph = CrystalGraph()
