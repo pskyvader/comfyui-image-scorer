@@ -29,7 +29,8 @@
 
         <div class="flex flex-col gap-1 min-w-[150px]">
             <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sort</label>
-            <select id="sort-filter" class="bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none text-white">
+            <select id="sort-filter"
+                class="bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none text-white">
                 <option value="score_desc">Score (High to Low)</option>
                 <option value="score_asc">Score (Low to High)</option>
                 <option value="comparisons_asc">Comparisons (Low to High)</option>
@@ -42,18 +43,28 @@
         <div class="flex flex-col gap-1 min-w-[200px] flex-[1.5]">
             <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
                 <span>Tag Search</span>
-                <select id="search-mode" class="bg-dark-800 border border-white/10 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-purple-500">
+                <select id="search-mode"
+                    class="bg-dark-800 border border-white/10 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-purple-500">
                     <option value="both" selected>Prioritize ALL, then ANY</option>
                     <option value="and">Match ALL tags (Strict)</option>
                     <option value="or">Match ANY tag (Broad)</option>
                 </select>
             </label>
-            <input type="text" id="tags-filter" placeholder="e.g. cyberpunk, portrait..." 
+            <input type="text" id="tags-filter" placeholder="e.g. cyberpunk, portrait..."
                 class="bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none text-white w-full">
         </div>
     </div>
 
     <div id="gallery-status" class="text-center text-gray-400 mb-6 font-medium">Loading gallery...</div>
+
+    <!-- Action Buttons -->
+    <div class="flex gap-2 mb-6">
+        <button id="compare-selected-btn"
+            class="hidden px-6 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg transition text-sm font-bold shadow-lg flex items-center gap-2 animate-pulse"
+            onclick="window.galleryView.compareSelected()">
+            Compare Selected (<span id="selected-count">0</span>)
+        </button>
+    </div>
 
     <!-- Grid -->
     <div id="gallery-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -61,32 +72,42 @@
     </div>
 
     <!-- Infinite Scroll Sentinel -->
-    <div id="scroll-sentinel" class="h-16 flex items-center justify-center mt-8 text-gray-500 opacity-0 transition-opacity">
-        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <div id="scroll-sentinel"
+        class="h-16 flex items-center justify-center mt-8 text-gray-500 opacity-0 transition-opacity">
+        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none"
+            viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+            </path>
         </svg>
         Loading more...
     </div>
 </div>
 
 <!-- Modal -->
-<div id="image-modal" class="fixed inset-0 z-[1000] hidden bg-black/90 backdrop-blur-sm items-center justify-center p-4">
-    <span class="modal-close absolute top-6 right-8 text-4xl text-gray-400 hover:text-white cursor-pointer z-[1010]">&times;</span>
+<div id="image-modal"
+    class="fixed inset-0 z-[1000] hidden bg-black/90 backdrop-blur-sm items-center justify-center p-4">
+    <span
+        class="modal-close absolute top-6 right-8 text-4xl text-gray-400 hover:text-white cursor-pointer z-[1010]">&times;</span>
 
     <div id="modal-prev" class="nav-arrow nav-prev">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
         </svg>
     </div>
     <div id="modal-next" class="nav-arrow nav-next">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            stroke-width="2.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
         </svg>
     </div>
 
-    <div class="relative max-w-6xl w-full h-full max-h-[95vh] flex flex-col items-center overflow-y-auto custom-scrollbar p-2 md:p-6" id="modal-container">
-        <img id="modal-image" src="" alt="Full size" class="max-w-full max-h-[70vh] md:max-h-[80vh] object-contain rounded-xl shadow-2xl border border-white/10 mb-4 bg-dark-900 flex-shrink-0">
+    <div class="relative max-w-6xl w-full h-full max-h-[95vh] flex flex-col items-center overflow-y-auto custom-scrollbar p-2 md:p-6"
+        id="modal-container">
+        <img id="modal-image" src="" alt="Full size"
+            class="max-w-full max-h-[70vh] md:max-h-[80vh] object-contain rounded-xl shadow-2xl border border-white/10 mb-4 bg-dark-900 flex-shrink-0">
         <div class="glass p-4 md:p-6 rounded-xl text-center w-full max-w-4xl border border-white/10 flex-shrink-0 mb-8">
             <p id="modal-filename" class="text-white font-medium break-all mb-4 text-xs md:text-sm opacity-80"></p>
             <div id="modal-metadata" class="flex flex-wrap justify-center gap-3 text-[10px] md:text-xs">
@@ -96,27 +117,40 @@
             <!-- Tags Section -->
             <div id="modal-tags" class="mt-4 pt-4 border-t border-white/5 hidden">
                 <span class="text-gray-400 block uppercase text-[8px] tracking-widest mb-2">Tags</span>
-                <div id="tags-container" class="bg-dark-900/50 p-3 rounded-lg border border-white/5 text-[10px] text-gray-300 text-left leading-relaxed italic break-words">
+                <div id="tags-container"
+                    class="bg-dark-900/50 p-3 rounded-lg border border-white/5 text-[10px] text-gray-300 text-left leading-relaxed italic break-words">
                     <!-- Injected by JS -->
                 </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2 justify-center">
+                <button id="modal-select-btn" onclick="window.galleryView.toggleSelection()"
+                    class="flex-1 py-2 bg-pink-600 hover:bg-pink-500 rounded-lg text-[11px] font-bold transition shadow-lg">
+                    Select
+                </button>
             </div>
 
             <!-- History Section -->
             <div id="modal-history" class="mt-6 pt-6 border-t border-white/10 hidden">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div class="flex flex-col">
-                        <h3 class="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center justify-center">
+                        <h3
+                            class="text-xs font-bold text-green-400 uppercase tracking-widest mb-3 flex items-center justify-center">
                             <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span> Won Against
                         </h3>
-                        <div id="history-wins" class="flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
+                        <div id="history-wins"
+                            class="flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
                             <!-- Wins injected by JS -->
                         </div>
                     </div>
                     <div class="flex flex-col">
-                        <h3 class="text-xs font-bold text-red-400 uppercase tracking-widest mb-3 flex items-center justify-center">
+                        <h3
+                            class="text-xs font-bold text-red-400 uppercase tracking-widest mb-3 flex items-center justify-center">
                             <span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span> Lost Against
                         </h3>
-                        <div id="history-losses" class="flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
+                        <div id="history-losses"
+                            class="flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
                             <!-- Losses injected by JS -->
                         </div>
                     </div>

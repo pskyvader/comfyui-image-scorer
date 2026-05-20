@@ -22,12 +22,12 @@ from database.comparisons_table import (
     get_total_comparisons,
     get_skipped_comparison_count,
 )
-from algorithm import merge_sort_ranker
+from algorithm import merge_sort_ranker, state
 from file_management.path_handler import sync_image_metadata_to_json
 from shared.graph import crystal_graph
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _get_processor() -> Any:
@@ -291,10 +291,19 @@ def get_next_pair():
             node_a = crystal_graph.get_node(filename_a)
             node_b = crystal_graph.get_node(filename_b)
 
-            chains_a = node_a.get_chain(only_main=True) if node_a else []
+            try:
+                chains_a = node_a.get_chain(only_main=True) if node_a else []
+            except Exception as e:
+                logger.warning(f"Failed to get chain for {filename_a}: {e}")
+                chains_a = []
             height_a = chains_a[0].length if chains_a else 0
 
-            chains_b = node_b.get_chain(only_main=True) if node_b else []
+            try:
+                chains_b = node_b.get_chain(only_main=True) if node_b else []
+            except Exception as e:
+                logger.warning(f"Failed to get chain for {filename_b}: {e}")
+                chains_b = []
+
             height_b = chains_b[0].length if chains_b else 0
 
             comp_a = crystal_graph.get_component(node_id=filename_a)
@@ -391,12 +400,14 @@ def reset_ranking_queue():
     """
 
     try:
-        from server import image_processor
+        processor = _get_processor()
 
-        if image_processor:
-            with image_processor.recent_lock:
-                image_processor.recent_images.clear()
-                image_processor.recent_chains.clear()
+        if processor:
+            with processor.recent_lock:
+                processor.recent_images.clear()
+                processor.recent_chains.clear()
+                state.clear_old_cache(force=True)
+                crystal_graph.rebuild_from_database()
                 logger.info("[RESET] Cleared processor recent images LRU queue.")
         return jsonify({"status": "success", "message": "Ranking queue reset."})
     except Exception as e:
@@ -418,6 +429,12 @@ def submit_comparison():
 
     Returns JSON with updated scores for both images.
     """
+    if crystal_graph.is_cache_stale():
+        logger.debug(
+            "[SUBMIT] Graph cache is stale, rebuilding before applying comparison."
+        )
+        crystal_graph.rebuild_from_database()
+
     data = request.get_json()
     if not data:
         return jsonify({"error": "Missing request body"}), 400
@@ -542,14 +559,30 @@ def get_graph_data():
             comp.id: [n.filename for n in comp.nodes] for comp in all_components
         }
 
+        # Serialize chains for frontend visualization
+        chains = []
+        try:
+            for chain_proxy in crystal_graph.get_all_chains():
+                comp = chain_proxy.get_component()
+                chains.append(
+                    {
+                        "id": chain_proxy.id,
+                        "component": comp.id if comp else None,
+                        "nodes": [n.filename for n in chain_proxy.nodes],
+                    }
+                )
+        except Exception as chain_err:
+            logger.warning(f"Chain serialization skipped: {chain_err}")
+
         logger.info(
-            f"Serialization complete. Returning {len(nodes)} nodes and {len(edges)} edges."
+            f"Serialization complete. Returning {len(nodes)} nodes, {len(edges)} edges, {len(chains)} chains."
         )
         return jsonify(
             {
                 "nodes": nodes,
                 "edges": edges,
                 "components": component_members,
+                "chains": chains,
                 "stats": {
                     "total_nodes": len(nodes),
                     "total_edges": len(edges),

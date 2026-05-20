@@ -19,6 +19,8 @@ def get_db_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory-mapped I/O
+    conn.execute("PRAGMA cache_size = -8192")  # 8MB cache
     
     return conn
 
@@ -102,6 +104,11 @@ def init_database() -> None:
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_comparisons_pair ON comparisons(filename_a, filename_b, winner)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_comparisons_winner_files ON comparisons(winner, filename_a, filename_b)
             """
         )
 

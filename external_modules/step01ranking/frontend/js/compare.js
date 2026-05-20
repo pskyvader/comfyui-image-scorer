@@ -6,9 +6,21 @@ class CompareMode {
     constructor() {
         this.currentPair = null;
         this._submitting = false;
+        this._hasSubmitted = false;
+        this._prefetching = false;
+        this._pairCache = [];
+        this._submissionQueue = [];
+        this._outgoingQueue = [];
+        this._processingQueue = false;
+        this._processLoopRunning = false;
+        this._UNDO_DELAY_MS = 10000;
 
         // These will be populated in init()
         this.elements = {};
+    }
+
+    get _targetCacheSize() {
+        return this._hasSubmitted ? 10 : 0;
     }
 
     cacheElements() {
@@ -50,11 +62,100 @@ class CompareMode {
             leftCard: document.querySelector(".left-card"),
             rightCard: document.querySelector(".right-card"),
             collapsibleIndicator: document.getElementById("collapsible-indicator"),
+            resetCacheButton: document.getElementById("reset-cache-button"),
+            queueIndicator: this._createQueueIndicator(),
+            undoButton: this._createUndoButton(),
         };
     }
 
+    _createQueueIndicator() {
+        const el = document.createElement("div");
+        el.id = "queue-indicator";
+        el.style.cssText = `
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 10px;
+            font-family: monospace;
+            color: #a0a0a0;
+            z-index: 9999;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: opacity 0.2s;
+            opacity: 0;
+        `;
+        el.innerHTML = `
+            <span id="qi-pending" title="Votes pending submission">⬆ 0</span>
+            <span style="opacity:0.3">|</span>
+            <span id="qi-ready" title="Comparisons fully loaded (images ready)">⬇ 0</span>
+        `;
+        document.body.appendChild(el);
+        return el;
+    }
+
+    _createUndoButton() {
+        const el = document.createElement("div");
+        el.id = "undo-button";
+        el.style.cssText = `
+            position: fixed;
+            bottom: 56px;
+            right: 12px;
+            z-index: 9999;
+            display: none;
+            cursor: pointer;
+            background: rgba(0,0,0,0.55);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(240,160,80,0.3);
+            border-radius: 12px;
+            padding: 8px;
+            font-size: 13px;
+            font-family: system-ui, sans-serif;
+            color: #f0a050;
+            font-weight: 700;
+            transition: opacity 0.2s, background 0.2s;
+            overflow: hidden;
+            min-width: 180px;
+            max-width: 220px;
+        `;
+        el.innerHTML = `
+            <div id="undo-thumbs" style="display:flex;justify-content:center;gap:8px;margin-bottom:6px;"></div>
+            <div style="display:flex;justify-content:center;align-items:center;gap:6px;position:relative;z-index:1;">
+                <span>↩ UNDO</span>
+                <span id="undo-timer" style="font-size:10px;color:#888;"></span>
+            </div>
+            <div id="undo-progress" style="position:absolute;left:0;bottom:0;height:3px;width:0%;background:#f0a050;border-radius:0 0 12px 12px;transition:none;"></div>
+        `;
+        el.onclick = () => this._undoLast();
+        document.body.appendChild(el);
+        this._undoProgressEl = el.querySelector("#undo-progress");
+        this._undoTimerEl = el.querySelector("#undo-timer");
+        this._undoThumbsEl = el.querySelector("#undo-thumbs");
+        return el;
+    }
+
+    _updateQueueIndicator() {
+        const el = this.elements.queueIndicator;
+        if (!el) {
+            return;
+        }
+        const pending = this._submissionQueue.length + this._outgoingQueue.length;
+        const ready = this._pairCache.length;
+
+        el.querySelector("#qi-pending").textContent = `⬆ ${pending}`;
+        el.querySelector("#qi-ready").textContent = `⬇ ${ready}`;
+
+        el.style.opacity = (pending + ready) > 0 ? "1" : "0.5";
+    }
+
     attachEventListeners() {
-        const { leftButton, rightButton, skipButton, debugBtn, leftCard, rightCard } = this.elements;
+        const { leftButton, rightButton, skipButton, debugBtn, leftCard, rightCard, resetCacheButton } = this.elements;
 
         leftButton.onclick = () => this.submitVote("left");
         rightButton.onclick = () => this.submitVote("right");
@@ -79,6 +180,9 @@ class CompareMode {
         }
         if (debugBtn) {
             debugBtn.onclick = () => this.elements.debugPanel.classList.toggle("hidden");
+        }
+        if (resetCacheButton) {
+            resetCacheButton.onclick = () => this.resetCache();
         }
     }
 
@@ -119,10 +223,18 @@ class CompareMode {
 
     async loadPair() {
         this.showLoading(true);
-        this.updateStatus("Finding next pair...");
+        this.updateStatus(this._pairCache.length > 0 ? "Loading next pair..." : "Finding next pair...");
 
         try {
-            const pair = await api.getNextPair();
+            let cached;
+            let pair;
+            if (this._pairCache.length > 0) {
+                cached = this._pairCache.shift();
+                pair = cached.pair;
+            } else {
+                pair = await api.getNextPair();
+            }
+
             if (!pair) {
                 this.updateStatus("No more pairs to compare!");
                 this.elements.leftButton.disabled = true;
@@ -130,9 +242,11 @@ class CompareMode {
                 this.showLoading(false);
                 return;
             }
-            this.currentPair = pair;
+            this.currentPair = { ...pair, _preloadedLeft: cached?.leftImg, _preloadedRight: cached?.rightImg };
             await this.renderPair();
             this.showLoading(false);
+
+            this._startPrefetch();
         } catch (e) {
             this.updateStatus(`Error: ${e.message}`);
             Utils.showToast(e.message, "error");
@@ -459,39 +573,208 @@ class CompareMode {
         els.leftImg.src = `/images/${encodeURIComponent(left.filename)}`;
         els.rightImg.src = `/images/${encodeURIComponent(right.filename)}`;
 
-        await Promise.all([
-            Utils.preloadImage(els.leftImg.src),
-            Utils.preloadImage(els.rightImg.src),
-        ]);
+        // Use preloaded images if available (instant, no await needed)
+        if (this.currentPair._preloadedLeft) {
+            els.leftImg.src = this.currentPair._preloadedLeft.src;
+            els.leftImg.classList.remove("opacity-0");
+            els.leftImg.classList.add("opacity-100");
+        } else {
+            els.leftImg.src = `/images/${encodeURIComponent(left.filename)}`;
+            await new Promise((resolve) => {
+                els.leftImg.onload = resolve; els.leftImg.onerror = resolve;
+            });
+            els.leftImg.classList.remove("opacity-0");
+            els.leftImg.classList.add("opacity-100");
+        }
 
-        els.leftImg.classList.remove("opacity-0");
-        els.rightImg.classList.remove("opacity-0");
-        els.leftImg.classList.add("opacity-100");
-        els.rightImg.classList.add("opacity-100");
+        if (this.currentPair._preloadedRight) {
+            els.rightImg.src = this.currentPair._preloadedRight.src;
+            els.rightImg.classList.remove("opacity-0");
+            els.rightImg.classList.add("opacity-100");
+        } else {
+            els.rightImg.src = `/images/${encodeURIComponent(right.filename)}`;
+            await new Promise((resolve) => {
+                els.rightImg.onload = resolve; els.rightImg.onerror = resolve;
+            });
+            els.rightImg.classList.remove("opacity-0");
+            els.rightImg.classList.add("opacity-100");
+        }
     }
 
     async submitVote(winner) {
-        if (this._submitting) {
-            return;
-        }
-        this._submitting = true;
-
         const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
         const filenameA = this.currentPair.left.filename;
         const filenameB = this.currentPair.right.filename;
 
-        // Load the next pair directly
-        await this.loadPair();
+        const leftSrc = this.currentPair._preloadedLeft?.src || `/images/${encodeURIComponent(filenameA)}`;
+        const rightSrc = this.currentPair._preloadedRight?.src || `/images/${encodeURIComponent(filenameB)}`;
 
-        api.submitComparison(filenameA, filenameB, winnerFilename)
-            .then(() => {
-                Utils.showToast("Vote recorded!", "success");
-            })
-            .catch((e) => {
-                Utils.showToast("Failed to submit: " + e.message, "error");
-            });
+        this._submissionQueue.push({
+            filenameA, filenameB, winnerFilename,
+            leftSrc, rightSrc,
+            queuedAt: Date.now(),
+        });
+        this._updateQueueIndicator();
+        this._showUndoButton();
 
-        this._submitting = false;
+        // Start the processing loop
+        this._startProcessLoop();
+
+        // Immediately advance to next pair without waiting
+        this.loadPair();
+    }
+
+    async _startProcessLoop() {
+        if (this._processLoopRunning) {
+            return;
+        }
+        this._processLoopRunning = true;
+        this._processLoop();
+    }
+
+    async _processLoop() {
+        while (this._processLoopRunning) {
+            if (this._submissionQueue.length === 0) {
+                this._processLoopRunning = false;
+                this._startPrefetch();
+                return;
+            }
+
+            const front = this._submissionQueue[0];
+            const elapsed = Date.now() - front.queuedAt;
+            const remaining = this._UNDO_DELAY_MS - elapsed;
+
+            if (remaining <= 0) {
+                // Time's up, submit it
+                this._submissionQueue.shift();
+                this._outgoingQueue.push(front);
+                this._updateQueueIndicator();
+                this._updateUndoUI();
+
+                try {
+                    await api.submitComparison(front.filenameA, front.filenameB, front.winnerFilename);
+                    this._hasSubmitted = true;
+                } catch (e) {
+                    Utils.showToast("Failed to submit: " + e.message, "error");
+                } finally {
+                    this._outgoingQueue.shift();
+                    this._updateQueueIndicator();
+                    this._updateUndoUI();
+                }
+            } else {
+                // Wait for remaining time, then loop again
+                await new Promise(r => setTimeout(r, remaining));
+            }
+        }
+    }
+
+    _undoLast() {
+        if (this._submissionQueue.length === 0) {
+            return;
+        }
+
+        this._submissionQueue.pop();
+
+        // Reset timer on the new last item so user gets another 10s to undo it
+        if (this._submissionQueue.length > 0) {
+            this._submissionQueue[this._submissionQueue.length - 1].queuedAt = Date.now();
+        }
+
+        this._updateQueueIndicator();
+        this._updateUndoUI();
+        Utils.showToast("Vote undone", "info");
+    }
+
+    _updateUndoUI() {
+        const btn = this.elements.undoButton;
+        if (!btn) {
+            return;
+        }
+
+        if (this._submissionQueue.length === 0) {
+            btn.style.display = "none";
+            return;
+        }
+
+        btn.style.display = "block";
+
+        const last = this._submissionQueue[this._submissionQueue.length - 1];
+        const isLeftWinner = last.winnerFilename === last.filenameA;
+        const leftStyle = isLeftWinner
+            ? "width:72px;height:72px;object-fit:cover;border-radius:6px;border:2px solid #10b981;box-shadow:0 0 8px rgba(16,185,129,0.5);"
+            : "width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid rgba(255,255,255,0.1);opacity:0.5;";
+        const rightStyle = !isLeftWinner
+            ? "width:72px;height:72px;object-fit:cover;border-radius:6px;border:2px solid #10b981;box-shadow:0 0 8px rgba(16,185,129,0.5);"
+            : "width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid rgba(255,255,255,0.1);opacity:0.5;";
+        this._undoThumbsEl.innerHTML = `
+            <img src="${last.leftSrc}" style="${leftStyle}" />
+            <img src="${last.rightSrc}" style="${rightStyle}" />
+        `;
+
+        // Animate progress bar and timer for the last item
+        const start = last.queuedAt;
+        const tick = () => {
+            if (this._submissionQueue.length === 0 || this._submissionQueue[this._submissionQueue.length - 1] !== last) {
+                return;
+            }
+            const elapsed = Date.now() - start;
+            const pct = Math.min(elapsed / this._UNDO_DELAY_MS, 1);
+            this._undoProgressEl.style.width = `${pct * 100}%`;
+            const secs = Math.max(0, Math.ceil((this._UNDO_DELAY_MS - elapsed) / 1000));
+            this._undoTimerEl.textContent = `${secs}s`;
+            if (pct < 1) {
+                requestAnimationFrame(tick);
+            }
+        };
+        requestAnimationFrame(tick);
+    }
+
+    _showUndoButton() {
+        this._updateUndoUI();
+    }
+
+    _startPrefetch() {
+        const hasPendingSubmissions = this._outgoingQueue.length > 0 || this._processingQueue;
+        if (hasPendingSubmissions || this._prefetching || this._pairCache.length >= this._targetCacheSize) {
+            return;
+        }
+        this._prefetching = true;
+        this._prefetchLoop();
+    }
+
+    async _prefetchLoop() {
+        while (this._prefetching && this._pairCache.length < this._targetCacheSize) {
+            const hasPendingSubmissions = this._outgoingQueue.length > 0 || this._processingQueue;
+            if (hasPendingSubmissions) {
+                await new Promise(r => setTimeout(r, 200));
+                continue;
+            }
+
+            try {
+                const pair = await api.getNextPair();
+                if (!pair) {
+                    break;
+                }
+                const leftUrl = `/images/${encodeURIComponent(pair.left.filename)}`;
+                const rightUrl = `/images/${encodeURIComponent(pair.right.filename)}`;
+                const leftImg = new Image();
+                const rightImg = new Image();
+                await Promise.all([
+                    new Promise((r, j) => {
+                        leftImg.onload = r; leftImg.onerror = j; leftImg.src = leftUrl;
+                    }),
+                    new Promise((r, j) => {
+                        rightImg.onload = r; rightImg.onerror = j; rightImg.src = rightUrl;
+                    }),
+                ]);
+                this._pairCache.push({ pair, leftImg, rightImg });
+                this._updateQueueIndicator();
+            } catch (e) {
+                console.warn("Prefetch error:", e);
+                break;
+            }
+        }
+        this._prefetching = false;
     }
 
     showLoading(show) {
@@ -518,6 +801,23 @@ class CompareMode {
     updateStatus(msg) {
         if (this.elements.status) {
             this.elements.status.textContent = msg;
+        }
+    }
+
+    async resetCache() {
+        try {
+            await api.resetCache();
+            this._pairCache = [];
+            this._prefetching = false;
+            this._submissionQueue = [];
+            this._outgoingQueue = [];
+            this._processingQueue = false;
+            this._processLoopRunning = false;
+            this._updateQueueIndicator();
+            this._updateUndoUI();
+            Utils.showToast("Cache cleared!", "success");
+        } catch (e) {
+            Utils.showToast("Failed to reset cache: " + e.message, "error");
         }
     }
 

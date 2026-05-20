@@ -70,7 +70,7 @@ class VectorList:
         for current_type in self.vector_config:
             v_type = current_type["type"]
             name = current_type["name"]
-            
+
             if v_type == self._MAP:
                 vec = MapVector(name)
             elif v_type == self._INT:
@@ -83,7 +83,7 @@ class VectorList:
                 vec = ImageVector(name)
             else:
                 raise ValueError(f"Unknown vector type: {v_type}")
-                
+
             self.sorted_vectors[name] = {
                 "vector": vec,
                 **current_type,
@@ -122,6 +122,7 @@ class VectorList:
                 image_vector.path_list = self.image_paths
                 result = (-1, -1)
                 while isinstance(result, tuple):
+                    print(f"processing images with size: {result}...")
                     result = image_vector.create_vector_list_from_paths(
                         rebuild_width=result[0], rebuild_height=result[1]
                     )
@@ -305,19 +306,21 @@ class VectorList:
 
     def export_split_files(self, base_dir: str) -> None:
         print("Exporting split data files...")
-        
+
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
             name = c["name"]
             v_type = c["type"]
             current_vector = c["vector"]
-            
+
             if v_type in [self._MAP, self._INT, self._FLOAT]:
                 raw_values = current_vector.value_list
             elif v_type == self._EMBEDDING:
                 raw_values = current_vector.text_list
             elif v_type == self._IMAGE:
-                raw_values = getattr(current_vector, "path_list", [""] * len(self.unique_ids))
+                raw_values = getattr(
+                    current_vector, "path_list", [""] * len(self.unique_ids)
+                )
             else:
                 raw_values = [""] * len(self.unique_ids)
 
@@ -325,15 +328,11 @@ class VectorList:
 
             out_dir = os.path.join(base_dir, "split", v_type)
             os.makedirs(out_dir, exist_ok=True)
-            
+
             out_file = os.path.join(out_dir, f"{name}.jsonl")
-            
+
             with jsonlines.open(out_file, mode="a") as writer:
                 for idx, uid in enumerate(self.unique_ids):
                     raw_val = raw_values[idx] if idx < len(raw_values) else None
                     vec_val = vector_values[idx] if idx < len(vector_values) else None
-                    writer.write({
-                        "id": uid,
-                        "raw": raw_val,
-                        "vector": vec_val
-                    })
+                    writer.write({"id": uid, "raw": raw_val, "vector": vec_val})

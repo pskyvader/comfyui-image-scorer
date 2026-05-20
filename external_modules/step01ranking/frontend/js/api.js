@@ -92,6 +92,14 @@ class RankingAPI {
         return await response.json();
     }
 
+    async resetCache() {
+        const response = await fetch(`${this.apiBase}/ranking/reset`, {
+            method: "POST",
+        });
+        if (!response.ok) throw new Error("Failed to reset cache");
+        return await response.json();
+    }
+
     async getGraphData() {
         // Get graph data for visualization
         const response = await fetch(`${this.apiBase}/ranking/graph-data`);

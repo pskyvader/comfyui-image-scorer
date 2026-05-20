@@ -1,4 +1,5 @@
 from PIL import Image, ImageFile
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 from typing import Any
 from tqdm import tqdm
@@ -127,9 +128,7 @@ class ImageVector:
         # batch_shape = (batch_size, img_size[0], img_size[1])
 
         model = self.model
-        transformed_images = [
-            self._transform(img) for img in current_batch
-        ]
+        transformed_images = [self._transform(img) for img in current_batch]
         device = next(model.parameters()).device
 
         batch_tensor = torch.stack(transformed_images, dim=0).to(  # type: ignore[arg-type]
@@ -224,7 +223,7 @@ class ImageVector:
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats(device)
             initial_mem = int(torch.cuda.max_memory_allocated(device))
-            current_size = math.ceil((max_size + min_size) / 2)
+            current_size = math.floor((max_size + min_size) / 2)
             if current_size == last_size:
                 max_size = min_size = current_size
                 print(f"repeated size, setting final size: {current_size} ")
@@ -299,7 +298,7 @@ class ImageVector:
     ) -> list[list[float]] | None:
 
         self.model, self.vector_length, _ = model_loader.load_vision_model()
-        batch_size = self.get_batch_size(
+        batch_size: int = self.get_batch_size(
             self.image_list[0].size[0], self.image_list[0].size[1], rebuild
         )
         batch_size = int(batch_size * memory_usage)
@@ -331,6 +330,10 @@ class ImageVector:
         """
 
         self.model, self.vector_length, total_memory = model_loader.load_vision_model()
+
+        if rebuild_width > 0 and rebuild_height > 0:
+            print(f"rebuild requested for size ({rebuild_width},{rebuild_height})")
+            self.get_batch_size(rebuild_width, rebuild_height, rebuild=True)
 
         # self.model = model
         # self.vector_length = vector_length
@@ -388,9 +391,12 @@ class ImageVector:
                     # if num_items > max_batch_size:
                     width, height = size
                     rebuild = False
-                    if rebuild_width == width and rebuild_height == height:
-                        print(f"rebuild triggered by size: {size}")
-                        rebuild = True
+                    # if rebuild_width == width and rebuild_height == height:
+                    #     print(f"rebuild triggered by size: {size}")
+                    #     print(
+                    #         f"rebuild width: {rebuild_width}, rebuild height: {rebuild_height}"
+                    #     )
+                    #     rebuild = True
                     max_batch_size = self.get_batch_size(width, height, rebuild)
                     max_batch_size = int(
                         max_batch_size * memory_usage
@@ -420,15 +426,20 @@ class ImageVector:
                         batch_vecs = None
                         try:
                             # Encode batch
-                            batch_vecs = self.create_image_vector_batch(current_batch)
+                            batch_vecs: list[list[float]] | None = (
+                                self.create_image_vector_batch(current_batch)
+                            )
                         except Exception:
-                            print("error while encoding images, retrying...")
+                            torch.cuda.empty_cache()
+                            pbar.close()
+                            bucket_pbar.close()
+                            print(
+                                f"error while encoding images, retrying With size: {size}..."
+                            )
                             del current_batch
                             del batch_vecs
                             del vectors
-                            pbar.close()
-                            bucket_pbar.close()
-                            torch.cuda.empty_cache()
+                            # time.sleep(1)
                             return (width, height)
 
                             # return self.create_vector_list_from_paths(

@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+import time
 from datetime import datetime, timedelta, timezone
 from .schema import get_db_connection
 
@@ -107,7 +108,9 @@ def add_comparison(
         logger.error(f"Error: winner must be one of the compared images")
         return 0
     filename_a, filename_b = _canonicalize_pair(filename_a, filename_b)
-    timestamp_value = str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat()
+    timestamp_value = (
+        str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat()
+    )
 
     try:
         with get_db_connection() as conn:
@@ -136,8 +139,7 @@ def delete_duplicate_comparisons() -> int:
     """Remove exact duplicate comparison rows while keeping the earliest copy."""
     try:
         with get_db_connection() as conn:
-            cur = conn.execute(
-                """
+            cur = conn.execute("""
                 DELETE FROM comparisons
                 WHERE id NOT IN (
                     SELECT MIN(id)
@@ -156,8 +158,7 @@ def delete_duplicate_comparisons() -> int:
                         weight,
                         transitive_depth
                 )
-                """
-            )
+                """)
             conn.commit()
             return max(cur.rowcount, 0)
     except Exception as e:
@@ -265,18 +266,19 @@ def get_images_with_only_wins() -> list[str]:
     Returns:
         List of filenames that have only wins and zero losses.
     """
+    start_timer = time.time()
     try:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT winner AS filename FROM comparisons
-                WHERE winner NOT IN (
-                    SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
-                    FROM comparisons
-                )
-                GROUP BY winner
-                """
-            ).fetchall()
+            rows = conn.execute("""
+                SELECT DISTINCT winner AS filename FROM comparisons
+                EXCEPT
+                SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
+                FROM comparisons
+                """).fetchall()
+            logger.debug(
+                f"Queried images with only wins in {time.time() - start_timer:.2f} seconds"
+                f" - Found {len(rows)} pure winners"
+            )
             return [row["filename"] for row in rows]
     except Exception as e:
         logger.error(f"Error getting images with only wins: {e}")
@@ -294,17 +296,19 @@ def get_images_with_only_losses() -> list[str]:
     Returns:
         List of filenames that have only losses and zero wins.
     """
+    start_timer = time.time()
     try:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END AS filename
                 FROM comparisons
-                WHERE CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
-                NOT IN (SELECT DISTINCT winner FROM comparisons)
-                GROUP BY filename
-                """
-            ).fetchall()
+                EXCEPT
+                SELECT DISTINCT winner FROM comparisons
+                """).fetchall()
+            logger.debug(
+                f"Queried images with only losses in {time.time() - start_timer:.2f} seconds"
+                f" - Found {len(rows)} pure losers"
+            )
             return [row["filename"] for row in rows]
     except Exception as e:
         logger.error(f"Error getting images with only losses: {e}")
@@ -315,14 +319,13 @@ def deduplicate_comparisons() -> int:
     """
     Remove duplicate comparison rows (same pair, same winner, same transitive depth) keeping only the newest entry.
     Uses a more relaxed matching than exact timestamps.
-    
+
     Returns:
         Number of duplicates removed.
     """
     try:
         with get_db_connection() as conn:
-            cur = conn.execute(
-                """
+            cur = conn.execute("""
                 DELETE FROM comparisons
                 WHERE id NOT IN (
                     SELECT MAX(id)
@@ -339,8 +342,7 @@ def deduplicate_comparisons() -> int:
                         winner,
                         transitive_depth
                 )
-                """
-            )
+                """)
             conn.commit()
             return max(cur.rowcount, 0)
     except Exception as e:
@@ -370,14 +372,36 @@ def delete_comparisons_for_image(filename: str) -> int:
         return 0
 
 
+def delete_comparison_by_id(comp_id: int) -> int:
+    """Delete a specific comparison record by its ID.
+
+    Args:
+        comp_id: The unique ID of the comparison record to delete.
+
+    Returns:
+        Number of rows deleted (0 or 1)
+    """
+    try:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM comparisons WHERE id = ?",
+                (comp_id,),
+            )
+            conn.commit()
+            return max(cur.rowcount, 0)
+    except Exception as e:
+        logger.error(f"Error deleting comparison by ID: {e}")
+        return 0
+
+
 def delete_comparison(filename_a: str, filename_b: str, winner: str) -> int:
     """Delete a specific comparison where winner beat the other image.
-    
+
     Args:
         filename_a: First image filename
         filename_b: Second image filename
         winner: Winning image filename (must be one of the two inputs)
-        
+
     Returns:
         Number of rows deleted (0 or 1)
     """

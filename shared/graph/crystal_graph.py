@@ -7,7 +7,7 @@ import time
 import logging
 from tqdm import tqdm
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class ChainManager:
@@ -823,6 +823,7 @@ class CrystalGraph:
         self._images: dict[str, dict[str, Any]] = {}
         self._comparisons: list[dict[str, Any]] = []
         self._chain_map: dict[int, chainDict] | None = None
+        self._rebuilding = False
 
     # -- Lifecycle ------------------------------------------------------
 
@@ -831,6 +832,11 @@ class CrystalGraph:
         images: list[dict[str, Any]] | None = None,
         comparisons: list[dict[str, Any]] | None = None,
     ) -> None:
+        if self._rebuilding:
+            logger.debug("Already rebuilding, skipping nested call")
+            return
+        self._rebuilding = True
+        logger.debug("Rebuilding chain from database...")
         from external_modules.step01ranking.database.images_table import (
             get_all_images,
         )
@@ -853,11 +859,19 @@ class CrystalGraph:
             all_filenames.add(comp["filename_a"])
             all_filenames.add(comp["filename_b"])
         self._chain.build(comparisons, all_filenames=all_filenames)
+        self._chain_map = None
+        self.get_chains_map()
+        self._rebuilding = False
 
     def apply_comparison(self, winner: str, loser: str) -> None:
         self._chain.apply_comparison(winner, loser)
 
     # -- Cache ----------------------------------------------------------
+
+    def invalidate_cache(self) -> None:
+        self._chain._built_at = None
+        self._chain._db_comparison_count = 0
+        self._chain_map = None
 
     def is_cache_stale(self) -> bool:
         if self._chain._built_at is None:
@@ -1044,12 +1058,14 @@ class CrystalGraph:
                 pbar.update(1)
 
         final_map: dict[int, chainDict] = {}
+        errors: list[int] = []
         # dict [chain_length, dict[chain_id, list[tuple[node, is_main_node]]]]
         with tqdm(total=len(chains), desc="Building final map") as pbar:
             for lengths in chain_map:
                 for chain in chain_map[lengths]:
                     if chain.id not in main_chains:
-                        print(f"Warning: Chain ID {chain.id} not found in main_chains")
+                        errors.append(chain.id)
+                        # print(f"Warning: Chain ID {chain.id} not found in main_chains")
                         continue
 
                     if chain.length not in final_map:
@@ -1067,7 +1083,108 @@ class CrystalGraph:
                     final_map[chain.length][chain.id] = (chain, final_chain)
                     pbar.update(1)
         self._chain_map = final_map
+        logger.debug(
+            f"Chain mapping completed with {len(errors)}"
+            # f"missing chains: {errors}"
+        )
         return self._chain_map
+
+    def get_duplicate_comparison_ids(self) -> list[int]:
+        """Return a list of comparison record IDs that are duplicates.
+
+        For each unique (canonical_pair, winner) combination, keeps the most recent
+        record (by timestamp) and marks older duplicates for deletion.
+
+        Handles both:
+        - Same-direction duplicates: (a,b,winner=a) and (b,a,winner=a)
+        - Exact duplicates: identical records appearing multiple times
+        """
+        from collections import defaultdict
+
+        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+        for comp in self._comparisons:
+            a = comp.get("filename_a", "")
+            b = comp.get("filename_b", "")
+            winner = comp.get("winner", "")
+            canon_a, canon_b = tuple(sorted((a, b)))
+            key = (canon_a, canon_b, winner)
+            groups[key].append(comp)
+
+        ids_to_delete: list[int] = []
+        for key, comps in groups.items():
+            if len(comps) > 1:
+                sorted_comps = sorted(
+                    comps, key=lambda c: c.get("timestamp", ""), reverse=True
+                )
+                for comp in sorted_comps[1:]:
+                    comp_id = comp.get("id")
+                    if comp_id is not None:
+                        ids_to_delete.append(comp_id)
+
+        return ids_to_delete
+
+    def get_redundant_edges(self) -> set[tuple[str, str]]:
+        """Return a set of directed edges (winner, loser) that are considered redundant.
+
+        Redundancy rules implemented:
+        - Self-links (u -> u) are redundant.
+        - Transitively redundant edges: direct edge u->v is redundant if there exists
+          an alternative path u -> ... -> v (length >= 2) ignoring the direct edge.
+        - Contradictory double-links (a->b and b->a): keep the most recent winner
+          (based on comparison timestamps) and mark the opposite edge as redundant.
+        """
+        from collections import defaultdict
+
+        redundant_edges: set[tuple[str, str]] = set()
+
+        # 1. Detect self-links (image compared to itself)
+        for u, losers in self._chain._worse_than.items():
+            for v in losers:
+                if u == v:
+                    # logger.debug(f"Found self-link: ({u} -> {v})")
+                    redundant_edges.add((u, v))
+
+        # 3. Detect double links (a->b and b->a) and mark the older as redundant
+        # Note: DB stores pairs in canonical (sorted) order, so both contradictory
+        # records are under the same key. Check within each group for conflicting winners.
+        pair_comparisons: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(
+            list
+        )
+        for comp in self._comparisons:
+            key = (comp.get("filename_a"), comp.get("filename_b"))
+            pair_comparisons[key].append(comp)
+
+        for (ca, cb), comps in pair_comparisons.items():
+            winners = set(c.get("winner") for c in comps if c.get("winner") is not None)
+            if ca in winners and cb in winners:
+                edge_ab = (ca, cb)
+                edge_ba = (cb, ca)
+                if edge_ab in redundant_edges or edge_ba in redundant_edges:
+                    continue
+                ts_a = max(
+                    (c["timestamp"] for c in comps if c.get("winner") == ca),
+                )
+                ts_b = max(
+                    (c["timestamp"] for c in comps if c.get("winner") == cb),
+                )
+                if ts_a >= ts_b:
+                    edge_to_remove = edge_ba
+                else:
+                    edge_to_remove = edge_ab
+
+                # logger.debug(
+                #     f"Found contradictory double-link between {ca} and {cb}. Keeping winner with timestamp {max(ts_a, ts_b)} and marking edge {edge_to_remove} as redundant."
+                # )
+                redundant_edges.add(edge_to_remove)
+
+        # 2. Detect transitively redundant directed edges via chain.is_redundant
+        for u, losers in self._chain._worse_than.items():
+            for v in losers:
+                if u != v and self._chain.is_redundant(u, v):
+                    # logger.debug(f"Found transitively redundant edge: ({u} -> {v})")
+                    redundant_edges.add((u, v))
+
+        return redundant_edges
 
 
 crystal_graph = CrystalGraph()

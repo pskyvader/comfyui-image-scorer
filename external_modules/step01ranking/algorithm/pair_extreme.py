@@ -20,14 +20,15 @@ logger = logging.getLogger(__name__)
 def find_extreme_pair_from_db(
     candidate_filenames: set[str],
     comp_count_lookup: dict[str, int],
+    only_wins: list[str],
+    only_losses: list[str],
 ) -> tuple[str, str] | None:
     """Pair pure winners or pure losers queried directly from the database.
 
     Priority: pair same-extreme-type images with the least comparison counts first.
     """
-    only_wins = [n for n in get_images_with_only_wins() if n in candidate_filenames]
-    only_losses = [n for n in get_images_with_only_losses() if n in candidate_filenames]
-
+    if len(only_wins) == 1 and len(only_losses) == 1:
+        return None
     if len(only_losses) >= 2:
         only_losses.sort(key=lambda n: (comp_count_lookup[n], random.random()))
         pair = (only_losses[0], only_losses[1])

@@ -87,7 +87,7 @@ const PERFORMANCE = {
         linkStrideDivisor: 45000, // link stride for large graphs (simulation.js:151)
         linkStrideLargeMultiplier: 4 / 3, // extra stride for large graphs (simulation.js:151)
         drawLinksMaxLinks: 1800000, // max links before link drawing disabled (simulation.js:133)
-        perLinkOpacityMaxLinks: 12000, // max links before per-link opacity disabled (simulation.js:135)
+        perLinkOpacityMaxLinks: 100000, // max links before per-link opacity disabled (simulation.js:135)
     },
     constraint: {
         constraintPhasesDivisor: 90000, // constraint phase stride (simulation.js:154)
@@ -123,9 +123,9 @@ const PERFORMANCE = {
 // =============================================
 const RENDER = {
     node: {
-        baseRadius: 3, // base node radius in world units (main.js:226)
+        baseRadius: 8, // base node radius in world units (main.js:226)
         radiusMultiplier: 3, // radius += sqrt(count) * this (main.js:226)
-        minScreenRadius: 0.8, // minimum px radius at any zoom (canvas_renderer.js:278,305,332,358)
+        minScreenRadius: 2.5, // minimum px radius at any zoom (canvas_renderer.js:278,305,332,358)
         labelTruncateLength: 20, // max chars before "..." (main.js:229)
         colorDomain: [0, 0.45, 0.5, 0.54, 1], // score color stops (main.js:214)
         colorRange: ["#ef4444", "#facc15", "#facc15", "#facc15", "#22c55e"], // score colors red→yellow→green (main.js:215)
@@ -137,13 +137,15 @@ const RENDER = {
     },
     link: {
         linkColor: "#ffffff", // link stroke color (canvas_renderer.js:213)
+        chainColor: "#60a5fa", // chain link stroke color (canvas_renderer.js)
         linkLineWidth: 1, // link stroke width (canvas_renderer.js:212)
+        chainLineWidth: 2, // chain link stroke width (canvas_renderer.js)
         linkViewportPadding: 10, // culling margin for link opacity pass (canvas_renderer.js:246)
         linkOpacityMinDist: 10, // distance where opacity starts decreasing (canvas_renderer.js:255)
-        linkOpacityMaxDist: 1000, // distance where opacity hits minimum (canvas_renderer.js:254)
+        linkOpacityMaxDist: 100000, // distance where opacity hits minimum (canvas_renderer.js:254)
         linkOpacityMin: 0.1, // minimum opacity (canvas_renderer.js:255)
         linkOpacityMax: 1.0, // maximum opacity (canvas_renderer.js:216,255)
-        linkVisibilityZoomThreshold: 0.005, // zoom below which links fade (simulation.js:137, canvas_renderer.js:202)
+        linkVisibilityZoomThreshold: 0.01, // zoom below which links fade (simulation.js:137, canvas_renderer.js:202)
         smallLinkVisibilityZoomThresholdMultiplier: 0, // small graphs: links always visible (simulation.js:137)
         largeLinkVisibilityZoomThresholdMultiplier: 0.01, // large graphs: higher zoom threshold (simulation.js:137)
     },
@@ -196,6 +198,22 @@ const CAMERA = {
     fallbackScale: 0.05, // zoom when world has no dimensions (controls.js:233)
     minScale: 0.001, // minimum zoom scale (canvas_renderer.js:126,182,427)
     zoomExtent: [0.001, 5], // min/max zoom scale factor (interactions.js:21)
+};
+
+// =============================================
+// CHAIN — chain layout and phased reveal settings
+// Used in: simulation.js
+// =============================================
+const CHAIN = {
+    anchorScoreThreshold: 0.02,
+    maxSpreadFraction: 0.55,
+    minSpread: 0.1,
+    phaseDelay: 400,
+    relaxDelay: 30,
+    relaxIterations: 80,
+    relaxStepSize: 0.008,
+    relaxStepDecay: 0.96,
+    topBottomSpread: 0.25,
 };
 
 // =============================================

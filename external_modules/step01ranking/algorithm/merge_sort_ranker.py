@@ -40,6 +40,10 @@ from .pair_orphan import find_orphan_pair
 from .pair_extreme import find_extreme_pair_from_db
 from .pair_low_count import find_low_count_pairs
 from .pair_refinement import find_refinement_pairs
+from external_modules.step01ranking.database.comparisons_table import (
+    get_images_with_only_wins,
+    get_images_with_only_losses,
+)
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -107,36 +111,45 @@ def select_pair_for_comparison(
 
     # Loop 0: Orphans
     # todo: condition: if no orphans exit immediately
-    if any(comp_count_lookup.get(n, 0) == 0 for n in candidate_filenames):
-        pair = find_orphan_pair(candidate_filenames, comp_count_lookup)
+    pair = find_orphan_pair(candidate_filenames, comp_count_lookup)
 
     logger.debug(
         f"[RANKER] Orphan pair selection took {time() - start_timer:.2f} seconds"
     )
 
     # Loop 1: Low comparison count pipeline
+    only_wins: list[str] = [
+        n for n in get_images_with_only_wins() if n in candidate_filenames
+    ]
+    only_losses: list[str] = [
+        n for n in get_images_with_only_losses() if n in candidate_filenames
+    ]
 
     if not pair:
-        pair = find_low_count_pairs(candidate_filenames, comp_count_lookup)
+        pair = find_low_count_pairs(
+            candidate_filenames, comp_count_lookup, only_wins, only_losses
+        )
 
-    logger.debug(
-        f"[RANKER] Low-count pair selection took {time() - start_timer:.2f} seconds"
-    )
+        logger.debug(
+            f"[RANKER] Low-count pair selection took {time() - start_timer:.2f} seconds"
+        )
 
     # Loop 1.5: Pure winners/losers from DB
     if not pair:
-        pair = find_extreme_pair_from_db(candidate_filenames, comp_count_lookup)
+        pair = find_extreme_pair_from_db(
+            candidate_filenames, comp_count_lookup, only_wins, only_losses
+        )
 
-    logger.debug(
-        f"[RANKER] Extreme pair selection took {time() - start_timer:.2f} seconds"
-    )
+        logger.debug(
+            f"[RANKER] Extreme pair selection took {time() - start_timer:.2f} seconds"
+        )
 
     # Loop 2: Chain refinement
     if not pair and len(crystal_graph.get_all_chains()) > 1:
         pair: tuple[str, str] | None = find_refinement_pairs(
             candidate_filenames, comp_count_lookup, score_lookup
         )
-    logger.debug(
-        f"[RANKER] Total time taken for pair selection: {time() - start_timer:.2f} seconds"
-    )
+        logger.debug(
+            f"[RANKER] Total time taken for pair selection: {time() - start_timer:.2f} seconds"
+        )
     return pair

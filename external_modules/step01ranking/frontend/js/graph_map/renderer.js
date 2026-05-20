@@ -14,6 +14,7 @@ class ChainMapRenderer {
             showNodeBorders: true,
             showLabels: false,
             showArrows: false,
+            showLinks: true,
             labelCap: 0,
             arrowCap: 0,
             zoom: 1,
@@ -70,6 +71,18 @@ class ChainMapRenderer {
 
     hitTest(event) {
         return this.subRenderer.hitTest(event);
+    }
+
+    hitTestLink(event) {
+        return this.subRenderer.hitTestLink(event);
+    }
+
+    setHighlightChain(chainId, chainNodeIds) {
+        this.subRenderer.setHighlightChain(chainId, chainNodeIds);
+    }
+
+    clearHighlightChain() {
+        this.subRenderer.clearHighlightChain();
     }
 
     isCanvasMode() {

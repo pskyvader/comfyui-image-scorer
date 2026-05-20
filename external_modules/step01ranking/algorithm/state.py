@@ -7,10 +7,16 @@ every sub-module operates on the same shared state without circular imports.
 from typing import Any
 from collections import deque
 import time
+import logging
 
 from database.images_table import get_all_images
 from .constants import IMAGES_CACHE_TTL
 from shared.config import config
+from shared.graph.crystal_graph import crystal_graph
+
+import threading
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Images cache
@@ -68,25 +74,19 @@ node_lru_cache: deque[str] = deque(maxlen=lru_size)
 chain_lru_cache: deque[int] = deque(maxlen=lru_size)
 
 
-def clear_old_cache() -> None:
-    if len(node_lru_cache) >= lru_size or len(chain_lru_cache) >= lru_size:
+# def delayed_rebuild():
+#     time.sleep(1)  # seconds
+#     crystal_graph.rebuild_from_database()
+
+
+def clear_old_cache(force: bool = False) -> None:
+    if force or len(node_lru_cache) >= lru_size or len(chain_lru_cache) >= lru_size:
         num_to_remove = int(lru_size * 0.75)
-        for _ in range(num_to_remove):
+        logger.debug(
+            f"[PAIR-REFINE] LRU cache full (nodes: {len(node_lru_cache)}, chains: {len(chain_lru_cache)}). Removing {num_to_remove} least recently used items."
+        )
+        for _ in range(min(len(node_lru_cache), len(chain_lru_cache), num_to_remove)):
             node_lru_cache.popleft()
             chain_lru_cache.popleft()
-
-
-def update_lru(cache: deque, item: Any, max_size: int = 0) -> None:
-    """Track recently-used items; oldest entries are evicted past *max_size*."""
-    # Move to end if exists (by removing and re-appending)
-    if item in cache:
-        cache.remove(item)
-    cache.append(item)
-
-    if max_size > 0 and len(cache) >= max_size:
-        # todo: change lru to deque, and check if cache length is over max size-1, if so, remove the first 3/4 elements from cache
-        # If cache is full (or over max_size-1), remove the first 3/4 elements
-        num_to_remove = int(len(cache) * 0.75)
-        for _ in range(num_to_remove):
-            if cache:
-                cache.popleft()
+        # threading.Thread(target=delayed_rebuild()).start()
+        crystal_graph.invalidate_cache()

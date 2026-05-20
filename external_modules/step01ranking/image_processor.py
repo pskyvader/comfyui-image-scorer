@@ -430,6 +430,7 @@ class ImageProcessor:
             )
         except Exception as e:
             pass
+
     def add_to_database(
         self,
         filename: str,
@@ -505,7 +506,6 @@ class ImageProcessor:
 
                 self.get_fast_total_count(source_dir)
 
-
             # Step 2: Find the next batch of files not in memory
             # Get exclude roots
             exclude_roots: list[Path] = [
@@ -516,7 +516,6 @@ class ImageProcessor:
 
             # Step 2: Find all files not in memory and pick the oldest ones
             candidates = []
-
 
             # Optimized search using os.walk with directory pruning
             for root, dirs, files in os.walk(source_path):
@@ -550,7 +549,6 @@ class ImageProcessor:
             except Exception as e:
                 pass
 
-
             # Reserve newest images to help ComfyUI keep its numbering sequence
             reserve_count = self.reserve_count
             if len(candidates) < reserve_count:
@@ -559,7 +557,6 @@ class ImageProcessor:
 
             # Take the oldest ones after skipping the newest images
             batch_files = candidates[reserve_count : reserve_count + batch_size]
-
 
             # Step 3: Process the batch
             stats = {"processed": 0, "added": 0, "errors": 0, "failed": []}
@@ -622,12 +619,12 @@ class ImageProcessor:
                                         if stats["errors"] < 5:
                                             pass
                                         elif stats["errors"] == 5:
-                                            stats["failed"].append(f"{filename}: {message}")
+                                            stats["failed"].append(
+                                                f"{filename}: {message}"
+                                            )
                                         # Log the first few errors to avoid spam but give info
                                         if stats["errors"] < 5:
                                             pass
-
-
 
                             pbar.update(1)
                             pbar.set_postfix(file=filename[:15], added=stats["added"])
@@ -635,7 +632,7 @@ class ImageProcessor:
 
                             pbar.update(1)
 
-            logger.info(
+            logger.debug(
                 f"[SCANNER] Batch complete. Added: {stats['added']}, Errors: {stats['errors']}"
             )
             return stats
@@ -668,8 +665,6 @@ class ImageProcessor:
             for p in ranked_root.rglob("*")
             if p.is_file() and p.suffix.lower() in self.image_extensions
         ]
-
-
 
         stats = {"recovered": 0, "skipped": 0, "synced_history": 0, "errors": 0}
 
@@ -729,7 +724,6 @@ class ImageProcessor:
         # Phase 4: Fix comparison_count for ALL images from actual DB counts
         # This ensures counts are correct even if JSON was missing history or Phase 2 didn't run
 
-
         all_images = db_get_all_images()
         fixed_count = 0
         with tqdm(
@@ -753,7 +747,6 @@ class ImageProcessor:
                     except Exception:
                         pass
                 pbar.update(1)
-
 
         logger.info(
             f"Database rebuild complete: recovered={stats['recovered']}, "

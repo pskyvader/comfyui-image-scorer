@@ -11,6 +11,7 @@ class GalleryView {
         this.isLoading = false;
         this.hasMore = true;
         this.els = {};
+        this.selectedImages = [];
     }
 
     cacheElements() {
@@ -38,7 +39,9 @@ class GalleryView {
             tagsContainer: document.getElementById("tags-container"),
             historyWins: document.getElementById("history-wins"),
             historyLosses: document.getElementById("history-losses"),
-            searchMode: document.getElementById("search-mode")
+            searchMode: document.getElementById("search-mode"),
+            modalSelectBtn: document.getElementById("modal-select-btn"),
+            compareSelectedBtn: document.getElementById("compare-selected-btn"),
         };
     }
 
@@ -48,7 +51,9 @@ class GalleryView {
                 if (parseFloat(this.els.scoreMin.value) > parseFloat(this.els.scoreMax.value)) {
                     this.els.scoreMin.value = this.els.scoreMax.value;
                 }
-                this.els.scoreDisplay.textContent = `${parseFloat(this.els.scoreMin.value).toFixed(2)} - ${parseFloat(this.els.scoreMax.value).toFixed(2)}`;
+                this.els.scoreDisplay.textContent = `${parseFloat(this.els.scoreMin.value)
+                    .toFixed(2)} - ${parseFloat(this.els.scoreMax.value)
+                        .toFixed(2)}`;
             }
             if (this.els.comparisonsMin && this.els.comparisonsMax) {
                 if (parseInt(this.els.comparisonsMin.value) > parseInt(this.els.comparisonsMax.value)) {
@@ -60,30 +65,56 @@ class GalleryView {
         };
 
         const debouncedSearch = Utils.debounce(() => this.search(), 300);
-        
-        ['scoreMin', 'scoreMax', 'comparisonsMin', 'comparisonsMax'].forEach(id => {
-            this.els[id]?.addEventListener("input", () => { updateRanges(); debouncedSearch(); });
+
+        ["scoreMin", "scoreMax", "comparisonsMin", "comparisonsMax"].forEach((id) => {
+            this.els[id]?.addEventListener("input", () => {
+                updateRanges(); debouncedSearch();
+            });
         });
-        
-        this.els.sortFilter?.addEventListener("change", () => { this.saveFilters(); this.search(); });
-        this.els.tagsFilter?.addEventListener("input", () => { this.saveFilters(); debouncedSearch(); });
-        this.els.searchMode?.addEventListener("change", () => { this.saveFilters(); this.search(); });
-        
-        if (this.els.modalClose) this.els.modalClose.onclick = () => this.closeModal();
-        if (this.els.modalPrev) this.els.modalPrev.onclick = (e) => { e.stopPropagation(); this.showPrevImage(); };
-        if (this.els.modalNext) this.els.modalNext.onclick = (e) => { e.stopPropagation(); this.showNextImage(); };
-        
+
+        this.els.sortFilter?.addEventListener("change", () => {
+            this.saveFilters(); this.search();
+        });
+        this.els.tagsFilter?.addEventListener("input", () => {
+            this.saveFilters(); debouncedSearch();
+        });
+        this.els.searchMode?.addEventListener("change", () => {
+            this.saveFilters(); this.search();
+        });
+
+        if (this.els.modalClose) {
+            this.els.modalClose.onclick = () => this.closeModal();
+        }
+        if (this.els.modalPrev) {
+            this.els.modalPrev.onclick = (e) => {
+                e.stopPropagation(); this.showPrevImage();
+            };
+        }
+        if (this.els.modalNext) {
+            this.els.modalNext.onclick = (e) => {
+                e.stopPropagation(); this.showNextImage();
+            };
+        }
+
         // Close modal on click outside
         this.els.modal?.addEventListener("click", (e) => {
-            if (e.target === this.els.modal) this.closeModal();
+            if (e.target === this.els.modal) {
+                this.closeModal();
+            }
         });
 
         // Key bindings
         document.addEventListener("keydown", (e) => {
             if (this.els.modal && !this.els.modal.classList.contains("hidden")) {
-                if (e.key === "ArrowLeft") this.showPrevImage();
-                if (e.key === "ArrowRight") this.showNextImage();
-                if (e.key === "Escape") this.closeModal();
+                if (e.key === "ArrowLeft") {
+                    this.showPrevImage();
+                }
+                if (e.key === "ArrowRight") {
+                    this.showNextImage();
+                }
+                if (e.key === "Escape") {
+                    this.closeModal();
+                }
             }
         });
 
@@ -94,8 +125,12 @@ class GalleryView {
         }, { passive: true });
         this.els.modal?.addEventListener("touchend", (e) => {
             const touchEndX = e.changedTouches[0].screenX;
-            if (touchStartX - touchEndX > 50) this.showNextImage();
-            if (touchEndX - touchStartX > 50) this.showPrevImage();
+            if (touchStartX - touchEndX > 50) {
+                this.showNextImage();
+            }
+            if (touchEndX - touchStartX > 50) {
+                this.showPrevImage();
+            }
         }, { passive: true });
     }
 
@@ -113,18 +148,40 @@ class GalleryView {
         if (saved) {
             try {
                 const filters = JSON.parse(saved);
-                if (this.els.scoreMin) this.els.scoreMin.value = filters.scoreMin ?? 0;
-                if (this.els.scoreMax) this.els.scoreMax.value = filters.scoreMax ?? 1;
-                if (this.els.comparisonsMin) this.els.comparisonsMin.value = filters.comparisonsMin ?? 0;
-                if (this.els.comparisonsMax) this.els.comparisonsMax.value = filters.comparisonsMax ?? 10;
-                if (this.els.sortFilter) this.els.sortFilter.value = filters.sort ?? "score_desc";
-                if (this.els.tagsFilter) this.els.tagsFilter.value = filters.tags ?? "";
-                if (this.els.searchMode) this.els.searchMode.value = filters.searchMode ?? "both";
-                
+                if (this.els.scoreMin) {
+                    this.els.scoreMin.value = filters.scoreMin ?? 0;
+                }
+                if (this.els.scoreMax) {
+                    this.els.scoreMax.value = filters.scoreMax ?? 1;
+                }
+                if (this.els.comparisonsMin) {
+                    this.els.comparisonsMin.value = filters.comparisonsMin ?? 0;
+                }
+                if (this.els.comparisonsMax) {
+                    this.els.comparisonsMax.value = filters.comparisonsMax ?? 10;
+                }
+                if (this.els.sortFilter) {
+                    this.els.sortFilter.value = filters.sort ?? "score_desc";
+                }
+                if (this.els.tagsFilter) {
+                    this.els.tagsFilter.value = filters.tags ?? "";
+                }
+                if (this.els.searchMode) {
+                    this.els.searchMode.value = filters.searchMode ?? "both";
+                }
+
                 // Update displays
-                if (this.els.scoreDisplay) this.els.scoreDisplay.textContent = `${parseFloat(this.els.scoreMin.value).toFixed(2)} - ${parseFloat(this.els.scoreMax.value).toFixed(2)}`;
-                if (this.els.comparisonsDisplay) this.els.comparisonsDisplay.textContent = `${this.els.comparisonsMin.value} - ${this.els.comparisonsMax.value}`;
-            } catch (e) { console.warn("Failed to load gallery filters", e); }
+                if (this.els.scoreDisplay) {
+                    this.els.scoreDisplay.textContent = `${parseFloat(this.els.scoreMin.value)
+                        .toFixed(2)} - ${parseFloat(this.els.scoreMax.value)
+                            .toFixed(2)}`;
+                }
+                if (this.els.comparisonsDisplay) {
+                    this.els.comparisonsDisplay.textContent = `${this.els.comparisonsMin.value} - ${this.els.comparisonsMax.value}`;
+                }
+            } catch (e) {
+                console.warn("Failed to load gallery filters", e);
+            }
         }
     }
 
@@ -136,21 +193,25 @@ class GalleryView {
             comparisonsMax: this.els.comparisonsMax?.value,
             sort: this.els.sortFilter?.value,
             tags: this.els.tagsFilter?.value,
-            searchMode: this.els.searchMode?.value
+            searchMode: this.els.searchMode?.value,
         };
         localStorage.setItem("gallery_filters", JSON.stringify(filters));
     }
 
     setupInfiniteScroll() {
-        if (this.observer) this.observer.disconnect();
-        
+        if (this.observer) {
+            this.observer.disconnect();
+        }
+
         this.observer = new IntersectionObserver((entries) => {
             if (entries[0].isIntersecting && !this.isLoading && this.hasMore) {
                 this.loadMore();
             }
-        }, { rootMargin: '200px' });
-        
-        if (this.els.scrollSentinel) this.observer.observe(this.els.scrollSentinel);
+        }, { rootMargin: "200px" });
+
+        if (this.els.scrollSentinel) {
+            this.observer.observe(this.els.scrollSentinel);
+        }
     }
 
     async search() {
@@ -162,7 +223,9 @@ class GalleryView {
     }
 
     async loadMore() {
-        if (this.isLoading || !this.hasMore) return;
+        if (this.isLoading || !this.hasMore) {
+            return;
+        }
         this.currentPage++;
         await this.fetchAndRender();
     }
@@ -179,7 +242,7 @@ class GalleryView {
                 comparisonsMax: parseInt(this.els.comparisonsMax.value) === 10 ? 999999 : parseInt(this.els.comparisonsMax.value),
                 sort: this.els.sortFilter.value,
                 tags: this.els.tagsFilter?.value || "",
-                search_mode: this.els.searchMode?.value || "both"
+                search_mode: this.els.searchMode?.value || "both",
             };
 
             const result = await api.getGalleryImages(this.currentPage, this.perPage, filters);
@@ -194,7 +257,9 @@ class GalleryView {
             } else if (this.allImages.length === 0) {
                 this.els.galleryStatus.textContent = "No images found matching criteria.";
                 this.els.galleryStatus.classList.remove("hidden");
-                if (this.els.galleryCount) this.els.galleryCount.textContent = "0 images found";
+                if (this.els.galleryCount) {
+                    this.els.galleryCount.textContent = "0 images found";
+                }
             }
         } catch (e) {
             console.error("Gallery fetch failed:", e);
@@ -236,11 +301,13 @@ class GalleryView {
     async openModal(index) {
         this.currentImageIndex = index;
         const img = this.allImages[index];
-        if (!img) return;
+        if (!img) {
+            return;
+        }
 
         this.els.modalImage.src = `/output/ranked/${encodeURIComponent(img.filename)}`;
         this.els.modalFilename.textContent = img.filename;
-        
+
         this.els.modalMetadata.innerHTML = `
             <div class="bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
                 <span class="text-gray-400 block uppercase text-[8px] tracking-widest mb-0.5">Score</span>
@@ -251,7 +318,7 @@ class GalleryView {
                 <span class="text-white font-bold">${img.comparison_count ?? 0}</span>
             </div>
         `;
-        
+
         // Tags
         if (img.prompt_tags) {
             this.els.tagsContainer.textContent = img.prompt_tags;
@@ -259,11 +326,12 @@ class GalleryView {
         } else {
             this.els.modalTags.classList.add("hidden");
         }
- 
+
         this.els.modal.classList.remove("hidden");
         this.els.modal.classList.add("flex");
         document.body.style.overflow = "hidden";
 
+        this.updateSelectionUI();
         this.loadHistory(img.filename);
     }
 
@@ -280,10 +348,12 @@ class GalleryView {
 
         try {
             const history = await api.getImageHistory(filename);
-            if (!history || (!history.wins?.length && !history.losses?.length)) return;
+            if (!history || (!history.wins?.length && !history.losses?.length)) {
+                return;
+            }
 
-            const renderItem = (item) => `
-                <div class="flex items-center gap-3 p-2 bg-white/5 rounded-lg border border-white/5">
+            const renderItem = item => `
+                <div class="history-item flex items-center gap-3 p-2 bg-white/5 rounded-lg border border-white/5 cursor-pointer hover:bg-white/10 hover:border-white/20 transition-all duration-200" data-opponent="${encodeURIComponent(item.opponent)}">
                     <img src="/images/${encodeURIComponent(item.opponent)}" class="w-10 h-10 rounded object-cover border border-white/10" onerror="this.src='/output/ranked/${encodeURIComponent(item.opponent)}'">
                     <div class="flex-1 min-w-0">
                         <div class="text-[10px] text-gray-300 truncate">${item.opponent || "Unknown"}</div>
@@ -293,38 +363,115 @@ class GalleryView {
             `;
 
             if (history.wins?.length) {
-                this.els.historyWins.innerHTML = history.wins.map(renderItem).join("");
+                this.els.historyWins.innerHTML = history.wins.map(renderItem)
+                    .join("");
             } else {
-                this.els.historyWins.innerHTML = '<div class="text-center py-4 text-gray-500 text-[10px]">No wins yet</div>';
+                this.els.historyWins.innerHTML = "<div class=\"text-center py-4 text-gray-500 text-[10px]\">No wins yet</div>";
             }
 
             if (history.losses?.length) {
-                this.els.historyLosses.innerHTML = history.losses.map(renderItem).join("");
+                this.els.historyLosses.innerHTML = history.losses.map(renderItem)
+                    .join("");
             } else {
-                this.els.historyLosses.innerHTML = '<div class="text-center py-4 text-gray-500 text-[10px]">No losses yet</div>';
+                this.els.historyLosses.innerHTML = "<div class=\"text-center py-4 text-gray-500 text-[10px]\">No losses yet</div>";
             }
+
+            // Add click handlers to history items
+            document.querySelectorAll(".history-item")
+                .forEach((item) => {
+                    item.addEventListener("click", () => {
+                        const opponent = decodeURIComponent(item.dataset.opponent);
+                        this.navigateToImage(opponent);
+                    });
+                });
 
             this.els.modalHistory.classList.remove("hidden");
         } catch (e) {
             console.error("History load failed:", e);
         }
     }
-    
+
     showNextImage() {
         if (this.currentImageIndex < this.allImages.length - 1) {
             this.openModal(this.currentImageIndex + 1);
         } else if (this.hasMore) {
-            this.loadMore().then(() => {
-                if (this.currentImageIndex < this.allImages.length - 1) {
-                    this.openModal(this.currentImageIndex + 1);
-                }
-            });
+            this.loadMore()
+                .then(() => {
+                    if (this.currentImageIndex < this.allImages.length - 1) {
+                        this.openModal(this.currentImageIndex + 1);
+                    }
+                });
         }
     }
 
     showPrevImage() {
         if (this.currentImageIndex > 0) {
             this.openModal(this.currentImageIndex - 1);
+        }
+    }
+
+    toggleSelection() {
+        if (this.currentImageIndex < 0 || !this.allImages[this.currentImageIndex]) {
+            return;
+        }
+
+        const filename = this.allImages[this.currentImageIndex].filename;
+        const idx = this.selectedImages.indexOf(filename);
+
+        if (idx > -1) {
+            this.selectedImages.splice(idx, 1);
+        } else {
+            if (this.selectedImages.length >= 2) {
+                this.selectedImages.shift();
+            }
+            this.selectedImages.push(filename);
+        }
+
+        this.updateSelectionUI();
+    }
+
+    updateSelectionUI() {
+        const count = this.selectedImages.length;
+
+        // Update selected count in header button
+        const selectedCountEl = document.getElementById("selected-count");
+        if (selectedCountEl) {
+            selectedCountEl.textContent = count;
+        }
+
+        // Show/hide compare button in header
+        if (this.els.compareSelectedBtn) {
+            this.els.compareSelectedBtn.classList.toggle("hidden", count < 2);
+        }
+
+        // Update button text in modal
+        if (this.els.modalSelectBtn) {
+            const currentFilename = this.currentImageIndex >= 0 && this.allImages[this.currentImageIndex]
+                ? this.allImages[this.currentImageIndex].filename
+                : null;
+            const isSelected = currentFilename && this.selectedImages.includes(currentFilename);
+            this.els.modalSelectBtn.textContent = isSelected ? `Deselect (${count}/2)` : `Select (${count}/2)`;
+            if (isSelected) {
+                this.els.modalSelectBtn.classList.add("ring-2", "ring-pink-400");
+            } else {
+                this.els.modalSelectBtn.classList.remove("ring-2", "ring-pink-400");
+            }
+        }
+    }
+
+    compareSelected() {
+        const [left, right] = this.selectedImages;
+        window.location.hash = `#compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`;
+    }
+
+    navigateToImage(opponentFilename) {
+        // Find the image in the current gallery and open its detail
+        const index = this.allImages.findIndex(img => img.filename === opponentFilename);
+        if (index !== -1) {
+            this.openModal(index);
+        } else {
+            // If not in current view, just show a message
+            Utils.showToast("Image not in current view. Try searching for it.", "info");
         }
     }
 }

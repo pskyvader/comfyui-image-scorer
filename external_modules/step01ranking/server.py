@@ -2,6 +2,7 @@
 
 import sys
 import threading
+import time
 import os
 from pathlib import Path
 from flask import Flask, send_from_directory, request, send_file
@@ -45,7 +46,7 @@ app.extensions["image_processor"] = image_processor
 setattr(
     app, "image_processor", image_processor
 )  # Also set as attribute for easy access
-logger = app.logger
+logger: logging.Logger = app.logger
 
 # Set up Flask configuration
 app.config["JSON_SORT_KEYS"] = False
@@ -60,13 +61,28 @@ scanner_thread: threading.Thread | None = None
 
 
 def scanner_task(img_root: str) -> None:
-    image_processor.process_next_batch(img_root)
-    logger.info("[SCANNER] Initialization batch complete.")
+    sleep_time = 30  # Start with 30s, then back off if no new images found
+    while True:
+        stats = image_processor.process_next_batch(img_root, batch_size=100)
+        added = stats["added"]
+        if added > 0:
+            sleep_time = 30
+        else:
+            sleep_time *= 2
+            sleep_time = min(sleep_time, 600)
+
+        logger.info(f"Added:{added}, Sleeping {sleep_time}s...")
+        time.sleep(sleep_time)
 
 
 def start_background_scanner(img_root: str) -> None:
     """Start background thread to perform global image initialization."""
     global scanner_thread
+    if scanner_thread:
+        logger.info(
+            f"[SCANNER] Scanner already running. Alive: {scanner_thread.is_alive()}"
+        )
+        return
     scanner_thread = threading.Thread(
         target=scanner_task, daemon=True, args=(img_root,)
     )

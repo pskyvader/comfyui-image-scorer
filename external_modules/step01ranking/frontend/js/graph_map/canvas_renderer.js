@@ -35,6 +35,8 @@ class CanvasGraphRenderer {
         this.dpr = window.devicePixelRatio;
         this.worldBounds = null;
         this._tickCount = 0;
+        this.highlightedChainId = null;
+        this._highlightNodeIds = null;
     }
 
     render({ nodes, links, profile, selectedIds, world, initialNodeCount }) {
@@ -135,6 +137,85 @@ class CanvasGraphRenderer {
         return bestNode;
     }
 
+    setHighlightChain(chainId, chainNodeIds) {
+        this.highlightedChainId = chainId;
+        this._highlightNodeIds = chainNodeIds || null;
+        this.requestRender();
+    }
+
+    clearHighlightChain() {
+        this.highlightedChainId = null;
+        this._highlightNodeIds = null;
+        this.requestRender();
+    }
+
+    hitTestLink(event) {
+        if (!CONTROLS.enablePointerHits) {
+            return null;
+        }
+
+        let px; let py;
+        if (event.sourceEvent) {
+            [px, py] = d3.pointer(event.sourceEvent, this.svg.node());
+        } else if (event.x !== undefined && event.y !== undefined) {
+            px = event.x;
+            py = event.y;
+        } else {
+            [px, py] = d3.pointer(event, this.svg.node());
+        }
+
+        const scale = Math.max(this.transform.k, CAMERA.minScale);
+        const worldX = (px - this.transform.x) / scale;
+        const worldY = (py - this.transform.y) / scale;
+        const threshold = RENDER.link.chainLineWidth * 3 / scale;
+
+        let bestLink = null;
+        let bestDist = threshold;
+
+        const visibleLinks = Math.min(this.visibleLinkCount, this.links.length);
+        for (let i = 0; i < visibleLinks; i++) {
+            const link = this.links[i];
+            if (!link._isChainLink) {
+                continue;
+            }
+
+            const sx = link.source.x;
+            const sy = link.source.y;
+            const tx = link.target.x;
+            const ty = link.target.y;
+            const mx = (sx + tx) / 2;
+            const my = (sy + ty) / 2;
+
+            const d1 = this._pointToSegmentDist(worldX, worldY, sx, sy, mx, my);
+            const d2 = this._pointToSegmentDist(worldX, worldY, mx, my, tx, ty);
+            const dist = Math.min(d1, d2);
+
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestLink = link;
+            }
+        }
+        return bestLink;
+    }
+
+    _pointToSegmentDist(px, py, ax, ay, bx, by) {
+        const abx = bx - ax;
+        const aby = by - ay;
+        const lenSq = abx * abx + aby * aby;
+        if (lenSq === 0) {
+            const dx = px - ax;
+            const dy = py - ay;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        let t = ((px - ax) * abx + (py - ay) * aby) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const cx = ax + t * abx;
+        const cy = ay + t * aby;
+        const dx = px - cx;
+        const dy = py - cy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
     resize() {
         const width = this.container.clientWidth;
         const height = this.container.clientHeight;
@@ -182,10 +263,54 @@ class CanvasGraphRenderer {
             this.ctx.strokeRect(wb.x, wb.y, wb.width, wb.height);
             this.ctx.setLineDash([]);
         }
-
     }
 
     drawLinks(viewport) {
+        const hlId = this.highlightedChainId;
+        const hlNodeSet = this._highlightNodeIds;
+
+        // Always draw highlighted chain even when links are toggled off
+        if (hlId !== null) {
+            const visNodeIds = new Set();
+            for (let i = 0; i < Math.min(this.visibleNodeCount, this.nodes.length); i++) {
+                visNodeIds.add(this.nodes[i].id);
+            }
+            const maxDist = this.worldBounds
+                ? Math.max(RENDER.link.linkOpacityMaxDist, Math.sqrt(this.worldBounds.width * this.worldBounds.width + this.worldBounds.height * this.worldBounds.height) * 0.5)
+                : RENDER.link.linkOpacityMaxDist;
+
+            this.ctx.globalAlpha = 1;
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = "#fbbf24";
+            this.ctx.lineWidth = Math.max(2 / this.transform.k, RENDER.link.chainLineWidth * 5);
+            for (let i = 0; i < this.links.length; i++) {
+                const link = this.links[i];
+                if (link._isChainLink) {
+                    continue;
+                }
+                const srcInChain = hlNodeSet && hlNodeSet.has(link.source.id);
+                const tgtInChain = hlNodeSet && hlNodeSet.has(link.target.id);
+                if (!srcInChain && !tgtInChain) {
+                    continue;
+                }
+                if (!visNodeIds.has(link.source.id) || !visNodeIds.has(link.target.id)) {
+                    continue;
+                }
+                const dx = link.target.x - link.source.x;
+                const dy = link.target.y - link.source.y;
+                if ((dx * dx + dy * dy) > maxDist * maxDist) {
+                    continue;
+                }
+                const midX = (link.source.x + link.target.x) / 2;
+                const midY = (link.source.y + link.target.y) / 2;
+                this.ctx.moveTo(link.source.x, link.source.y);
+                this.ctx.lineTo(midX, midY);
+                this.ctx.lineTo(link.target.x, link.target.y);
+            }
+            this.ctx.stroke();
+            this.ctx.globalAlpha = 1;
+        }
+
         if (!this.profile.drawLinks || !this.detailLevel.showLinks || this.transform.k < (this.profile.linkVisibilityZoomThreshold)) {
             return;
         }
@@ -199,13 +324,30 @@ class CanvasGraphRenderer {
         this.ctx.lineWidth = RENDER.link.linkLineWidth;
         this.ctx.strokeStyle = RENDER.link.linkColor;
 
-        const maxVisualDist = RENDER.link.linkOpacityMaxDist;
+        const maxVisualDist = this.worldBounds
+            ? Math.max(RENDER.link.linkOpacityMaxDist, Math.sqrt(this.worldBounds.width * this.worldBounds.width + this.worldBounds.height * this.worldBounds.height) * 0.5)
+            : RENDER.link.linkOpacityMaxDist;
 
         if (!this.profile.usePerLinkOpacity) {
-            this.ctx.globalAlpha = RENDER.link.linkOpacityMax;
+            const hasActiveHighlight = hlId !== null && hlNodeSet && hlNodeSet.size > 0;
+
+            // Hide non-highlighted chain links
+            if (hasActiveHighlight) {
+                this.ctx.globalAlpha = 0.04;
+            } else {
+                this.ctx.globalAlpha = RENDER.link.linkOpacityMax;
+            }
             this.ctx.beginPath();
+            this.ctx.strokeStyle = RENDER.link.chainColor;
+            this.ctx.lineWidth = RENDER.link.chainLineWidth;
             for (let i = 0; i < visibleLinks; i++) {
                 const link = this.links[i];
+                if (!link._isChainLink) {
+                    continue;
+                }
+                if (hasActiveHighlight && hlNodeSet.has(link.source.id)) {
+                    continue;
+                }
                 if (!visibleNodeIds.has(link.source.id) || !visibleNodeIds.has(link.target.id)) {
                     continue;
                 }
@@ -221,6 +363,40 @@ class CanvasGraphRenderer {
                 this.ctx.lineTo(link.target.x, link.target.y);
             }
             this.ctx.stroke();
+
+            // Hide cross-chain links when chain is highlighted
+            if (hasActiveHighlight) {
+                this.ctx.globalAlpha = 0.04;
+            } else {
+                this.ctx.globalAlpha = RENDER.link.linkOpacityMax;
+            }
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = RENDER.link.linkColor;
+            this.ctx.lineWidth = RENDER.link.linkLineWidth;
+            for (let i = 0; i < visibleLinks; i++) {
+                const link = this.links[i];
+                if (link._isChainLink) {
+                    continue;
+                }
+                if (hasActiveHighlight) {
+                    continue;
+                }
+                if (!visibleNodeIds.has(link.source.id) || !visibleNodeIds.has(link.target.id)) {
+                    continue;
+                }
+                const dx = link.target.x - link.source.x;
+                const dy = link.target.y - link.source.y;
+                if ((dx * dx + dy * dy) > maxVisualDist * maxVisualDist) {
+                    continue;
+                }
+                const midX = (link.source.x + link.target.x) / 2;
+                const midY = (link.source.y + link.target.y) / 2;
+                this.ctx.moveTo(link.source.x, link.source.y);
+                this.ctx.lineTo(midX, midY);
+                this.ctx.lineTo(link.target.x, link.target.y);
+            }
+            this.ctx.stroke();
+
             this.ctx.globalAlpha = 1;
             if (this.detailLevel.showArrows && this.detailLevel.arrowCap > 0) {
                 this.drawLinkArrows(viewport);
@@ -251,9 +427,12 @@ class CanvasGraphRenderer {
 
             const minDist = RENDER.link.linkOpacityMinDist;
             const maxDist = RENDER.link.linkOpacityMaxDist;
+            const t = Math.max(0, Math.min(1, (dist - minDist) / (maxDist - minDist)));
             const opacity = RENDER.link.linkOpacityMax - t * (RENDER.link.linkOpacityMax - RENDER.link.linkOpacityMin);
 
             this.ctx.globalAlpha = opacity;
+            this.ctx.strokeStyle = link._isChainLink ? RENDER.link.chainColor : RENDER.link.linkColor;
+            this.ctx.lineWidth = link._isChainLink ? RENDER.link.chainLineWidth : RENDER.link.linkLineWidth;
             this.ctx.beginPath();
             const midX = (source.x + target.x) / 2;
             const midY = (source.y + target.y) / 2;
@@ -272,24 +451,33 @@ class CanvasGraphRenderer {
     drawNodes() {
         const visibleNodes = Math.min(this.visibleNodeCount, this.nodes.length);
         let fill = "";
-        this.ctx.globalAlpha = 1;
         const k = this.transform.k;
         const minR = RENDER.node.minScreenRadius / k;
+        const hlId = this.highlightedChainId;
+        const hlNodeSet = this._highlightNodeIds;
+        const hasActiveHighlight = hlId !== null && hlNodeSet && hlNodeSet.size > 0;
 
         for (let i = 0; i < visibleNodes; i++) {
             const node = this.nodes[i];
             if (this.selectedIds.has(node.id)) {
                 continue;
             }
+
+            const inNodeSet = hlNodeSet && hlNodeSet.has(node.id);
+            const byChainId = hlId !== null && node._chainId === hlId;
+            const isHighlighted = hasActiveHighlight && (inNodeSet || byChainId);
+            this.ctx.globalAlpha = isHighlighted ? 1 : (hasActiveHighlight ? 0.12 : 1);
+
             if (node._fill !== fill) {
                 fill = node._fill;
                 this.ctx.fillStyle = fill;
             }
-            const r = Math.max(node._radius, minR);
+            const r = Math.max(node._radius * (isHighlighted ? 1.6 : 1), minR);
             this.ctx.beginPath();
             this.ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
             this.ctx.fill();
         }
+        this.ctx.globalAlpha = 1;
     }
 
     drawSelectedNodes() {
@@ -372,7 +560,10 @@ class CanvasGraphRenderer {
         const visibleLinks = Math.min(this.visibleLinkCount, this.links.length);
         const cap = Math.min(this.detailLevel.arrowCap, visibleLinks);
         let drawn = 0;
-            const minLengthSq = RENDER.arrow.arrowMinLengthSq;
+        const maxVisualDist = this.worldBounds
+            ? Math.max(RENDER.link.linkOpacityMaxDist, Math.sqrt(this.worldBounds.width * this.worldBounds.width + this.worldBounds.height * this.worldBounds.height) * 0.5)
+            : RENDER.link.linkOpacityMaxDist;
+        const minLengthSq = RENDER.arrow.arrowMinLengthSq;
 
         this.ctx.fillStyle = RENDER.arrow.arrowColor;
         this.ctx.globalAlpha = 1;

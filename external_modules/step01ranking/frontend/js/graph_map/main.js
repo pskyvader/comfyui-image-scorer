@@ -10,6 +10,10 @@ class ChainMapUI {
         this.selectedNodes = [];
         this.labelsOverridden = false;
         this.linksOverridden = false;
+        this._showLinks = true;
+        this._showChainLinks = true;
+        this._toggleChainBtn = null;
+        this._selectedChainId = null;
         this.width = 800;
         this.height = 600;
     }
@@ -160,22 +164,116 @@ class ChainMapUI {
         }
 
         const toggleLinksBtn = document.getElementById("toggle-links-btn");
-        const linksIconOn = document.getElementById("links-icon-on");
-        const linksIconOff = document.getElementById("links-icon-off");
 
+        // Change master link toggle icon to arrow
         if (toggleLinksBtn) {
+            toggleLinksBtn.innerHTML =
+                '<svg id="links-icon-on" class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />' +
+                '</svg>' +
+                '<svg id="links-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />' +
+                '</svg>';
             toggleLinksBtn.onclick = () => {
                 this.linksOverridden = true;
-                const current = this.renderer.detailLevel.showLinks;
-                const newState = !current;
-                this.renderer.setDetailLevel({ ...this.renderer.detailLevel, showLinks: newState });
+                this._showLinks = !this._showLinks;
+                this._updateDetailShowLinks();
+                this._applyLinkVisibility();
                 this.syncButtonStates();
             };
+        }
+
+        // Helper to create a toggle button with on/off SVGs
+        const createToggleBtn = (title, onPath, offPath) => {
+            const btn = document.createElement("button");
+            btn.className = "p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10";
+            btn.title = title;
+            btn.innerHTML =
+                '<svg class="icon-on w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + onPath + '</svg>' +
+                '<svg class="icon-off w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + offPath + '</svg>';
+            return btn;
+        };
+
+        // Chain links toggle (blue chain links)
+        this._toggleChainBtn = createToggleBtn(
+            "Toggle Chain Links",
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />',
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6" />',
+        );
+        this._toggleChainBtn.onclick = () => {
+            this._showChainLinks = !this._showChainLinks;
+            this._updateDetailShowLinks();
+            this._applyLinkVisibility();
+            this.syncButtonStates();
+        };
+
+        // Insert chain toggle after the master toggle
+        if (toggleLinksBtn && toggleLinksBtn.parentNode) {
+            toggleLinksBtn.parentNode.insertBefore(this._toggleChainBtn, toggleLinksBtn.nextSibling);
         }
 
         if (this.renderer.detailLevel) {
             this.syncButtonStates();
         }
+    }
+
+    _updateDetailShowLinks() {
+        this.renderer.setDetailLevel({
+            ...this.renderer.detailLevel,
+            showLinks: this._showLinks || this._showChainLinks,
+        });
+    }
+
+    selectChain(chainId) {
+        this._selectedChainId = chainId;
+        const nodeSet = this.chainSim && this.chainSim._chainNodeIds ? this.chainSim._chainNodeIds.get(chainId) : null;
+        this.renderer.setHighlightChain(chainId, nodeSet);
+    }
+
+    clearChainSelection() {
+        if (this._selectedChainId === null) return;
+        this._selectedChainId = null;
+        this.renderer.clearHighlightChain();
+    }
+
+    _applyLinkVisibility() {
+        if (!this.chainSim) return;
+
+        const showLinks = this._showLinks;
+        const showChain = this._showChainLinks;
+        const links = this.chainSim.links;
+
+        if (showChain && showLinks) {
+            this.renderer.setVisibleLinkCount(links.length);
+        } else if (showChain) {
+            // Only chain links: sort chain-first
+            links.sort((a, b) => {
+                if (a._isChainLink && !b._isChainLink) return -1;
+                if (!a._isChainLink && b._isChainLink) return 1;
+                return 0;
+            });
+            this.renderer.setVisibleLinkCount(this.chainSim._chainLinkCount);
+        } else if (showLinks) {
+            // Only cross-chain links: sort cross-chain-first
+            links.sort((a, b) => {
+                if (!a._isChainLink && b._isChainLink) return -1;
+                if (a._isChainLink && !b._isChainLink) return 1;
+                return 0;
+            });
+            this.renderer.setVisibleLinkCount(links.length - this.chainSim._chainLinkCount);
+        } else {
+            this.renderer.setVisibleLinkCount(0);
+        }
+
+        this.renderer.update(this.chainSim.nodes, links);
+    }
+
+    _syncToggleStyle(btn, isOn) {
+        if (!btn) return;
+        const iconOn = btn.querySelector(".icon-on");
+        const iconOff = btn.querySelector(".icon-off");
+        if (iconOn) iconOn.classList.toggle("hidden", !isOn);
+        if (iconOff) iconOff.classList.toggle("hidden", isOn);
     }
 
     render(nodes, links, stats) {
@@ -189,7 +287,13 @@ class ChainMapUI {
         }
 
         if (nodes.length === 0) {
-            throw new Error("render received 0 nodes — filters may have excluded everything");
+            if (this.statNodes) this.statNodes.textContent = "0";
+            if (this.statComparisons) this.statComparisons.textContent = "0";
+            if (this.statComponents) this.statComponents.textContent = "0";
+            if (this.statChains) this.statChains.textContent = "0";
+            this.renderer.render({ nodes: [], links: [], profile: {}, selectedIds: [], world: { x: 0, y: 0, width: 800, height: 600 } });
+            if (this.loader) this.loader.classList.add("hidden");
+            return;
         }
 
         for (let i = 0; i < nodes.length; i++) {
@@ -237,13 +341,51 @@ class ChainMapUI {
             _opacity: RENDER.node.defaultOpacity
         })).filter(l => l.source && l.target);
 
-        this.chainSim = new ChainSimulation(simNodes, simLinks, [], {
+        const chains = (this.rawData && this.rawData.chains) ? this.rawData.chains.map(c => ({
+            id: c.id,
+            component: c.component,
+            nodes: c.nodes,
+        })) : [];
+
+        const self = this;
+
+        this.chainSim = new ChainSimulation(simNodes, simLinks, chains, [], {
             width: this.width,
             height: this.height,
-            onTick: () => {
-                this.renderer.setVisibleNodeCount(this.chainSim._activeNodeCount);
-                this.renderer.setVisibleLinkCount(simLinks.length);
-                this.renderer.update(simNodes, simLinks);
+            onTick: (data) => {
+                self.renderer.setVisibleNodeCount(data.visibleNodeCount);
+                self.renderer.setVisibleLinkCount(data.visibleLinkCount);
+                self.renderer.update(simNodes, simLinks);
+
+                if (data.done) {
+                    if (self.loader) self.loader.classList.add("hidden");
+
+                    if (self.chainSim.runtime.startPaused) {
+                        self.chainSim.pause();
+                        self.labelsOverridden = true;
+                        self.linksOverridden = true;
+                        self.renderer.setDetailLevel({
+                            ...self.renderer.detailLevel,
+                            showLabels: false,
+                            showLinks: false,
+                        });
+                    }
+
+                    self._applyLinkVisibility();
+                    self.syncButtonStates();
+
+                    const worldW = self.chainSim.effectiveWidth;
+                    const worldH = self.chainSim.effectiveHeight;
+                    const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / self.width, worldH / self.height));
+                    const transform = d3.zoomIdentity
+                        .translate(self.width / 2, self.height / 2)
+                        .scale(scale)
+                        .translate(-worldW / 2, -worldH / 2);
+                    if (isFinite(transform.x) && isFinite(transform.y) && isFinite(transform.k)) {
+                        d3.select(self.container).call(self.zoom.transform, transform);
+                        self.renderer.setTransform(transform);
+                    }
+                }
             }
         });
 
@@ -261,45 +403,26 @@ class ChainMapUI {
                 height: this.chainSim.effectiveHeight
             }
         });
-        this.renderer.setVisibleNodeCount(this.chainSim._activeNodeCount);
-        this.renderer.setVisibleLinkCount(simLinks.length);
+        this.renderer.setVisibleNodeCount(0);
+        this.renderer.setVisibleLinkCount(0);
 
-        if (this.loader) this.loader.classList.add("hidden");
-
-        const isLargeMap = this.chainSim.runtime.startPaused;
-
-        if (isLargeMap) {
-            this.chainSim.pause();
-            this.labelsOverridden = true;
-            this.linksOverridden = true;
-            this.renderer.setDetailLevel({
-                ...this.renderer.detailLevel,
-                showLabels: false,
-                showLinks: false,
-            });
+        // Fit world to viewport immediately (before phases begin)
+        const worldW = this.chainSim.effectiveWidth;
+        const worldH = this.chainSim.effectiveHeight;
+        const initScale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / this.width, worldH / this.height));
+        const initTransform = d3.zoomIdentity
+            .translate(this.width / 2, this.height / 2)
+            .scale(initScale)
+            .translate(-worldW / 2, -worldH / 2);
+        if (isFinite(initTransform.x) && isFinite(initTransform.y) && isFinite(initTransform.k)) {
+            d3.select(this.container).call(this.zoom.transform, initTransform);
+            this.renderer.setTransform(initTransform);
         }
 
         this.syncButtonStates();
 
-        const self = this;
-        const worldW = this.chainSim.effectiveWidth;
-        const worldH = this.chainSim.effectiveHeight;
-        const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / this.width, worldH / this.height));
-        const transform = d3.zoomIdentity
-            .translate(this.width / 2, this.height / 2)
-            .scale(scale)
-            .translate(-worldW / 2, -worldH / 2);
-        if (isFinite(transform.x) && isFinite(transform.y) && isFinite(transform.k)) {
-            d3.select(this.container).call(this.zoom.transform, transform);
-            this.renderer.setTransform(transform);
-        }
-
-        this._renderTimeout = setTimeout(function () {
-            if (self.chainSim && !self.chainSim.runtime.startPaused) {
-                self.chainSim.play();
-                self.syncButtonStates();
-            }
-        }, CONTROLS.transitionDuration + 100);
+        // Begin phased chain-based layout
+        this.chainSim.start();
     }
 
     calculateWorldBounds(nodes) {
@@ -352,12 +475,13 @@ class ChainMapUI {
             if (iconOn) iconOn.classList.toggle("hidden", !showLabels);
             if (iconOff) iconOff.classList.toggle("hidden", showLabels);
 
-            const showLinks = this.renderer.detailLevel.showLinks;
             const linksIconOn = document.getElementById("links-icon-on");
             const linksIconOff = document.getElementById("links-icon-off");
-            if (linksIconOn) linksIconOn.classList.toggle("hidden", !showLinks);
-            if (linksIconOff) linksIconOff.classList.toggle("hidden", showLinks);
+            if (linksIconOn) linksIconOn.classList.toggle("hidden", !this._showLinks);
+            if (linksIconOff) linksIconOff.classList.toggle("hidden", this._showLinks);
         }
+
+        this._syncToggleStyle(this._toggleChainBtn, this._showChainLinks);
     }
 }
 

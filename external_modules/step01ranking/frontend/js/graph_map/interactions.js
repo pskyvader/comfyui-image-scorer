@@ -69,8 +69,14 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
             this.showTooltip(event, node);
             canvas.style("cursor", "pointer");
         } else {
-            this.hideTooltip();
-            canvas.style("cursor", "default");
+            const link = this.renderer.hitTestLink({ x: p[0], y: p[1] });
+            if (link) {
+                this.hideTooltip();
+                canvas.style("cursor", "pointer");
+            } else {
+                this.hideTooltip();
+                canvas.style("cursor", "default");
+            }
         }
     });
 
@@ -78,7 +84,16 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
         if (event.defaultPrevented) return;
         const p = d3.pointer(event, this.renderer.canvas);
         const node = this.renderer.hitTest({ x: p[0], y: p[1] });
-        if (node) this.showNodeDetails(node);
+        if (node) {
+            this.showNodeDetails(node);
+            return;
+        }
+        const link = this.renderer.hitTestLink({ x: p[0], y: p[1] });
+        if (link) {
+            this.showLinkDetails(link);
+            return;
+        }
+        this.clearChainSelection();
     });
 };
 
