@@ -1,0 +1,66 @@
+<div id="analysis-container" class="max-w-5xl mx-auto space-y-6">
+    <!-- Stats Dashboard -->
+    <div class="glass rounded-2xl p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-4">
+            <div class="section-title mb-0">Dashboard</div>
+            <button id="refresh-stats-btn" class="action-btn text-xs">↻ Refresh</button>
+        </div>
+        <div id="stats-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div class="stat-card"><span class="stat-label">Images</span><span class="stat-value" id="stat-images">—</span></div>
+            <div class="stat-card"><span class="stat-label">Comparisons</span><span class="stat-value" id="stat-comparisons">—</span></div>
+            <div class="stat-card"><span class="stat-label">Avg Sigma</span><span class="stat-value" id="stat-avg-sigma">—</span></div>
+            <div class="stat-card"><span class="stat-label">Chains</span><span class="stat-value" id="stat-chains">—</span></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6" id="analysis-charts">
+            <div class="bg-black/30 rounded-xl p-3" id="mu-chart"></div>
+            <div class="bg-black/30 rounded-xl p-3" id="sigma-chart"></div>
+            <div class="bg-black/30 rounded-xl p-3" id="score-chart"></div>
+            <div class="bg-black/30 rounded-xl p-3" id="comp-chart"></div>
+            <div class="bg-black/30 rounded-xl p-3" id="chain-chart"></div>
+        </div>
+        <div class="text-xs text-gray-500 text-right" id="sigma-summary"></div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div>
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Top 5</div>
+                <ul id="top-list" class="text-xs space-y-1 text-gray-400"></ul>
+            </div>
+            <div>
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bottom 5</div>
+                <ul id="bottom-list" class="text-xs space-y-1 text-gray-400"></ul>
+            </div>
+            <div>
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Least Compared</div>
+                <ul id="least-compared-list" class="text-xs space-y-1 text-gray-400"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analysis Actions -->
+    <div class="glass rounded-2xl p-6 shadow-2xl">
+        <div class="section-title">Analysis</div>
+        <div class="flex flex-wrap gap-2">
+            <button class="action-btn" data-action="analyze-parameters">📊 Parameter Analysis</button>
+            <button class="action-btn" data-action="analyze-matrix">🔢 Matrix Analysis</button>
+        </div>
+    </div>
+
+    <!-- Log Output -->
+    <div class="glass rounded-2xl p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-3">
+            <div class="section-title mb-0">Output Log</div>
+            <button id="clear-log-btn" class="text-xs text-gray-500 hover:text-white transition">Clear</button>
+        </div>
+        <div id="log-area" class="log-area" style="max-height: 300px;">
+            <div class="text-gray-500">Ready.</div>
+        </div>
+    </div>
+
+    <!-- Result Details -->
+    <div class="glass rounded-2xl p-6 shadow-2xl" id="result-panel" style="display:none;">
+        <div class="flex items-center justify-between mb-3">
+            <div class="section-title mb-0">Result Details</div>
+            <button id="clear-result-btn" class="text-xs text-gray-500 hover:text-white transition">Clear</button>
+        </div>
+        <div id="result-content" class="text-sm space-y-2"></div>
+    </div>
+</div>
