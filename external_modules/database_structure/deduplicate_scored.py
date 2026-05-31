@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from shared.io import atomic_write_json, discover_files, load_json  # noqa: E402
 from shared.paths import image_root_processed  # noqa: E402
 import time
+
 logger = logging.getLogger(__name__)
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -35,15 +36,11 @@ _EXAMPLE_COUNT = 3
 
 def _md5(Path) -> str:
     result = hashlib.md5(path.read_bytes()).hexdigest()
-    logger.debug("_md5 took %.4fs", time.perf_counter() - _start)
     return result
 
 
 def _merge_comparison_histories(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     keeper: JsonDict, discard: list[JsonDict], filename: str
-    logger.debug("_merge_comparison_histories took %.4fs", time.perf_counter() - _start)
 ) -> None:
     seen_ids: set[int] = set()
     merged: list[JsonDict] = []
@@ -69,19 +66,23 @@ def _merge_comparison_histories(
     keeper["comparison_history"] = merged
     keeper["comparison_count"] = len(merged)
     if added:
-        logger.debug(
+        logger.info(
             "Merged %d new comparison(s) from older copies of %s", added, filename
         )
 
 
-def deduplicate_scored(Path | None = None, dry_run: bool = False, limit: int = 0) -> int:
+def deduplicate_scored(
+    root: Path | None = None,
+    image_root_processed: Path | None = None,
+    dry_run: bool = False,
+    limit: int = 0,
+) -> int:
     if root is None:
         root = Path(image_root_processed)
 
     if not root.exists():
         logger.warning("Scored root does not exist: %s", root)
         result = 0
-        logger.debug("deduplicate_scored took %.4fs", time.perf_counter() - _start)
         return result
 
     groups: dict[str, list[EntryTriple]] = defaultdict(list)
@@ -98,7 +99,6 @@ def deduplicate_scored(Path | None = None, dry_run: bool = False, limit: int = 0
     if not duplicates:
         logger.info("No duplicate filenames found under %s", root)
         result = 0
-        logger.debug("deduplicate_scored took %.4fs", time.perf_counter() - _start)
         return result
 
     logger.info("Found %d duplicate basename(s) to resolve", len(duplicates))
@@ -110,7 +110,9 @@ def deduplicate_scored(Path | None = None, dry_run: bool = False, limit: int = 0
     total_renamed = 0
     examples: list[str] = []
 
-    items_iter = sorted(duplicates.items())[:limit] if limit else sorted(duplicates.items())
+    items_iter = (
+        sorted(duplicates.items())[:limit] if limit else sorted(duplicates.items())
+    )
     for basename, items in tqdm(items_iter, desc="Resolving duplicates", unit="group"):
         md5_groups: dict[str, list[EntryTriple]] = defaultdict(list)
         for img, jf, data in items:
@@ -178,12 +180,16 @@ def deduplicate_scored(Path | None = None, dry_run: bool = False, limit: int = 0
                 total_renamed += 1
 
     action = "Would remove" if dry_run else "Removed"
-    logger.info("%s %d duplicate(s), renamed %d conflict(s)", action, total_removed, total_renamed)
+    logger.info(
+        "%s %d duplicate(s), renamed %d conflict(s)",
+        action,
+        total_removed,
+        total_renamed,
+    )
     for ex in examples:
         logger.info("  e.g. %s", ex)
 
     result = total_removed + total_renamed
-    logger.debug("deduplicate_scored took %.4fs", time.perf_counter() - _start)
     return result
 
 
@@ -228,7 +234,6 @@ def main() -> None:
         logger.info("Resolved %d duplicate file(s)", count)
     else:
         logger.info("No duplicates to resolve")
-        logger.debug("main took %.4fs", time.perf_counter() - _start)
 
 
 if __name__ == "__main__":

@@ -2,54 +2,58 @@
 
 from __future__ import annotations
 
+import time
 import logging
 import sys
 from pathlib import Path
 from typing import Any
 
-_root = Path(__file__).parent.parent.parent
+_root: Path = Path(__file__).parent.parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from flask import Blueprint, current_app, jsonify, request
 
-
-from external_modules.comparison.algorithm import merge_sort_ranker, state, graph_helpers, comparison_recorder
+from external_modules.comparison.algorithm import (
+    merge_sort_ranker,
+    state,
+    graph_helpers,
+    comparison_recorder,
+)
 from external_modules.comparison.algorithm.pair_active import _stable_seed_pool
 from external_modules.database_structure.comparisons_table import (
     get_all_comparisons,
     get_skipped_comparison_count,
     get_total_comparisons,
 )
-from external_modules.database_structure.images_table import get_all_images, get_image_count
+from external_modules.database_structure.images_table import (
+    get_all_images,
+    get_image_count,
+)
 from external_modules.database_structure.path_handler import sync_image_metadata_to_json
 from shared.config import config
 from shared.graph import crystal_graph
-import time
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
 logger = logging.getLogger(__name__)
 
 
-def _get_processor(getattr(current_app, "image_processor", None) or current_app.extensions[:
+def _get_processor():
+    return getattr(current_app, "image_processor", None) or current_app.extensions.get(
         "image_processor"
-    ]
+    )
 
 
 def _get_level_progress_stats(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    all_images: list[dict[str, Any]], rebuild_graph: bool = False
-    logger.debug("_get_level_progress_stats took %.4fs", time.perf_counter() - _start)
+    all_images: list[dict[str, Any]],
 ) -> dict[str, int]:
-    if rebuild_graph:
-        crystal_graph.rebuild_from_database()
+    _start = time.perf_counter()
     comp_counts = [int(img["comparison_count"]) for img in all_images]
     base_level = min(comp_counts)
     active_nodes = sum(1 for count in comp_counts if count == base_level)
     next_level_count = sum(1 for count in comp_counts if count == base_level + 1)
     stats = crystal_graph.get_graph_stats()
-    return {
+    result = {
         "base_level": base_level,
         "current_target": base_level + 1,
         "active_nodes": active_nodes,
@@ -58,8 +62,11 @@ def _get_level_progress_stats(
         "total_chains": stats["total_chains"],
     }
 
+    return result
 
-def _node_payload(str, img_data: dict[str, Any]) -> dict[str, Any]:
+
+def _node_payload(filename: str, img_data: dict[str, Any]) -> dict[str, Any]:
+    _start = time.perf_counter()
     node = crystal_graph.get_node(filename)
     comp = crystal_graph.get_component(node_id=filename)
     chain_length = crystal_graph.get_node_chain_length(filename)
@@ -72,30 +79,25 @@ def _node_payload(str, img_data: dict[str, Any]) -> dict[str, Any]:
         }
 
     result = {
-    logger.debug("_node_payload took %.4fs", time.perf_counter() - _start)
-    return result
         "filename": img_data["filename"],
         "score": round(float(img_data["score"]), 4),
         "comparison_count": int(img_data["comparison_count"]),
         "chain_length": chain_length,
-        "component_size": comp.size,
-        "component_id": comp.id,
-        "is_top": node.is_top(),
-        "is_bottom": node.is_bottom(),
+        "component_size": comp.size if comp else 0,
+        "component_id": comp.id if comp else None,
+        "is_top": node.is_top() if node else False,
+        "is_bottom": node.is_bottom() if node else False,
         "_extremes": left_extremes,
     }
+    #
+    return result
 
 
 @ranking_bp.route("/config", methods=["GET"])
 def get_ranking_config():
     _start = time.perf_counter()
-    _start = time.perf_counter()
     ranking_conf = config["ranking"]
     result = jsonify(
-    logger.debug("get_ranking_config took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("get_ranking_config took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "reserve_count": int(ranking_conf["reserve_count"]),
             "parallel_requests": bool(ranking_conf["parallel_requests"]),
@@ -107,19 +109,16 @@ def get_ranking_config():
         }
     )
 
+    return result
+
 
 @ranking_bp.route("/status", methods=["GET"])
 def get_status():
-    _start = time.perf_counter()
     _start = time.perf_counter()
     all_images = get_all_images()
     total = len(all_images)
     if total == 0:
         result = jsonify(
-        logger.debug("get_status took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_status took %.4fs", time.perf_counter() - _start)
-        return result
             {
                 "total_images": 0,
                 "ranked_images": 0,
@@ -137,13 +136,11 @@ def get_status():
             }
         )
 
+        return result
+
     level_stats = _get_level_progress_stats(all_images)
     ranked = sum(1 for img in all_images if int(img["comparison_count"]) > 0)
     result = jsonify(
-    logger.debug("get_status took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("get_status took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "total_images": total,
             "ranked_images": ranked,
@@ -161,10 +158,11 @@ def get_status():
         }
     )
 
+    return result
+
 
 @ranking_bp.route("/next-pair", methods=["GET"])
 def get_next_pair():
-    _start = time.perf_counter()
     _start = time.perf_counter()
     processor = _get_processor()
     recent_files_ordered: list[str] = []
@@ -175,10 +173,6 @@ def get_next_pair():
     total_images = get_image_count()
     if total_images < 2:
         result = (
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
-        return result
             jsonify(
                 {
                     "error": "Not Enough Images",
@@ -187,22 +181,15 @@ def get_next_pair():
             ),
             400,
         )
+        return result
 
     full_exclude = set(recent_files_ordered)
-    logger.debug(
-        "get_next_pair: recent_images=%d, full_exclude=%s",
-        len(recent_files_ordered),
-        list(recent_files_ordered)[-6:],
-    )
-
     pair = merge_sort_ranker.select_pair_for_comparison(
         exclude_set=full_exclude,
     )
     if not pair:
         result = "", 204
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
+
         return result
 
     filename_a, filename_b = pair
@@ -210,9 +197,7 @@ def get_next_pair():
     data_b = state.get_cached_image(filename_b)
     if not data_a or not data_b or data_a["filename"] == data_b["filename"]:
         result = "", 204
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
+
         return result
 
     if processor:
@@ -233,120 +218,96 @@ def get_next_pair():
     left = _node_payload(filename_a, data_a)
     right = _node_payload(filename_b, data_b)
 
-    result = jsonify(
-    logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("get_next_pair took %.4fs", time.perf_counter() - _start)
+    left_data = {
+        "filename": left["filename"],
+        "score": left["score"],
+        "comparison_count": left["comparison_count"],
+        "chain_length": left["chain_length"],
+        "component_size": left["component_size"],
+        "component_id": left["component_id"],
+        "is_top": left["is_top"],
+        "is_bottom": left["is_bottom"],
+        "is_seed": filename_a in seed_set,
+    }
+    right_data = {
+        "filename": right["filename"],
+        "score": right["score"],
+        "comparison_count": right["comparison_count"],
+        "chain_length": right["chain_length"],
+        "component_size": right["component_size"],
+        "component_id": right["component_id"],
+        "is_top": right["is_top"],
+        "is_bottom": right["is_bottom"],
+        "is_seed": filename_b in seed_set,
+    }
+    component_data = {"id": None, "size": None}
+    if left["component_id"] == right["component_id"]:
+        component_data["id"] = left["component_id"]
+        component_data["size"] = left["component_size"]
+
+    pair_data = {
+        "pair_type": pair_meta["pair_type"],
+        "left_component_size": left["component_size"],
+        "right_component_size": right["component_size"],
+        "left_comp_count": pair_meta["left_comp_count"],
+        "right_comp_count": pair_meta["right_comp_count"],
+        "refinement_details": pair_meta["refinement_details"],
+    }
+
+    debug_data = {
+        "score_diff": round(abs(left["score"] - right["score"]), 4),
+        "left_extremes": left["_extremes"],
+        "right_extremes": right["_extremes"],
+        "max_graph_height": crystal_graph.get_graph_stats()["longest_chain_depth"],
+        "total_components": level_stats["total_components"],
+    }
+
+    stats_data = {
+        "total_images": len(all_images),
+        "total_comparisons": get_total_comparisons(),
+        "skipped_comparisons": get_skipped_comparison_count(),
+        "level_count": level_count,
+        "total_components": level_stats["total_components"],
+        "total_chains": level_stats["total_chains"],
+        "active_nodes": level_stats["active_nodes"],
+        "next_level_count": level_stats["next_level_count"],
+        "target_level": level_stats["current_target"],
+        "base_level": level_stats["base_level"],
+    }
+
+    response_data = {
+        "left": left_data,
+        "right": right_data,
+        "collapsable": graph_helpers.is_collapsable_pair(filename_a, filename_b),
+        "same_component": component_data,
+        "pair_meta": pair_data,
+        "debug": debug_data,
+        "global_stats": stats_data,
+    }
+
+    result = jsonify(response_data)
     return result
-        {
-            "left": {
-                "filename": left["filename"],
-                "score": left["score"],
-                "comparison_count": left["comparison_count"],
-                "chain_length": left["chain_length"],
-                "component_size": left["component_size"],
-                "component_id": left["component_id"],
-                "is_top": left["is_top"],
-                "is_bottom": left["is_bottom"],
-                "is_seed": filename_a in seed_set,
-            },
-            "right": {
-                "filename": right["filename"],
-                "score": right["score"],
-                "comparison_count": right["comparison_count"],
-                "chain_length": right["chain_length"],
-                "component_size": right["component_size"],
-                "component_id": right["component_id"],
-                "is_top": right["is_top"],
-                "is_bottom": right["is_bottom"],
-                "is_seed": filename_b in seed_set,
-            },
-            "collapsable": graph_helpers.is_collapsable_pair(
-                filename_a, filename_b
-            ),
-            "same_component": {
-                "id": (
-                    left["component_id"]
-                    if left["component_id"] == right["component_id"]
-                    else None
-                ),
-                "size": (
-                    left["component_size"]
-                    if left["component_id"] == right["component_id"]
-                    else None
-                ),
-            },
-            "pair_meta": {
-                "pair_type": pair_meta["pair_type"],
-                "left_component_size": left["component_size"],
-                "right_component_size": right["component_size"],
-                "left_comp_count": pair_meta["left_comp_count"],
-                "right_comp_count": pair_meta["right_comp_count"],
-                "refinement_details": pair_meta["refinement_details"],
-            },
-            "debug": {
-                "score_diff": round(abs(left["score"] - right["score"]), 4),
-                "left_extremes": left["_extremes"],
-                "right_extremes": right["_extremes"],
-                "max_graph_height": crystal_graph.get_graph_stats()["longest_chain_depth"],
-                "total_components": level_stats["total_components"],
-            },
-            "global_stats": {
-                "total_images": len(all_images),
-                "total_comparisons": get_total_comparisons(),
-                "skipped_comparisons": get_skipped_comparison_count(),
-                "level_count": level_count,
-                "total_components": level_stats["total_components"],
-                "total_chains": level_stats["total_chains"],
-                "active_nodes": level_stats["active_nodes"],
-                "next_level_count": level_stats["next_level_count"],
-                "target_level": level_stats["current_target"],
-                "base_level": level_stats["base_level"],
-            },
-        }
-    )
 
 
 @ranking_bp.route("/reset", methods=["POST"])
 def reset_ranking_queue():
     _start = time.perf_counter()
-    _start = time.perf_counter()
-    try:
-        processor = _get_processor()
-        if processor:
-            with processor.recent_lock:
-                processor.recent_images.clear()
-                processor.recent_chains.clear()
-                state.clear_old_cache(force=True)
-                merge_sort_ranker.clear_pair_cooldown()
-                crystal_graph.rebuild_from_database()
-        result = jsonify({"status": "success", "message": "Ranking queue reset."})
-        logger.debug("reset_ranking_queue took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("reset_ranking_queue took %.4fs", time.perf_counter() - _start)
-        return result
-    except Exception as exc:
-        logger.error("[RESET] Failed to reset queue: %s", exc)
-        result = jsonify({"error": "Failed to reset queue"}), 500
-        logger.debug("reset_ranking_queue took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("reset_ranking_queue took %.4fs", time.perf_counter() - _start)
-        return result
+    processor = _get_processor()
+    if processor:
+        with processor.recent_lock:
+            processor.clear_old_cache(force=True)
+    result = jsonify({"status": "success", "message": "Ranking queue reset."})
+    return result
 
 
 @ranking_bp.route("/submit-comparison", methods=["POST"])
 def submit_comparison():
+    processor = _get_processor()
     _start = time.perf_counter()
-    _start = time.perf_counter()
-    if crystal_graph.is_cache_stale():
-        crystal_graph.rebuild_from_database()
 
     payload = request.get_json()
     if not payload:
         result = jsonify({"error": "Missing request body"}), 400
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
         return result
 
     filename_a = payload["filename_a"]
@@ -354,45 +315,37 @@ def submit_comparison():
     winner = payload["winner"]
     if not all([filename_a, filename_b, winner]):
         result = jsonify({"error": "Missing required fields"}), 400
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
+
         return result
     if filename_a == filename_b:
         result = jsonify({"error": "Cannot compare image to itself"}), 400
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
+
         return result
     if winner not in [filename_a, filename_b]:
         result = jsonify({"error": "Winner must be one of the images"}), 400
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
+
         return result
 
-    success = comparison_recorder.record_comparison(filename_a, filename_b, winner)
+    success = comparison_recorder.record_comparison(
+        filename_a, filename_b, winner, 1.0, 0
+    )
     if not success:
         result = jsonify({"error": "Failed to record comparison"}), 500
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
+
         return result
 
     data_a = state.get_cached_image(filename_a)
     data_b = state.get_cached_image(filename_b)
     if data_a is None or data_b is None:
         result = jsonify({"error": "Image not found"}), 404
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
+
         return result
 
+    if processor:
+        with processor.recent_lock:
+            processor.clear_old_cache(force=False)
+
     result = jsonify(
-    logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("submit_comparison took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "ok": True,
             "images": {
@@ -407,50 +360,35 @@ def submit_comparison():
             },
         }
     )
-
-
-
+    return result
 
 
 @ranking_bp.route("/sync-all", methods=["POST"])
 def sync_all_to_json():
     _start = time.perf_counter()
-    _start = time.perf_counter()
-    try:
-        images = get_all_images()
-        all_comparisons = get_all_comparisons()
-        count = 0
-        errors = 0
-        for img in images:
-            success = sync_image_metadata_to_json(
-                filename=img["filename"],
-                score=float(img["score"]),
-                rating_mu=float(img["rating_mu"]),
-                rating_sigma=float(img["rating_sigma"]),
-                comparison_count=int(img["comparison_count"]),
-                all_comparisons=all_comparisons,
-            )
-            if success:
-                count += 1
-            else:
-                errors += 1
-        result = jsonify(
-        logger.debug("sync_all_to_json took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("sync_all_to_json took %.4fs", time.perf_counter() - _start)
-        return result
-            {"status": "success", "synced_count": count, "error_count": errors}
+    images = get_all_images()
+    all_comparisons = get_all_comparisons()
+    count = 0
+    errors = 0
+    for img in images:
+        success = sync_image_metadata_to_json(
+            filename=img["filename"],
+            score=float(img["score"]),
+            rating_mu=float(img["rating_mu"]),
+            rating_sigma=float(img["rating_sigma"]),
+            comparison_count=int(img["comparison_count"]),
+            all_comparisons=all_comparisons,
         )
-    except Exception as exc:
-        result = jsonify({"status": "error", "message": str(exc)}), 500
-        logger.debug("sync_all_to_json took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("sync_all_to_json took %.4fs", time.perf_counter() - _start)
-        return result
+        if success:
+            count += 1
+        else:
+            errors += 1
+    result = jsonify(
+        {"status": "success", "synced_count": count, "error_count": errors}
+    )
+    return result
 
 
 def register_ranking_routes(app) -> None:
     _start = time.perf_counter()
-    _start = time.perf_counter()
     app.register_blueprint(ranking_bp)
-    logger.debug("register_ranking_routes took %.4fs", time.perf_counter() - _start)

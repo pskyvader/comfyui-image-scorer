@@ -1,40 +1,41 @@
+from __future__ import annotations
+
+import time
+from typing import Any
+
 import numpy as np
 import numpy.typing as npt
-from typing import Any
 
 
 def l2_normalize_batch(vectors: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    _start = time.perf_counter()
     eps: float = 1e-12
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms = np.maximum(norms, eps)
-    return vectors / norms
+    result = vectors / norms
+
+    return result
 
 
 def get_value_from_entry(
     entry: dict[str, Any], name: str, alias: list[str] | None = None
 ) -> Any:
-    custom_text: dict[str, Any] = entry["custom_text"] if "custom_text" in entry else {}
-    # print(
-    #     f"entry: {entry}, name: {name}, custom_text: {custom_text}, type: {type(entry)}",
-    #     flush=True,
-    # )
-    custom_text.update(entry)
-    # current_value = custom_text[name] if name in custom_text else None
-    # if alias is not None and len(alias) > 0:
-    #     for a in alias:
-    #         if a in custom_text:
-    #             current_value = custom_text[a]
-    #             break
-    # 1. Check if aliases exist (the 20% case)
-    if alias:
-        # Find the first valid alias, or fall back to the name
-        current_value = next((custom_text[a] for a in alias if a in custom_text), custom_text.get(name))
-    else:
-        # 2. Fast path for the 80% case (no aliases)
-        current_value = custom_text.get(name)
-        
-    
-    # if current_value is None:
-    #     print(f"Value not found for {name}, returning None")
+    _start = time.perf_counter()
+    custom_text: dict[str, Any] = {}
+    if "custom_text" in entry and isinstance(entry["custom_text"], dict):
+        custom_text.update(entry["custom_text"])
+    for key, value in entry.items():
+        custom_text[key] = value
 
-    return current_value
+    result: Any = None
+    if alias is not None and len(alias) > 0:
+        for alias_name in alias:
+            if alias_name in custom_text:
+                result = custom_text[alias_name]
+                break
+        if result is None and name in custom_text:
+            result = custom_text[name]
+    elif name in custom_text:
+        result = custom_text[name]
+
+    return result

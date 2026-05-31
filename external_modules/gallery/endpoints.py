@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 _root = Path(__file__).parent.parent.parent
 if str(_root) not in sys.path:
@@ -59,7 +60,7 @@ def list_images():
 
     sort_by = request.args.get("sort", "score_desc")
 
-def sort_list(list[dict]) -> None:
+    def sort_list(items: list[dict[str, Any]]) -> None:
         if sort_by == "score_asc":
             items.sort(key=lambda item: float(item["score"]))
         elif sort_by == "score_desc":
@@ -69,7 +70,9 @@ def sort_list(list[dict]) -> None:
         elif sort_by == "comparisons_desc":
             items.sort(key=lambda item: int(item["comparison_count"]), reverse=True)
         elif sort_by in {"last_compared_desc", "newest"}:
-            items.sort(key=lambda item: item.get("last_compared_at") or "", reverse=True)
+            items.sort(
+                key=lambda item: item.get("last_compared_at") or "", reverse=True
+            )
         elif sort_by == "last_compared_asc":
             items.sort(key=lambda item: item.get("last_compared_at") or "9999-99-99")
 
@@ -77,7 +80,9 @@ def sort_list(list[dict]) -> None:
         sort_list(filtered_and)
         sort_list(filtered_or)
         filtered = (
-            filtered_or if search_mode == "or" else filtered_and if search_mode == "and" else filtered_and + filtered_or
+            filtered_or
+            if search_mode == "or"
+            else filtered_and if search_mode == "and" else filtered_and + filtered_or
         )
     else:
         filtered = filtered_and
@@ -97,10 +102,6 @@ def sort_list(list[dict]) -> None:
         for img in paginated
     ]
     result = jsonify(
-    logger.debug("list_images took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("list_images took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "images": images,
             "total": total,
@@ -111,18 +112,16 @@ def sort_list(list[dict]) -> None:
             ),
         }
     )
+    return result
 
 
 @gallery_bp.route("/image/<path:filename>", methods=["GET"])
-def get_image_info(str):
+def get_image_info(filename: str):
     img = get_image(filename)
     if not img:
         result = jsonify({"error": "Image not found"}), 404
-        logger.debug("get_image_info took %.4fs", time.perf_counter() - _start)
         return result
     result = jsonify(
-    logger.debug("get_image_info took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "filename": img["filename"],
             "score": round(float(img["score"]), 4),
@@ -131,6 +130,7 @@ def get_image_info(str):
             "prompt_tags": img.get("prompt_tags"),
         }
     )
+    return result
 
 
 @gallery_bp.route("/search", methods=["GET"])
@@ -156,20 +156,22 @@ def search_images():
             }
         )
     result = jsonify({"results": results, "count": len(results)})
-    logger.debug("search_images took %.4fs", time.perf_counter() - _start)
+
     result = result
-    logger.debug("search_images took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @gallery_bp.route("/history/<path:filename>", methods=["GET"])
-def get_image_history(str):
+def get_image_history(filename: str):
     wins = []
     losses = []
     for comp in get_all_comparisons():
         if comp["filename_a"] != filename and comp["filename_b"] != filename:
             continue
-        opponent = comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+        opponent = (
+            comp["filename_b"] if comp["filename_a"] == filename else comp["filename_a"]
+        )
         opponent_data = get_image(opponent)
         item = {
             "opponent": opponent,
@@ -182,8 +184,6 @@ def get_image_history(str):
             losses.append(item)
 
     result = jsonify(
-    logger.debug("get_image_history took %.4fs", time.perf_counter() - _start)
-    return result
         {
             "filename": filename,
             "wins": wins,
@@ -191,10 +191,10 @@ def get_image_history(str):
             "total_comparisons": len(wins) + len(losses),
         }
     )
+    return result
 
 
 def register_gallery_routes(app) -> None:
     _start = time.perf_counter()
     _start = time.perf_counter()
     app.register_blueprint(gallery_bp)
-    logger.debug("register_gallery_routes took %.4fs", time.perf_counter() - _start)

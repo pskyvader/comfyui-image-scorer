@@ -30,20 +30,17 @@ def find_workspace_root() -> Path:
     for ancestor in p.parents:
         if (ancestor / "main.py").exists():
             result = ancestor
-            logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
+
             result = result
-            logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
+
             return result
         if (ancestor / "custom_nodes").is_dir():
             result = ancestor
-            logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
+
             result = result
-            logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
+
             return result
     result = Path(__file__).resolve().parents[-1]
-    logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("find_workspace_root took %.4fs", time.perf_counter() - _start)
     return result
 
 
@@ -55,13 +52,11 @@ def get_ranked_root() -> Path:
         root_path = find_workspace_root() / root_path
     root_path.mkdir(parents=True, exist_ok=True)
     result = root_path
-    logger.debug("get_ranked_root took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("get_ranked_root took %.4fs", time.perf_counter() - _start)
     return result
 
 
-def compute_path_from_filename(str, score: float) -> Path:
+def compute_path_from_filename(filename: str, score: float) -> Path:
+    _start = time.perf_counter()
     ranked_root = get_ranked_root()
     clamped_score = max(0.0, min(1.0, float(score)))
     score_truncated = math.floor(clamped_score * 10) / 10.0
@@ -83,38 +78,31 @@ def compute_path_from_filename(str, score: float) -> Path:
 
     if (file_count < threshold and not has_subfolders) or score_truncated >= 1.0:
         result = base_folder / filename
-        logger.debug("compute_path_from_filename took %.4fs", time.perf_counter() - _start)
         return result
 
     score_second = math.floor(clamped_score * 100) / 100.0
     result = base_folder / f"scored_{score_second:.2f}" / filename
-    logger.debug("compute_path_from_filename took %.4fs", time.perf_counter() - _start)
     return result
 
 
-def find_image_path(str) -> Path | None:
+def find_image_path(filename: str) -> Path | None:
     ranked_root = get_ranked_root()
     try:
         for root, _, files in os.walk(ranked_root):
             if filename in files:
                 result = Path(root) / filename
-                logger.debug("find_image_path took %.4fs", time.perf_counter() - _start)
                 return result
     except Exception:
         pass
     result = None
-    logger.debug("find_image_path took %.4fs", time.perf_counter() - _start)
     return result
 
 
 def _build_history_for_filename(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename: str,
     all_comparisons: list[dict[str, Any]] | None = None,
     filename_to_comparisons: dict[str, list[dict[str, Any]]] | None = None,
     filename_to_image_data: dict[str, dict[str, Any]] | None = None,
-    logger.debug("_build_history_for_filename took %.4fs", time.perf_counter() - _start)
 ) -> list[dict[str, Any]]:
     if filename_to_comparisons is not None:
         comps = filename_to_comparisons[filename]
@@ -156,10 +144,11 @@ def _build_history_for_filename(
     return history
 
 
-def _move_image_and_json(Path, current_json: Path, score: float) -> None:
+def _move_image_and_json(current_image: Path, current_json: Path, score: float) -> None:
+    _start = time.perf_counter()
     target_path = compute_path_from_filename(current_image.name, score)
     if target_path.parent == current_image.parent:
-        logger.debug("_move_image_and_json took %.4fs", time.perf_counter() - _start)
+
         return
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_json = target_path.with_suffix(".json")
@@ -168,8 +157,6 @@ def _move_image_and_json(Path, current_json: Path, score: float) -> None:
 
 
 def sync_image_metadata_to_json(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename: str,
     score: float,
     rating_mu: float,
@@ -179,7 +166,6 @@ def sync_image_metadata_to_json(
     filename_to_path: dict[str, Path] | None = None,
     filename_to_comparisons: dict[str, list[dict[str, Any]]] | None = None,
     filename_to_image_data: dict[str, dict[str, Any]] | None = None,
-    logger.debug("sync_image_metadata_to_json took %.4fs", time.perf_counter() - _start)
 ) -> bool:
     """Rewrite one JSON companion file from DB-backed state."""
 
@@ -226,14 +212,11 @@ def sync_image_metadata_to_json(
 
 
 def append_comparison_history_to_json(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename: str,
     comparison_data: dict[str, Any],
     new_score: float | None = None,
     new_rating_mu: float | None = None,
     new_rating_sigma: float | None = None,
-    logger.debug("append_comparison_history_to_json took %.4fs", time.perf_counter() - _start)
 ) -> bool:
     """Compatibility wrapper that performs a full DB-backed JSON sync."""
 

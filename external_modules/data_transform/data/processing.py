@@ -1,35 +1,47 @@
-import numpy as np
-import logging
-import time
-logger = logging.getLogger(__name__)
-def check_for_leakage(list[list[float]], scores_list: list[int]) -> None:
-    if not vectors_list or not scores_list:
-        raise RuntimeError(f"check leakage: Empty vectors or scores list, vectors list: {len(vectors_list)}, scores list: {len(scores_list)}")
-    if len(vectors_list) != len(scores_list):
-        msg = f"check leakage: lengths don't match, vectors list: {len(vectors_list)}, scores list: {len(scores_list)}"
-        raise RuntimeError(msg)
+from __future__ import annotations
 
-    # for i,v in enumerate(vectors_list):
-    #     print(f"vector list {i} : {len(v)}")
+import time
+
+import numpy as np
+
+from shared.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def check_for_leakage(vectors_list: list[list[float]], scores_list: list[int]) -> None:
+    _start = time.perf_counter()
+    if not vectors_list or not scores_list:
+        raise RuntimeError(
+            "check leakage: Empty vectors or scores list, "
+            f"vectors list: {len(vectors_list)}, scores list: {len(scores_list)}"
+        )
+    if len(vectors_list) != len(scores_list):
+        raise RuntimeError(
+            "check leakage: lengths don't match, "
+            f"vectors list: {len(vectors_list)}, scores list: {len(scores_list)}"
+        )
 
     arr = np.array(vectors_list)
     y_arr = np.array(scores_list)
     corrs: list[float] = []
-    for i in range(arr.shape[1]):
-        col = arr[:, i]
-        if np.allclose(col, col[0]):
+    for index in range(arr.shape[1]):
+        column = arr[:, index]
+        if np.allclose(column, column[0]):
             corrs.append(0.0)
             continue
-        c = np.corrcoef(col, y_arr)[0, 1]
-        corrs.append(float(c) if not np.isnan(c) else 0.0)
+        corr = np.corrcoef(column, y_arr)[0, 1]
+        corrs.append(float(corr) if not np.isnan(corr) else 0.0)
+
     corrs_arr = np.array(corrs)
     leak_cols = np.where(np.abs(corrs_arr) >= 0.9999)[0].tolist()
-    eq_cols = [i for i in range(arr.shape[1]) if np.allclose(arr[:, i], y_arr)]
+    eq_cols = [
+        index for index in range(arr.shape[1]) if np.allclose(arr[:, index], y_arr)
+    ]
     leak_cols = sorted(set(leak_cols + eq_cols))
     if leak_cols:
-        msg = (
-            f"Detected feature columns that strongly match the target (possible leakage): {leak_cols}. "
-            "Fix the feature assembly to avoid including target values as features."
+        raise RuntimeError(
+            "Detected feature columns that strongly match the target "
+            f"(possible leakage): {leak_cols}. Fix the feature assembly to avoid "
+            "including target values as features."
         )
-        print(msg)
-        raise RuntimeError(msg)

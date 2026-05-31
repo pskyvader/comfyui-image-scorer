@@ -20,6 +20,9 @@ from external_modules.training_hyperparameters.config_utils import (
 )
 from external_modules.training_hyperparameters.run import evaluate_hyperparameter_combo
 
+from collections.abc import Mapping
+import time
+
 logger = logging.getLogger(__name__)
 
 STATE_FILE = os.path.join(models_dir, "hyperparameter_state.json")
@@ -31,7 +34,7 @@ NUM_CONFIGS = 4
 _hpo_running = False
 
 
-def _log(str):
+def _log(msg: str):
     print(msg, flush=True)
     logger.info(msg)
 
@@ -46,10 +49,6 @@ def _load_state() -> dict[str, Any]:
     data.append(training_config["top3"])
     data.append(training_config["top4"])
     result = {
-    logger.debug("_load_state took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("_load_state took %.4fs", time.perf_counter() - _start)
-    return result
         "configs": data,
         "step": 0,
         "cycle": 0,
@@ -57,12 +56,13 @@ def _load_state() -> dict[str, Any]:
             training_config["used_keys"] if "used_keys" in training_config else []
         ),
     }
+    return result
 
     # data, err = load_json(STATE_FILE, dict, None)
     # return data if data is not None else {}
 
 
-def _save_state(dict[str, Any]):
+def _save_state(state: dict[str, Any]):
     configs = state["configs"]
     config["training"]["top1"] = configs[0]
     config["training"]["top2"] = configs[1]
@@ -73,7 +73,7 @@ def _save_state(dict[str, Any]):
     # atomic_write_json(STATE_FILE, state, indent=4)
 
 
-def load_training_data(bool = False) -> tuple[np.ndarray, np.ndarray]:
+def load_training_data(retrain: bool = False) -> tuple[np.ndarray, np.ndarray]:
     if retrain:
         _log("Retrain mode: removing cached models and data...")
         training_loader.remove_training_models()
@@ -119,15 +119,11 @@ def load_training_data(bool = False) -> tuple[np.ndarray, np.ndarray]:
     )
     _log(f"Scores loaded: y={y.shape}")
     result = X, y
-    logger.debug("load_training_data took %.4fs", time.perf_counter() - _start)
     return result
 
 
 def _evaluate_config(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     cfg: dict[str, Any], X: np.ndarray, y: np.ndarray
-    logger.debug("_evaluate_config took %.4fs", time.perf_counter() - _start)
 ) -> dict[str, Any]:
     os.makedirs(models_dir, exist_ok=True)
     temp_model_base = os.path.join(models_dir, "temp_model")
@@ -142,122 +138,20 @@ def _evaluate_config(
     }
 
 
-def reset_hyperparameters(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    evaluate: bool = False,
-    X: np.ndarray = None,
-    y: np.ndarray = None,
-    force: bool = False,
-    logger.debug("reset_hyperparameters took %.4fs", time.perf_counter() - _start)
-):
+def reset_hyperparameters():
     top1 = generate_random_config()
     top2 = generate_random_config()
     top3 = generate_slowest_setup()
     top4 = generate_fastest_setup()
     configs = [top1, top2, top3, top4]
-    state = {"configs": configs, "step": 0, "cycle": 0, "used_keys": [[], [], [], []]}
+    state = {"configs": configs, "step": 0, "cycle": 0, "used_keys": []}
 
-    if evaluate and X is not None and y is not None:
-        _log("Evaluating base scores for all 4 configs...")
-        for i in range(NUM_CONFIGS):
-            _log(f"  Config {i + 1}: evaluating...")
-            state["configs"][i] = _evaluate_config(state["configs"][i], X, y)
-            _log(
-                f"    score={state['configs'][i].get('best_score', -1):.6f}  time={state['configs'][i].get('training_time', 0):.2f}s"
-            )
-
-    # Save internal HPO state file
     _save_state(state)
 
-    # Persist the generated base configs into the global training config.
-    # Do NOT auto-create base configs unless `force=True` is provided; this
-    # prevents accidental recreation when a user intentionally deleted them.
-    try:
-        training_sub = config["training"]
-    except Exception:
-        training_sub = None
-
-    if not force:
-        if not training_sub or any(
-            k not in training_sub for k in ("top1", "top2", "top3", "top4")
-        ):
-            raise RuntimeError(
-                "Training configuration missing base entries ('top1'..'top4'). Refusing to auto-create base configs. "
-                "Initialize the training config manually or call the tools API with reset=true to force initialization."
-            )
-
-    if training_sub is None and force:
-        # Try to create a new training subconfig if allowed
-        try:
-            config["training"] = {}
-            training_sub = config["training"]
-        except Exception as e:
-            _log(f"Warning: cannot create training subconfig: {e}")
-            training_sub = None
-
-    if training_sub is not None:
-        try:
-            # Write only the explicit base slots (top1..top4). Do NOT create
-            # `top`, `fastest`, or `slowest` keys.
-            training_sub["top1"] = configs[0]
-            training_sub["top2"] = configs[1]
-            training_sub["top3"] = configs[2]
-            training_sub["top4"] = configs[3]
-
-            # Also write the training subconfig file immediately so callers reading
-            # the on-disk `training_config.json` observe the new top1..top4 values.
-            try:
-                from collections.abc import Mapping
-import time
-
-                def _to_plain(o):
-                    _start = time.perf_counter()
-                    _start = time.perf_counter()
-                    if isinstance(o, Mapping):
-                        result = {k: _to_plain(v) for k, v in o.items()}
-                        logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                        result = result
-                        logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                        return result
-                    if isinstance(o, (list, tuple)):
-                        result = [_to_plain(v) for v in o]
-                        logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                        result = result
-                        logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                        return result
-                    result = o
-                    logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                    result = result
-                    logger.debug("_to_plain took %.4fs", time.perf_counter() - _start)
-                    return result
-
-                cfg_path = os.path.normpath(
-                    os.path.join(
-                        os.path.dirname(__file__),
-                        "..",
-                        "..",
-                        "..",
-                        "config",
-                        "training_config.json",
-                    )
-                )
-                atomic_write_json(cfg_path, _to_plain(training_sub), indent=4)
-                _log(f"Wrote new base configs to training config file: {cfg_path}")
-            except Exception as e:
-                _log(f"Warning: failed to atomic-write training config file: {e}")
-        except Exception as e:
-            _log(f"Warning: failed to persist base configs to training config: {e}")
-
-    _log("Hyperparameter state reset:")
-    for i, c in enumerate(state["configs"]):
-        _log(
-            f"  Config {i + 1}: score={c.get('best_score', -1)}  time={c.get('training_time', 0):.2f}s"
-        )
     return state
 
 
-def evaluate_base_scores(np.ndarray, y: np.ndarray):
+def evaluate_base_scores(x: np.ndarray, y: np.ndarray):
     state = _load_state()
     if (
         not state
@@ -277,7 +171,6 @@ def evaluate_base_scores(np.ndarray, y: np.ndarray):
     _save_state(state)
     _log("Base scores updated.")
     result = state
-    logger.debug("evaluate_base_scores took %.4fs", time.perf_counter() - _start)
     return result
 
 
@@ -294,21 +187,15 @@ def get_hpo_state() -> dict[str, Any]:
             "HPO state missing or invalid. To initialize base configs, call reset_hyperparameters(force=True) explicitly."
         )
     result = state
-    logger.debug("get_hpo_state took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("get_hpo_state took %.4fs", time.perf_counter() - _start)
     return result
 
 
 def _run_step_on_config(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     cfg: dict[str, Any],
     used_keys: list[str],
     X: np.ndarray,
     y: np.ndarray,
     max_combos: int,
-    logger.debug("_run_step_on_config took %.4fs", time.perf_counter() - _start)
 ) -> tuple[dict[str, Any], list[str]]:
     all_keys = list(grid_base.keys())
     random.shuffle(all_keys)
@@ -380,10 +267,7 @@ def _run_step_on_config(
 
 
 def hpo_cycle(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     X: np.ndarray, y: np.ndarray, num_steps: int = 100, max_combos: int = 4
-    logger.debug("hpo_cycle took %.4fs", time.perf_counter() - _start)
 ) -> dict[str, Any]:
     global _hpo_running
     if _hpo_running:
@@ -433,8 +317,10 @@ def hpo_cycle(
             _log(
                 f"best_score={cfg['best_score']:.6f}  training_time={cfg.get('training_time'):.2f}s"
             )
-            for key in grid_base.keys():
-                _log(f"  {key}={cfg.get(key):.6g}")
+            _log(f" {cfg}")
+            # for key in grid_base.keys():
+            #     _log(f"  {key}={cfg.get(key):.6g}")
+
             configs[idx], used_keys = _run_step_on_config(
                 configs[idx], used_keys, X, y, max_combos
             )
@@ -501,13 +387,9 @@ def hpo_cycle(
 
 
 def run_hpo_cycles(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    reset: bool = False,
-    cycles: int = None,
-    num_steps: int = None,
-    max_combos: int = None,
-    logger.debug("run_hpo_cycles took %.4fs", time.perf_counter() - _start)
+    cycles: int,
+    num_steps: int,
+    max_combos: int,
 ):
     """
     Helper to run multiple HPO cycles for API/frontend use.
@@ -516,38 +398,6 @@ def run_hpo_cycles(
     - Otherwise requires existing HPO state and `top1`..`top4` in `training_config.json`.
     Returns a list of `hpo_cycle` results (each is the new_state dict).
     """
-    try:
-        training_sub = config["training"]
-    except Exception:
-        raise RuntimeError("Missing training configuration (training_config.json).")
-
-    if cycles is None:
-        try:
-            cycles = int(training_sub["cycles"])
-        except Exception:
-            raise RuntimeError(
-                "Missing 'cycles' in training configuration; provide `cycles` parameter."
-            )
-    if num_steps is None:
-        try:
-            num_steps = int(training_sub["iterations_per_cycle"])
-        except Exception:
-            raise RuntimeError(
-                "Missing 'iterations_per_cycle' in training configuration; provide `num_steps` parameter."
-            )
-    if max_combos is None:
-        try:
-            max_combos = int(training_sub["max_combos"])
-        except Exception:
-            raise RuntimeError(
-                "Missing 'max_combos' in training configuration; provide `max_combos` parameter."
-            )
-
-    if reset:
-        _log(
-            "Reset requested: forcing creation of base configs via reset_hyperparameters(force=True)."
-        )
-        reset_hyperparameters(evaluate=False, force=True)
 
     # load_training_data will validate presence of top1..top4 and raise if missing
     X, y = load_training_data(retrain=False)

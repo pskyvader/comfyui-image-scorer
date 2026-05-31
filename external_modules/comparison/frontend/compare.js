@@ -2,6 +2,8 @@
  * Comparison Mode Logic
  */
 
+const compareLogger = FrontendLogger.create("external_modules.comparison.frontend.compare");
+
 class CompareMode {
     constructor() {
         this.currentPair = null;
@@ -134,7 +136,9 @@ class CompareMode {
             opacity: 0;
         `;
         el.innerHTML = `
-            <span id="qi-pending" title="Votes pending submission">⬆ 0</span>
+            <span id="qi-queue" title="Votes pending submission">⬆ 0</span>
+            <span style="opacity:0.3">|</span>
+            <span id="qi-pending" title="Votes submitting">⬆ 0</span>
             <span style="opacity:0.3">|</span>
             <span id="qi-ready" title="Comparisons fully loaded (images ready)">⬇ 0</span>
         `;
@@ -188,9 +192,11 @@ class CompareMode {
         if (!el) {
             return;
         }
-        const pending = this._submissionQueue.length + this._outgoingQueue.length;
+        const pending = this._outgoingQueue.length;
+        const queue = this._submissionQueue.length;
         const ready = this._pairCache.length;
 
+        el.querySelector("#qi-queue").textContent = `🔄 ${queue}`;
         el.querySelector("#qi-pending").textContent = `⬆ ${pending}`;
         el.querySelector("#qi-ready").textContent = `⬇ ${ready}`;
 
@@ -233,7 +239,7 @@ class CompareMode {
     }
 
     async init(params) {
-        console.log("Initializing CompareMode...");
+        compareLogger.info("Initializing CompareMode...");
         this.cacheElements();
         this.attachEventListeners();
 
@@ -244,7 +250,7 @@ class CompareMode {
         this._config.seed_target_comparisons = serverConfig.seed_target_comparisons;
         this._config.insertion_target_comparisons = serverConfig.insertion_target_comparisons;
         this._populateLegend();
-        console.log("Ranking config loaded:", this._config);
+        compareLogger.info("Ranking config loaded:", null, this._config);
 
         const leftFile = params?.get("left");
         const rightFile = params?.get("right");
@@ -297,7 +303,7 @@ class CompareMode {
             this.showLoading(false);
             return;
         }
-        console.log("Loaded pair:", pair, "Cached:", cached);
+        compareLogger.info("Loaded pair:", null, pair, { cached: cached != null });
         this.currentPair = { ...pair, _preloadedLeft: cached?.leftImg, _preloadedRight: cached?.rightImg };
         await this.renderPair();
         this.showLoading(false);
@@ -643,7 +649,7 @@ class CompareMode {
     }
 
     async submitVote(winner) {
-        console.log("Submitting vote for:", winner, this.currentPair);
+        compareLogger.info("Submitting vote for:", null, winner, this.currentPair);
         const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
         const filenameA = this.currentPair.left.filename;
         const filenameB = this.currentPair.right.filename;
@@ -703,14 +709,23 @@ class CompareMode {
                             this.updateStats();
                         }
                     })
+                    .catch((e) => {
+                        Utils.showToast(`Error submitting comparison: ${e}`, "error");
+                        this._hasSubmitted = true; // test to fix stuck queue
+                        this._outgoingQueue = [];
+                    })
                     .finally(() => {
                         this._outgoingQueue = this._outgoingQueue.filter(x => x !== front);
                         this._updateQueueIndicator();
                         this._updateUndoUI();
+
+                        this._prefetching = false;
                     });
 
                 if (!this._config.parallel_requests) {
                     await submitTask;
+                } else {
+                    submitTask();
                 }
             } else {
                 await new Promise(r => setTimeout(r, remaining));
@@ -747,7 +762,7 @@ class CompareMode {
         }
 
         btn.style.display = "block";
-        console.log("Updating undo UI for submission queue:", this._submissionQueue);
+        compareLogger.info("Updating undo UI for submission queue:", null, this._submissionQueue);
 
         const last = this._submissionQueue[this._submissionQueue.length - 1];
         const isLeftWinner = last.winnerFilename === last.filenameA;
@@ -784,7 +799,10 @@ class CompareMode {
     }
 
     _startPrefetch() {
+        console.log("start prefetch");
         if (this._prefetching || this._pairCache.length >= this._targetCacheSize) {
+            console.log("prefetch fails", this._prefetching, this._pairCache.length);
+
             return;
         }
         this._prefetching = true;
@@ -792,9 +810,11 @@ class CompareMode {
     }
 
     async _prefetchLoop() {
+        console.log("start prefetch loop");
         while (this._prefetching && this._pairCache.length < this._targetCacheSize) {
+            console.log("while prefetch loop", this._prefetching, this._pairCache.length);
             if (this._outgoingQueue.length > 0) {
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 100));
                 continue;
             }
 

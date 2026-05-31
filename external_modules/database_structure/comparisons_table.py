@@ -6,25 +6,28 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import logging
+import time
 
 from .schema import get_db_connection
 
 logger = logging.getLogger(__name__)
 
 
-def _canonicalize_pair(str, filename_b: str) -> tuple[str, str]:
+def _canonicalize_pair(filename_a: str, filename_b: str) -> tuple[str, str]:
+    _start = time.perf_counter()
     first = str(filename_a)
     second = str(filename_b)
     canon = sorted((first, second))
     result = canon[0], canon[1]
-    logger.debug("_canonicalize_pair took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
-def _safe_parse_timestamp(str | None) -> tuple[int, datetime]:
+def _safe_parse_timestamp(timestamp: str | None) -> tuple[int, datetime]:
+    _start = time.perf_counter()
     if not timestamp:
         result = 1, datetime.min.replace(tzinfo=timezone.utc)
-        logger.debug("_safe_parse_timestamp took %.4fs", time.perf_counter() - _start)
+
         return result
     try:
         ts = str(timestamp).replace("Z", "+00:00")
@@ -32,24 +35,21 @@ def _safe_parse_timestamp(str | None) -> tuple[int, datetime]:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         result = 0, parsed
-        logger.debug("_safe_parse_timestamp took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception:
         result = 1, datetime.min.replace(tzinfo=timezone.utc)
-        logger.debug("_safe_parse_timestamp took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
 def add_historical_comparison(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename_a: str,
     filename_b: str,
     winner: str,
     timestamp: str,
     weight: float = 1.0,
     transitive_depth: int = 0,
-    logger.debug("add_historical_comparison took %.4fs", time.perf_counter() - _start)
 ) -> int:
     """Insert one historical comparison row if an exact copy does not already exist."""
 
@@ -102,15 +102,12 @@ def add_historical_comparison(
 
 
 def add_comparison(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename_a: str,
     filename_b: str,
     winner: str,
     weight: float = 1.0,
     transitive_depth: int = 0,
     timestamp: str | None = None,
-    logger.debug("add_comparison took %.4fs", time.perf_counter() - _start)
 ) -> int:
     """Record a comparison result."""
 
@@ -121,7 +118,9 @@ def add_comparison(
         logger.error("Winner must be one of the compared images")
         return 0
     canon_a, canon_b = _canonicalize_pair(filename_a, filename_b)
-    timestamp_value = str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat()
+    timestamp_value = (
+        str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat()
+    )
 
     try:
         with get_db_connection() as conn:
@@ -146,7 +145,8 @@ def add_comparison(
         return 0
 
 
-def comparison_exists_for_pair(str, filename_b: str) -> bool:
+def comparison_exists_for_pair(filename_a: str, filename_b: str) -> bool:
+    _start = time.perf_counter()
     canon_a, canon_b = _canonicalize_pair(filename_a, filename_b)
     try:
         with get_db_connection() as conn:
@@ -155,37 +155,35 @@ def comparison_exists_for_pair(str, filename_b: str) -> bool:
                 (canon_a, canon_b),
             ).fetchone()
             result = row is not None
-            logger.debug("comparison_exists_for_pair took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
-        logger.error("Error checking existing pair %s/%s: %s", filename_a, filename_b, exc)
+        logger.error(
+            "Error checking existing pair %s/%s: %s", filename_a, filename_b, exc
+        )
         result = False
-        logger.debug("comparison_exists_for_pair took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def clear_all_comparisons() -> int:
-    _start = time.perf_counter()
     _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             cur = conn.execute("DELETE FROM comparisons")
             conn.commit()
             result = max(int(cur.rowcount or 0), 0)
-            logger.debug("clear_all_comparisons took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("clear_all_comparisons took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error clearing comparisons: %s", exc)
         result = 0
-        logger.debug("clear_all_comparisons took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("clear_all_comparisons took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def get_recent_comparisons(str, days: int = 30, limit: int = 100) -> list[dict[str, Any]]:
+def get_recent_comparisons(
+    filename: str, days: int = 30, limit: int = 100
+) -> list[dict[str, Any]]:
+    _start = time.perf_counter()
     try:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         with get_db_connection() as conn:
@@ -200,16 +198,16 @@ def get_recent_comparisons(str, days: int = 30, limit: int = 100) -> list[dict[s
                 (filename, filename, cutoff_date.isoformat(), limit),
             ).fetchall()
             result = [dict(row) for row in rows]
-            logger.debug("get_recent_comparisons took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error getting recent comparisons for %s: %s", filename, exc)
         result = []
-        logger.debug("get_recent_comparisons took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def get_comparison_count(str) -> int:
+def get_comparison_count(filename: str) -> int:
+    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             row = conn.execute(
@@ -220,37 +218,29 @@ def get_comparison_count(str) -> int:
                 (filename, filename),
             ).fetchone()
             result = int(row["cnt"]) if row else 0
-            logger.debug("get_comparison_count took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error getting comparison count for %s: %s", filename, exc)
         result = 0
-        logger.debug("get_comparison_count took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def get_total_comparisons() -> int:
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             row = conn.execute("SELECT COUNT(*) as cnt FROM comparisons").fetchone()
             result = int(row["cnt"]) if row else 0
-            logger.debug("get_total_comparisons took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_total_comparisons took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error getting total comparisons: %s", exc)
         result = 0
-        logger.debug("get_total_comparisons took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_total_comparisons took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def get_skipped_comparison_count() -> int:
-    _start = time.perf_counter()
     _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
@@ -258,20 +248,16 @@ def get_skipped_comparison_count() -> int:
                 "SELECT COUNT(*) as cnt FROM comparisons WHERE weight < 1.0"
             ).fetchone()
             result = int(row["cnt"]) if row else 0
-            logger.debug("get_skipped_comparison_count took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_skipped_comparison_count took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error getting skipped comparison count: %s", exc)
         result = 0
-        logger.debug("get_skipped_comparison_count took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_skipped_comparison_count took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
-def get_all_comparisons(float | None = None) -> list[dict[str, Any]]:
+def get_all_comparisons(weight: float | None = None) -> list[dict[str, Any]]:
     query = "SELECT * FROM comparisons"
     values: list[Any] = []
     if weight is not None:
@@ -279,74 +265,51 @@ def get_all_comparisons(float | None = None) -> list[dict[str, Any]]:
         values.append(float(weight))
     query += " ORDER BY timestamp ASC, id ASC"
 
-    try:
-        with get_db_connection() as conn:
-            rows = conn.execute(query, tuple(values)).fetchall()
-            result = [dict(row) for row in rows]
-            logger.debug("get_all_comparisons took %.4fs", time.perf_counter() - _start)
-            return result
-    except Exception as exc:
-        logger.error("Error getting comparisons: %s", exc)
-        result = []
-        logger.debug("get_all_comparisons took %.4fs", time.perf_counter() - _start)
+    with get_db_connection() as conn:
+        rows = conn.execute(query, tuple(values)).fetchall()
+        result = [dict(row) for row in rows]
         return result
 
 
 def get_images_with_only_wins() -> list[str]:
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT DISTINCT winner AS filename FROM comparisons
                 EXCEPT
                 SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END
                 FROM comparisons
-                """
-            ).fetchall()
+                """).fetchall()
             result = [str(row["filename"]) for row in rows]
-            logger.debug("get_images_with_only_wins took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_images_with_only_wins took %.4fs", time.perf_counter() - _start)
             return result
     except Exception as exc:
         logger.error("Error getting only-win images: %s", exc)
         result = []
-        logger.debug("get_images_with_only_wins took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_images_with_only_wins took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
 def get_images_with_only_losses() -> list[str]:
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
-            rows = conn.execute(
-                """
+            rows = conn.execute("""
                 SELECT CASE WHEN winner = filename_a THEN filename_b ELSE filename_a END AS filename
                 FROM comparisons
                 EXCEPT
                 SELECT DISTINCT winner FROM comparisons
-                """
-            ).fetchall()
+                """).fetchall()
             result = [str(row["filename"]) for row in rows]
-            logger.debug("get_images_with_only_losses took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_images_with_only_losses took %.4fs", time.perf_counter() - _start)
             return result
     except Exception as exc:
         logger.error("Error getting only-loss images: %s", exc)
         result = []
-        logger.debug("get_images_with_only_losses took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_images_with_only_losses took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
-def delete_comparisons_for_image(str) -> int:
+def delete_comparisons_for_image(filename: str) -> int:
     try:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -355,38 +318,35 @@ def delete_comparisons_for_image(str) -> int:
             )
             conn.commit()
             result = max(int(cur.rowcount or 0), 0)
-            logger.debug("delete_comparisons_for_image took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
-        logger.error("Error deleting comparisons for %s: %s", filename, exc)
         result = 0
-        logger.debug("delete_comparisons_for_image took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def delete_comparison_by_id(int) -> int:
+def delete_comparison_by_id(comp_id: int) -> int:
+    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             cur = conn.execute("DELETE FROM comparisons WHERE id = ?", (int(comp_id),))
             conn.commit()
             result = max(int(cur.rowcount or 0), 0)
-            logger.debug("delete_comparison_by_id took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Error deleting comparison %s: %s", comp_id, exc)
         result = 0
-        logger.debug("delete_comparison_by_id took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def delete_comparison(str, filename_b: str, winner: str) -> int:
+def delete_comparison(filename_a: str, filename_b: str, winner: str) -> int:
     filename_a = str(filename_a)
     filename_b = str(filename_b)
     winner = str(winner)
     if winner not in (filename_a, filename_b):
         logger.error("Winner must be one of the compared images")
         result = 0
-        logger.debug("delete_comparison took %.4fs", time.perf_counter() - _start)
         return result
     canon_a, canon_b = _canonicalize_pair(filename_a, filename_b)
     try:
@@ -400,12 +360,12 @@ def delete_comparison(str, filename_b: str, winner: str) -> int:
             )
             conn.commit()
             result = max(int(cur.rowcount or 0), 0)
-            logger.debug("delete_comparison took %.4fs", time.perf_counter() - _start)
             return result
     except Exception as exc:
-        logger.error("Error deleting comparison for %s/%s: %s", filename_a, filename_b, exc)
+        logger.error(
+            "Error deleting comparison for %s/%s: %s", filename_a, filename_b, exc
+        )
         result = 0
-        logger.debug("delete_comparison took %.4fs", time.perf_counter() - _start)
         return result
 
 
@@ -420,7 +380,6 @@ def normalize_comparisons() -> dict[str, int]:
     """
 
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             image_rows = conn.execute("SELECT filename FROM images").fetchall()
@@ -434,16 +393,13 @@ def normalize_comparisons() -> dict[str, int]:
     except Exception as exc:
         logger.error("Failed to load comparisons for normalization: %s", exc)
         result = {
-        logger.debug("normalize_comparisons took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("normalize_comparisons took %.4fs", time.perf_counter() - _start)
-        return result
             "missing_nodes_removed": 0,
             "self_links_removed": 0,
             "same_direction_duplicates_removed": 0,
             "contradictions_removed": 0,
             "kept": 0,
         }
+        return result
 
     missing_nodes_removed = 0
     self_links_removed = 0
@@ -475,36 +431,51 @@ def normalize_comparisons() -> dict[str, int]:
         for same_winner_rows in by_winner.values():
             ordered = sorted(
                 same_winner_rows,
-                key=lambda row: (_safe_parse_timestamp(row.get("timestamp"))[1], int(row.get("id", 0))),
+                key=lambda row: (
+                    _safe_parse_timestamp(row.get("timestamp"))[1],
+                    int(row.get("id", 0)),
+                ),
             )
             if len(ordered) > 1:
                 same_direction_duplicates_removed += len(ordered) - 1
             survivors_by_winner.append(ordered[-1])
 
         survivors_by_winner.sort(
-            key=lambda row: (_safe_parse_timestamp(row.get("timestamp"))[1], int(row.get("id", 0)))
+            key=lambda row: (
+                _safe_parse_timestamp(row.get("timestamp"))[1],
+                int(row.get("id", 0)),
+            )
         )
         if len(survivors_by_winner) > 1:
             contradictions_removed += len(survivors_by_winner) - 1
         kept_rows.append(survivors_by_winner[-1])
 
     kept_rows.sort(
-        key=lambda row: (_safe_parse_timestamp(row.get("timestamp"))[1], int(row.get("id", 0)))
+        key=lambda row: (
+            _safe_parse_timestamp(row.get("timestamp"))[1],
+            int(row.get("id", 0)),
+        )
     )
     kept_ids = {int(row["id"]) for row in kept_rows if row.get("id") is not None}
 
     try:
         with get_db_connection() as conn:
             if kept_ids:
-                conn.execute("CREATE TEMP TABLE IF NOT EXISTS _keep_ids (id INTEGER PRIMARY KEY)")
+                conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS _keep_ids (id INTEGER PRIMARY KEY)"
+                )
                 conn.execute("DELETE FROM _keep_ids")
                 kept_list = sorted(kept_ids)
                 batch_size = 900
                 for i in range(0, len(kept_list), batch_size):
-                    batch = kept_list[i:i + batch_size]
+                    batch = kept_list[i : i + batch_size]
                     placeholders = ",".join("(?)" for _ in batch)
-                    conn.execute(f"INSERT INTO _keep_ids (id) VALUES {placeholders}", batch)
-                conn.execute("DELETE FROM comparisons WHERE id NOT IN (SELECT id FROM _keep_ids)")
+                    conn.execute(
+                        f"INSERT INTO _keep_ids (id) VALUES {placeholders}", batch
+                    )
+                conn.execute(
+                    "DELETE FROM comparisons WHERE id NOT IN (SELECT id FROM _keep_ids)"
+                )
                 conn.execute("DROP TABLE _keep_ids")
             else:
                 conn.execute("DELETE FROM comparisons")
@@ -513,13 +484,10 @@ def normalize_comparisons() -> dict[str, int]:
         logger.error("Failed to write normalized comparisons: %s", exc)
 
     result = {
-    logger.debug("normalize_comparisons took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("normalize_comparisons took %.4fs", time.perf_counter() - _start)
-    return result
         "missing_nodes_removed": missing_nodes_removed,
         "self_links_removed": self_links_removed,
         "same_direction_duplicates_removed": same_direction_duplicates_removed,
         "contradictions_removed": contradictions_removed,
         "kept": len(kept_rows),
     }
+    return result

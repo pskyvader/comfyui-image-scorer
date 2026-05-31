@@ -3,6 +3,7 @@ import random
 from shared.training.model_trainer import grid_base
 import logging
 import time
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,13 +26,10 @@ def generate_random_config() -> dict[str, Any]:
             cfg[key] = float(random.uniform(vmin, vmax))
 
     result = cfg
-    logger.debug("generate_random_config took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("generate_random_config took %.4fs", time.perf_counter() - _start)
     return result
 
 
-def crossover_config(dict[str, Any], cfg2: dict[str, Any]) -> dict[str, Any]:
+def crossover_config(cfg1: dict[str, Any], cfg2: dict[str, Any]) -> dict[str, Any]:
     # Reset metadata for new offspring
     new_cfg = {"best_score": -1000000.0, "training_time": 0.0}
     for key in grid_base.keys():
@@ -44,7 +42,6 @@ def crossover_config(dict[str, Any], cfg2: dict[str, Any]) -> dict[str, Any]:
             new_cfg[key] = val2
 
     result = new_cfg
-    logger.debug("crossover_config took %.4fs", time.perf_counter() - _start)
     return result
 
 
@@ -74,12 +71,7 @@ def generate_fastest_setup() -> dict[str, Any]:
     return cfg
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
 def generate_slowest_setup() -> dict[str, Any]:
-logger.debug("generate_fastest_setup took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-logger.debug("generate_fastest_setup took %.4fs", time.perf_counter() - _start)
     """Generates a config likely to be slow (max estimators, deep trees)."""
     # Metadata for optimizer: low score so real runs replace it
     cfg = {"best_score": -1000000.0, "training_time": 99999.0}

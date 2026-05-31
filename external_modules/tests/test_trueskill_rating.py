@@ -1,30 +1,38 @@
 from __future__ import annotations
 
-from external_modules.comparison.algorithm.trueskill_rating import (
 import logging
 import time
-logger = logging.getLogger(__name__)
+
+import pytest
+
+from external_modules.comparison.algorithm.trueskill_rating import (
     INITIAL_MEAN,
+    EPSILON,
+    _add_dynamics_noise,
+    _clamp_uncertainty,
     Rating,
+    normal_cumulative_distribution,
+    normal_probability_density,
+    rating_from_row,
     expected_win_probability,
     public_score_from_rating,
     update_ratings,
 )
+from shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 
-def test_default_ratings_are_balanced():
-    _start = time.perf_counter()
+def test_default_ratings_are_balanced() -> None:
     _start = time.perf_counter()
     left = Rating()
     right = Rating()
     probability = expected_win_probability(left, right)
     assert 0.49 <= probability <= 0.51
     assert public_score_from_rating(left) == probability
-    logger.debug("test_default_ratings_are_balanced took %.4fs", time.perf_counter() - _start)
 
 
-def test_winner_rating_moves_up_and_loser_moves_down():
-    _start = time.perf_counter()
+def test_winner_rating_moves_up_and_loser_moves_down() -> None:
     _start = time.perf_counter()
     winner = Rating()
     loser = Rating()
@@ -36,4 +44,15 @@ def test_winner_rating_moves_up_and_loser_moves_down():
     assert new_loser.sigma < loser.sigma
     assert public_score_from_rating(new_winner) > 0.5
     assert public_score_from_rating(new_loser) < 0.5
-    logger.debug("test_winner_rating_moves_up_and_loser_moves_down took %.4fs", time.perf_counter() - _start)
+
+
+def test_math_helpers_and_row_conversion() -> None:
+    _start = time.perf_counter()
+
+    assert normal_probability_density(0.0) == pytest.approx(0.3989422804, rel=1e-6)
+    assert normal_cumulative_distribution(0.0) == pytest.approx(0.5, rel=1e-9)
+    assert _clamp_uncertainty(0.0) == EPSILON
+    assert _add_dynamics_noise(0.0) > EPSILON
+
+    rating = rating_from_row({"rating_mu": "26.5", "rating_sigma": "8.2"})
+    assert rating == Rating(mu=26.5, sigma=8.2)

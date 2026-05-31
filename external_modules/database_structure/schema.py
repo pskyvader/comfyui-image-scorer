@@ -8,6 +8,7 @@ from pathlib import Path
 from shared.paths import cache_file
 import logging
 import time
+
 logger = logging.getLogger(__name__)
 
 MU0 = 25.0
@@ -29,29 +30,18 @@ def get_db_connection() -> sqlite3.Connection:
     return conn
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-def _ensure_meta_table(conn:
-logger.debug("get_db_connection took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-logger.debug("get_db_connection took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-    result = sqlite3.Connection) -> None:
-    logger.debug("_ensure_meta_table took %.4fs", time.perf_counter() - _start)
-    return result
-    conn.execute(
-        """
+def _ensure_meta_table(conn: sqlite3.Connection) -> None:
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
             value TEXT
         )
-        """
-    )
+        """)
 
 
-def _ensure_images_table(sqlite3.Connection) -> None:
-    conn.execute(
-        f"""
+def _ensure_images_table(conn: sqlite3.Connection) -> None:
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS images (
             filename TEXT PRIMARY KEY,
             score REAL DEFAULT 0.5,
@@ -62,8 +52,7 @@ def _ensure_images_table(sqlite3.Connection) -> None:
             ranking_generation INTEGER DEFAULT 0,
             prompt_tags TEXT
         )
-        """
-    )
+        """)
 
     existing = {
         row["name"]
@@ -81,17 +70,14 @@ def _ensure_images_table(sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_images_comparison_count ON images(comparison_count)"
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_images_rating_mu ON images(rating_mu)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_images_rating_mu ON images(rating_mu)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_images_rating_sigma ON images(rating_sigma)"
     )
 
 
-def _ensure_comparisons_table(sqlite3.Connection) -> None:
-    conn.execute(
-        """
+def _ensure_comparisons_table(conn: sqlite3.Connection) -> None:
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS comparisons (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             filename_a TEXT NOT NULL,
@@ -104,8 +90,7 @@ def _ensure_comparisons_table(sqlite3.Connection) -> None:
             FOREIGN KEY (filename_b) REFERENCES images(filename),
             FOREIGN KEY (winner) REFERENCES images(filename)
         )
-        """
-    )
+        """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_comparisons_timestamp ON comparisons(timestamp)"
     )
@@ -132,17 +117,12 @@ def init_database() -> None:
     _set_meta_value("db_version", "4")
     _set_meta_value("ranking_generation", "0")
 
+    _start = time.perf_counter()
+    _start = time.perf_counter()
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-def _set_meta_value(key:
-logger.debug("init_database took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-logger.debug("init_database took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-    result = str, value: str) -> None:
-    logger.debug("_set_meta_value took %.4fs", time.perf_counter() - _start)
-    return result
+
+def _set_meta_value(key: str, value: str) -> None:
+
     with get_db_connection() as conn:
         conn.execute(
             "INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -151,11 +131,10 @@ logger.debug("init_database took %.4fs", time.perf_counter() - _start)
         conn.commit()
 
 
-def get_meta_value(str) -> str | None:
+def get_meta_value(key: str) -> str | None:
     with get_db_connection() as conn:
         row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         result = row["value"] if row else None
-        logger.debug("get_meta_value took %.4fs", time.perf_counter() - _start)
         return result
 
 

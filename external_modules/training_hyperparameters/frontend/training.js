@@ -2,6 +2,10 @@ class TrainingView {
     init(params) {
         this.container = document.getElementById("training-container");
         this.logArea = this.container?.querySelector("#log-area");
+        this.logger = FrontendLogger.create("external_modules.training_hyperparameters.frontend.training", {
+            target: () => this.logArea,
+            maxEntries: 100,
+        });
         this.taskId = null;
         this.pollTimer = null;
         this.lastLogLen = 0;
@@ -26,6 +30,10 @@ class TrainingView {
 
     async _trainingRemoveModels() {
         return api._post("/training/remove-models");
+    }
+
+    async _trainingResetConfig() {
+        return api._post("/training/reset");
     }
 
     async _getTrainingConfig() {
@@ -55,20 +63,11 @@ class TrainingView {
     }
 
     log(msg) {
-        if (!this.logArea) {
-            return;
-        }
-        const div = document.createElement("div");
-        div.textContent = `[${new Date()
-            .toLocaleTimeString()}] ${msg}`;
-        this.logArea.appendChild(div);
-        this.logArea.scrollTop = this.logArea.scrollHeight;
+        this.logger.info(msg);
     }
 
     clearLog() {
-        if (this.logArea) {
-            this.logArea.innerHTML = "";
-        }
+        this.logger.clear();
     }
 
     startPolling(taskId, section = "training") {
@@ -117,14 +116,6 @@ class TrainingView {
                     result = await this._trainingTrain({ strategy: "top1" });
                     this.startPolling(result.task_id);
                     return;
-                case "train-fastest":
-                    result = await this._trainingTrain({ strategy: "fastest" });
-                    this.startPolling(result.task_id);
-                    return;
-                case "train-slowest":
-                    result = await this._trainingTrain({ strategy: "slowest" });
-                    this.startPolling(result.task_id);
-                    return;
                 case "optimize-hpo":
                     result = await this._trainingTrain({ strategy: "optimize" });
                     this.startPolling(result.task_id);
@@ -140,6 +131,10 @@ class TrainingView {
                 case "remove-models":
                     result = await this._trainingRemoveModels();
                     this.log(`Models removed: ${result.status}`);
+                    break;
+                case "reset-config":
+                    result = await this._trainingResetConfig();
+                    this.log(`Config reset: ${result.status}`);
                     break;
                 default:
                     this.log(`Unknown action: ${action}`);

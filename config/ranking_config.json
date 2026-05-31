@@ -7,6 +7,10 @@
     "batch_size": 1000,
     "default_score": 0.5,
     "default_confidence": 0.0,
-    "reserve_count": 10,
-    "indirect_impact_decay": 0.4
+    "reserve_count": 30,
+    "indirect_impact_decay": 0.4,
+    "parallel_requests": true,
+    "seed_size": 1000,
+    "seed_target_comparisons": 8,
+    "insertion_target_comparisons": 3
 }

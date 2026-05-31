@@ -1,6 +1,9 @@
 """Database endpoints - API routes for maintenance and file operations."""
 
+from typing import Literal
+
 from flask import Blueprint, jsonify, request, current_app
+from flask.wrappers import Response
 
 from .images_table import get_all_images, reset_all_image_ratings, get_image_count
 from .comparisons_table import (
@@ -14,13 +17,16 @@ from .path_handler import sync_image_metadata_to_json
 
 import sys
 from pathlib import Path
+import time
 
 _root = Path(__file__).parent.parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 from shared.graph.crystal_graph import crystal_graph
 from shared.tasks import start_task, get_task_status, set_task_output
+import logging
 
+logger: logging.Logger = logging.getLogger(__name__)
 database_bp = Blueprint("database", __name__, url_prefix="/api/v2/database")
 
 
@@ -31,12 +37,9 @@ def _get_processor():
     )
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
 @database_bp.route("/status", methods=["GET"])
-logger.debug("_get_processor took %.4fs", time.perf_counter() - _start)
-logger.debug("_get_processor took %.4fs", time.perf_counter() - _start)
-def get_status(jsonify(:
+def get_status():
+    jsonify(
         {
             "status": "ok",
             "images": get_image_count(),
@@ -48,20 +51,19 @@ def get_status(jsonify(:
 @database_bp.route("/reset-ratings", methods=["POST"])
 def reset_ratings():
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         reset_all_image_ratings()
         crystal_graph.rebuild_from_database()
         result = jsonify({"status": "success"})
-        logger.debug("reset_ratings took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("reset_ratings took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-        logger.debug("reset_ratings took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("reset_ratings took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
@@ -73,15 +75,10 @@ def normalize():
         stats = normalize_comparisons()
         crystal_graph.rebuild_from_database()
         result = jsonify({"status": "success", "stats": stats})
-        logger.debug("normalize took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("normalize took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-        logger.debug("normalize took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("normalize took %.4fs", time.perf_counter() - _start)
         return result
 
 
@@ -91,11 +88,8 @@ def rebuild_database():
     _start = time.perf_counter()
     processor = _get_processor()
     if processor is None:
-        result = (
-        logger.debug("rebuild_database took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("rebuild_database took %.4fs", time.perf_counter() - _start)
-        return result
+
+        return (
             jsonify({"status": "error", "error": "Image processor not available"}),
             500,
         )
@@ -121,9 +115,8 @@ def rebuild_database():
                     "error": str(exc),
                 },
             )
-            logger.debug("_run took %.4fs", time.perf_counter() - _start)
 
-    _, body = start_task(_run, task_prefix="rebuild")
+    _, body = start_task(_run, task_prefix="rebuild", args=())
     return jsonify(body)
 
 
@@ -131,6 +124,7 @@ def rebuild_database():
 def sync_all():
     _start = time.perf_counter()
     _start = time.perf_counter()
+
     def _run(tid):
         _start = time.perf_counter()
         _start = time.perf_counter()
@@ -164,11 +158,9 @@ def sync_all():
                 "result": {"synced_count": count, "error_count": errors},
             },
         )
-        logger.debug("_run took %.4fs", time.perf_counter() - _start)
 
- logger.debug("sync_all took %.4fs", time.perf_counter() - _start)
     _, body = start_task(_run, task_prefix="sync")
-    logger.debug("sync_all took %.4fs", time.perf_counter() - _start)
+
     return jsonify(body)
 
 
@@ -181,15 +173,15 @@ def run_cleanup_orphans():
     try:
         result = cleanup_orphans(root=None, dry_run=dry_run, delete_enabled=not dry_run)
         result = jsonify({"status": "success", "result": result})
-        logger.debug("run_cleanup_orphans took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("run_cleanup_orphans took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-        logger.debug("run_cleanup_orphans took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("run_cleanup_orphans took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
@@ -203,15 +195,15 @@ def run_deduplicate():
     try:
         result = deduplicate_scored(root=None, dry_run=dry_run, limit=limit)
         result = jsonify({"status": "success", "result": result})
-        logger.debug("run_deduplicate took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("run_deduplicate took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-        logger.debug("run_deduplicate took %.4fs", time.perf_counter() - _start)
+
         result = result
-        logger.debug("run_deduplicate took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
@@ -221,10 +213,6 @@ def delete_vectors():
     _start = time.perf_counter()
     try:
         from shared.helpers import remove_vectors
-        logger.debug("delete_vectors took %.4fs", time.perf_counter() - _start)
-import logging
-import time
-logger = logging.getLogger(__name__)
 
         remove_vectors()
         return jsonify({"status": "success"})
@@ -233,15 +221,15 @@ logger = logging.getLogger(__name__)
 
 
 @database_bp.route("/task/<task_id>", methods=["GET"])
-def get_task(str):
+def get_task(task_id: str):
     since = request.args.get("since", 0, type=int)
     info = get_task_status(task_id, since=since)
     if info is None:
         result = jsonify({"error": "Task not found"}), 404
-        logger.debug("get_task took %.4fs", time.perf_counter() - _start)
+
         return result
     result = jsonify(info)
-    logger.debug("get_task took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
@@ -249,4 +237,3 @@ def register_database_routes(app):
     _start = time.perf_counter()
     _start = time.perf_counter()
     app.register_blueprint(database_bp)
-    logger.debug("register_database_routes took %.4fs", time.perf_counter() - _start)

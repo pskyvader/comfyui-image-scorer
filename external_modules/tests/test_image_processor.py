@@ -3,6 +3,7 @@ from __future__ import annotations
 from external_modules.server.image_processor import ImageProcessor
 import logging
 import time
+
 logger = logging.getLogger(__name__)
 
 
@@ -10,7 +11,9 @@ def test_clean_json_metadata_initializes_neutral_fields(monkeypatch):
     _start = time.perf_counter()
     _start = time.perf_counter()
     _start = time.perf_counter()
-    monkeypatch.setattr(ImageProcessor, "sync_processed_images_from_db", lambda self: None)
+    monkeypatch.setattr(
+        ImageProcessor, "sync_processed_images_from_db", lambda self: None
+    )
     processor = ImageProcessor(max_workers=1)
     cleaned = processor.clean_json_metadata(
         {
@@ -29,4 +32,3 @@ def test_clean_json_metadata_initializes_neutral_fields(monkeypatch):
     assert cleaned["comparison_history"] == []
     assert "confidence" not in cleaned
     assert cleaned["filename"] == "sample.png"
-    logger.debug("test_clean_json_metadata_initializes_neutral_fields took %.4fs", time.perf_counter() - _start)

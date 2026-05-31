@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from shared.paths import image_root_processed  # noqa: E402
 import time
+
 logger = logging.getLogger(__name__)
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
-def _walk_all_files(Path) -> dict[str, list[Path]]:
+def _walk_all_files(root: Path) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = defaultdict(list)
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
@@ -40,11 +41,10 @@ def _walk_all_files(Path) -> dict[str, list[Path]]:
             if ext in IMAGE_EXTENSIONS or ext == ".json":
                 groups[p.stem].append(p)
     result = groups
-    logger.debug("_walk_all_files took %.4fs", time.perf_counter() - _start)
     return result
 
 
-def _scored_root_files(Path) -> dict[str, list[Path]]:
+def _scored_root_files(root: Path) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = defaultdict(list)
     for f in root.iterdir():
         if not f.is_file():
@@ -53,17 +53,13 @@ def _scored_root_files(Path) -> dict[str, list[Path]]:
         if ext in IMAGE_EXTENSIONS or ext == ".json":
             groups[f.stem].append(f)
     result = groups
-    logger.debug("_scored_root_files took %.4fs", time.perf_counter() - _start)
     return result
 
 
 def cleanup_orphans(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     root: Path | None = None,
     dry_run: bool = False,
     delete_enabled: bool = True,
-    logger.debug("cleanup_orphans took %.4fs", time.perf_counter() - _start)
 ) -> int:
     if root is None:
         root = Path(image_root_processed)
@@ -125,7 +121,6 @@ def cleanup_orphans(
     score_05 = root / "scored_0.5"
     root_groups = _scored_root_files(root)
 
-    logger.debug("[CLEANUP] Phase 2: processing %d root-level stem(s)", len(root_groups))
     moved_to_05 = 0
     deleted = 0
 
@@ -157,9 +152,7 @@ def cleanup_orphans(
                     moved_to_05 += 1
                     inner.update(1)
             if len(examples) < 3:
-                examples.append(
-                    f"{stem}: pair moved to {score_05.name}"
-                )
+                examples.append(f"{stem}: pair moved to {score_05.name}")
         elif delete_enabled:
             if not dry_run:
                 for f in files:
@@ -228,7 +221,6 @@ def main() -> None:
         logger.info("Resolved %d file(s)", count)
     else:
         logger.info("No orphans to clean")
-        logger.debug("main took %.4fs", time.perf_counter() - _start)
 
 
 if __name__ == "__main__":

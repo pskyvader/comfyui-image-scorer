@@ -1,6 +1,5 @@
 """Folder organizer - maintain score folder structure."""
 
-
 import logging
 from .path_handler import get_ranked_root
 import time
@@ -32,18 +31,9 @@ def ensure_tier_structure() -> bool:
             score_folder.mkdir(parents=True, exist_ok=True)
 
         result = True
-        logger.debug("ensure_tier_structure took %.4fs", time.perf_counter() - _start)
-        result = result
-        result = 
-        logger.debug("ensure_tier_structure took %.4fs", time.perf_counter() - _start)
-        return result
+
         return result
     except Exception as e:
         logger.error(f"Error creating score structure: {e}")
         result = False
-        logger.debug("ensure_tier_structure took %.4fs", time.perf_counter() - _start)
-        result = result
-        result = 
-        logger.debug("ensure_tier_structure took %.4fs", time.perf_counter() - _start)
-        return result
         return result

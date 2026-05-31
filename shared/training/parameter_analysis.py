@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Any
-from shared.io import load_single_jsonl
+from ...shared.io import load_single_jsonl
 import traceback
 
 try:

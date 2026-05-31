@@ -21,21 +21,15 @@ def load_statistics() -> dict[str, dict[str, int]]:
     _start = time.perf_counter()
     data, _ = load_json(hyperparameters_statistics, dict, {})
     result = data
-    logger.debug("load_statistics took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("load_statistics took %.4fs", time.perf_counter() - _start)
     return result
 
 
-def save_statistics(dict[str, dict[str, int]]):
+def save_statistics(statistics: dict[str, dict[str, int]]):
     atomic_write_json(hyperparameters_statistics, statistics, indent=4)
 
 
 def prepare_optimization_setup(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     base_cfg: dict[str, Any], strategy: str
-    logger.debug("prepare_optimization_setup took %.4fs", time.perf_counter() - _start)
 ) -> tuple[dict[str, Any], str]:
     global _last_used_keys
     current_last_used = _last_used_keys[strategy] if strategy in _last_used_keys else []
@@ -71,10 +65,7 @@ def prepare_optimization_setup(
 
 
 def generate_combos(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     param_grid: dict[str, Any], max_combos: int
-    logger.debug("generate_combos took %.4fs", time.perf_counter() - _start)
 ) -> list[dict[str, Any]]:
     keys = list(param_grid.keys())
     value_lists = [list(param_grid[k]) for k in keys]
@@ -84,13 +75,10 @@ def generate_combos(
 
 
 def evaluate_hyperparameter_combo(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     current_cfg: dict[str, Any],
     temp_model_base: str,
     X: np.ndarray,
     y: np.ndarray,
-    logger.debug("evaluate_hyperparameter_combo took %.4fs", time.perf_counter() - _start)
 ) -> tuple[float, float, str]:
     _, metrics = model_trainer.train_model(
         config_dict=current_cfg, X=X, y=y, enable_plotting=True
@@ -110,14 +98,11 @@ def evaluate_hyperparameter_combo(
 
 
 def update_top_config(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     current_config: dict[str, Any],
     score: float,
     t_time: float,
     primary_metric: str,
     higher_is_better: bool,
-    logger.debug("update_top_config took %.4fs", time.perf_counter() - _start)
 ):
     training_section = config["training"]
     top_cfg = training_section["top1"]
@@ -135,14 +120,11 @@ def update_top_config(
 
 
 def optimize_hyperparameters(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     base_cfg: dict[str, Any],
     max_combos: int,
     X: np.ndarray,
     y: np.ndarray,
     strategy: str = "generic",
-    logger.debug("optimize_hyperparameters took %.4fs", time.perf_counter() - _start)
 ) -> list[tuple[dict[str, Any], dict[str, float]]]:
 
     param_grid, temp_model_base = prepare_optimization_setup(base_cfg, strategy)

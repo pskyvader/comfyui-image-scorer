@@ -7,35 +7,36 @@ possible.
 
 from typing import Any
 import ast
+import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 
-def parse_custom_text(val: Any = None) -> dict[str, Any]:
-    """Parse a stored custom text value into a dictionary.
-
-    Accepts None, an already-parsed dict, or a string containing a Python
-    literal representation (e.g., "{'a':1}"). Returns an empty dict for any
-    invalid input.
-    """
+def parse_custom_text(val: Any) -> dict[str, Any]:
+    _start = time.perf_counter()
+    result: dict[str, Any]
     if val is None:
-        return {}
-    if isinstance(val, dict):
-        return val
-    if isinstance(val, str):
-        if not val:
-            return {}
-        try:
-            return ast.literal_eval(val)
-        except Exception:
-            return {}
-    return {}
+        result = {}
+    elif isinstance(val, dict):
+        result = val
+    elif isinstance(val, str) and val:
+        result = ast.literal_eval(val)
+    else:
+        result = {}
+
+    return result
 
 
-def first_present(d: dict[str, Any], keys: tuple[str, ...], default: Any = None) -> Any:
-    """Return the first key from ``keys`` present in ``d`` with a non-None value.
-
-    If none of the keys are present, return ``default``.
-    """
+def first_present(d: dict[str, Any], keys: tuple[str, ...], default: Any) -> Any:
+    _start = time.perf_counter()
+    result: Any
     for k in keys:
         if k in d and d[k] is not None:
-            return d[k]
-    return default
+            result = d[k]
+
+            break
+    else:
+        result = default
+
+    return result

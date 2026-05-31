@@ -5,7 +5,7 @@ import threading
 import time
 import os
 from pathlib import Path
-from flask import Flask, send_from_directory, request, send_file
+from flask import Flask, send_from_directory, request, send_file, Response
 from urllib.parse import unquote
 import argparse
 import logging
@@ -13,46 +13,57 @@ import logging
 # Set up paths FIRST before any imports
 current_dir = str(Path(__file__).parent)
 root_path = str(Path(__file__).parents[2])  # comfyui-image-scorer
+custom_nodes_path = str(Path(__file__).parents[3])
+
+if custom_nodes_path not in sys.path:
+    sys.path.insert(0, custom_nodes_path)
 if root_path not in sys.path:
     sys.path.insert(0, root_path)
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 if __name__ == "__main__":
     if __package__ is None:
-        __package__ = "external_modules.server"
+        __package__ = "comfyui_image_scorer.external_modules.server"
 
 
 # Now import Flask and API modules
+from ..data_transform.endpoints import register_data_transform_routes
 
-from external_modules.comparison.endpoints import register_ranking_routes
-from external_modules.gallery.endpoints import register_gallery_routes
-from external_modules.maps.endpoints import register_maps_routes
-from external_modules.database_structure.endpoints import register_database_routes
-from external_modules.data_transform.endpoints import register_data_transform_routes
-from external_modules.training_hyperparameters.endpoints import register_training_routes
-from external_modules.analysis.endpoints import register_analysis_routes
-from external_modules.database_structure.folder_organizer import ensure_tier_structure
-from external_modules.database_structure.path_handler import (
+from ..comparison.endpoints import register_ranking_routes
+from ..gallery.endpoints import register_gallery_routes
+from ..maps.endpoints import register_maps_routes
+from ..database_structure.endpoints import register_database_routes
+from ..training_hyperparameters.endpoints import register_training_routes
+from ..analysis.endpoints import register_analysis_routes
+from ..database_structure.folder_organizer import ensure_tier_structure
+from ..database_structure.path_handler import (
     get_ranked_root,
     compute_path_from_filename,
     find_image_path,
 )
-from external_modules.database_structure.images_table import get_image as get_db_image
+from ..database_structure.images_table import get_image as get_db_image
 from .image_processor import ImageProcessor
 
-# from shared.config import config
+from shared.config import config
 from shared.paths import image_root
+
 logger = logging.getLogger(__name__)
 
 # Global image processor
-image_processor = ImageProcessor()
+image_processor = ImageProcessor(max_workers=int(config["ranking"]["max_workers"]))
 
 app = Flask(__name__, static_folder=None)
 app.extensions["image_processor"] = image_processor
 setattr(
     app, "image_processor", image_processor
 )  # Also set as attribute for easy access
-logger: logging.Logger = app.logger
+
+# logger: logging.Logger = app.logger
+
+
+# werkzeug_logger = logging.getLogger("werkzeug")
+# werkzeug_logger.setLevel(logging.WARNING)
+
 
 # Set up Flask configuration
 app.config["JSON_SORT_KEYS"] = False
@@ -72,9 +83,10 @@ register_analysis_routes(app)
 scanner_thread: threading.Thread | None = None
 
 
-def scanner_task(str) -> None:
-    sleep_time = 30  # Start with 30s, then back off if no new images found
+def scanner_task(img_root: str) -> None:
+    sleep_time = 30
     while True:
+        _start = time.perf_counter()
         stats = image_processor.process_next_batch(img_root, batch_size=100)
         added = stats["added"]
         if added > 0:
@@ -87,48 +99,41 @@ def scanner_task(str) -> None:
         time.sleep(sleep_time)
 
 
-def start_background_scanner(str) -> None:
+def start_background_scanner(img_root: str) -> None:
     """Start background thread to perform global image initialization."""
+    _start = time.perf_counter()
     global scanner_thread
     if scanner_thread:
+
         logger.info(
             f"[SCANNER] Scanner already running. Alive: {scanner_thread.is_alive()}"
         )
-        logger.debug("start_background_scanner took %.4fs", time.perf_counter() - _start)
         return
     scanner_thread = threading.Thread(
         target=scanner_task, daemon=True, args=(img_root,)
     )
     scanner_thread.start()
+
     logger.info("[SCANNER] Global image scanner started.")
 
 
-def startup_worker(str, sync_existing: bool = False) -> None:
+def startup_worker(img_root: str, sync_existing: bool) -> None:
     """Background worker for initialization tasks."""
-    # Step 1: Initialize score folders
+    _start = time.perf_counter()
     if not ensure_tier_structure():
-        logger.debug("startup_worker took %.4fs", time.perf_counter() - _start)
+
         return
 
-    # Step 2: Rebuild database from existing ranked images
     if sync_existing:
         image_processor.rebuild_database_from_ranked()
 
-    # Step 3: Start background scanner for new images
     if img_root:
-        # We call it directly here as we are already in a background thread
         scanner_task(img_root)
 
 
-def init_ranking_system(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    img_root: str | None = None, sync_existing: bool = False
-    logger.debug("init_ranking_system took %.4fs", time.perf_counter() - _start)
-) -> bool:
+def init_ranking_system(img_root: str | None, sync_existing: bool) -> bool:
     """Initialize system and trigger background recovery."""
-
-    # Trigger background worker for all heavy tasks
+    _start = time.perf_counter()
     threading.Thread(
         target=startup_worker, args=(img_root, sync_existing), daemon=True
     ).start()
@@ -152,66 +157,64 @@ SERVER_FRONTEND = Path(__file__).parent / "frontend"
 
 
 @app.route("/")
-def serve_index():
+def serve_index() -> Response:
     """Serve main index page."""
-    return send_from_directory(str(SERVER_FRONTEND / "html"), "index.html")
+    _start = time.perf_counter()
+    result = send_from_directory(str(SERVER_FRONTEND / "html"), "index.html")
+
+    return result
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
 @app.route("/css/<path:filename>")
-logger.debug("serve_index took %.4fs", time.perf_counter() - _start)
-logger.debug("serve_index took %.4fs", time.perf_counter() - _start)
-def serve_css(str):
+def serve_css(filename: str) -> Response:
     """Serve CSS files (legacy - from server frontend)."""
+    _start = time.perf_counter()
     result = send_from_directory(str(SERVER_FRONTEND / "css"), filename)
-    logger.debug("serve_css took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/js/<path:filename>")
-def serve_js(str):
+def serve_js(filename: str) -> Response:
     """Serve JavaScript files (legacy - from server frontend)."""
+    _start = time.perf_counter()
     result = send_from_directory(str(SERVER_FRONTEND / "js"), filename)
-    logger.debug("serve_js took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/static/<section>/<path:filename>")
-def serve_section_static(str, filename: str):
+def serve_section_static(section: str, filename: str):
     """Serve static files from a section's frontend/ folder."""
+    _start = time.perf_counter()
     if section not in SECTION_FRONTENDS:
         result = {"error": f"Unknown section: {section}"}, 404
-        logger.debug("serve_section_static took %.4fs", time.perf_counter() - _start)
+
         return result
     result = send_from_directory(str(SECTION_FRONTENDS[section]), filename)
-    logger.debug("serve_section_static took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/output/ranked/<path:filepath>")
-def serve_ranked_image(str):
+def serve_ranked_image(filepath: str):
     """Serve images from scored folders."""
+    _start = time.perf_counter()
     ranked_root = get_ranked_root()
 
-    # Decode any percent-encoding from the client
     filepath_decoded = unquote(filepath)
 
-    # If direct path exists, serve it
     direct_path = ranked_root / filepath_decoded
     if direct_path.exists() and direct_path.is_file():
         response = send_file(str(direct_path))
-        # Disable caching
         response.headers["Cache-Control"] = (
             "no-store, no-cache, must-revalidate, max-age=0"
         )
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
-        result = response
-        logger.debug("serve_ranked_image took %.4fs", time.perf_counter() - _start)
-        return result
 
-    # Otherwise search recursively for the filename (handles nested subfolders)
+        return response
+
     filename = Path(filepath_decoded).name
     found = find_image_path(filename)
     if found:
@@ -222,105 +225,102 @@ def serve_ranked_image(str):
         )
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
-        result = response
-        logger.debug("serve_ranked_image took %.4fs", time.perf_counter() - _start)
-        return result
 
-    # Not found
+        return response
+
     logger.warning(f"Image not found in ranked folders: {filepath}")
     result = {"error": "Image not found"}, 404
-    logger.debug("serve_ranked_image took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/images/<path:filename>")
-def serve_image_by_name(str):
-    """Serve an image by filename. Looks up by provided score query, DB, or recursive search."""
+def serve_image_by_name(filename: str):
+    """Serve an image by filename."""
+    _start = time.perf_counter()
     ranked_root = get_ranked_root()
     fname = Path(unquote(filename)).name
 
-    # Prefer explicit score query param when provided
-    score_q = request.args.get("score", type=float)
+    score_q = float(request.args["score"]) if "score" in request.args else None
 
-    # 1) If score provided, compute the expected path and try to serve
     if score_q is not None:
         dest = compute_path_from_filename(fname, score_q)
         if dest.exists() and dest.is_file():
-            result = send_file(str(dest))
-            logger.debug("serve_image_by_name took %.4fs", time.perf_counter() - _start)
-            return result
 
-    # 2) Try DB score
+            return send_file(str(dest))
+
     db_entry = get_db_image(fname)
-    if db_entry and db_entry.get("score") is not None:
+    if db_entry and db_entry["score"] is not None:
         dest = compute_path_from_filename(fname, db_entry["score"])
         if dest.exists() and dest.is_file():
-            result = send_file(str(dest))
-            logger.debug("serve_image_by_name took %.4fs", time.perf_counter() - _start)
-            return result
 
-    # 3) Fallback: recursive search
+            return send_file(str(dest))
+
     found = find_image_path(fname)
     if found:
-        result = send_file(str(found))
-        logger.debug("serve_image_by_name took %.4fs", time.perf_counter() - _start)
-        return result
 
-    result = {"error": "Image not found"}, 404
-    logger.debug("serve_image_by_name took %.4fs", time.perf_counter() - _start)
-    return result
+        return send_file(str(found))
+
+    return {"error": "Image not found"}, 404
 
 
 @app.route("/image/<path:filename>")
-def serve_image_alias(str):
+def serve_image_alias(filename: str) -> Response:
     """Compatibility alias for legacy frontends that use `/image/`."""
+    _start = time.perf_counter()
     result = serve_image_by_name(filename)
-    logger.debug("serve_image_alias took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/api/<path:path>")
-def catch_api_404(str):
+def catch_api_404(path: str):
     """Explicitly handle unmapped API paths."""
+    _start = time.perf_counter()
     result = {"error": f"API endpoint not found: /api/{path}"}, 404
-    logger.debug("catch_api_404 took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 @app.route("/<path:filename>")
-def serve_html(str):
+def serve_html(filename: str) -> Response:
     """Serve HTML files - only matches files in frontend/html."""
+    _start = time.perf_counter()
     base_dir = Path(__file__).parent
     result = send_from_directory(str(base_dir / "frontend" / "html"), filename)
-    logger.debug("serve_html took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
-# Error handlers
 @app.errorhandler(404)
-def not_found(e):
+def not_found(e: Exception):
     """Handle 404 errors."""
-    return {"error": "Not found"}, 404
+    _start = time.perf_counter()
+    result = {"error": "Not found"}, 404
+
+    return result
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
 @app.errorhandler(500)
-logger.debug("not_found took %.4fs", time.perf_counter() - _start)
-logger.debug("not_found took %.4fs", time.perf_counter() - _start)
-def server_error(e):
+def server_error(e: Exception):
     """Handle 500 errors."""
+    _start = time.perf_counter()
     logger.error(f"Server error: {e}")
-    return {"error": "Server error"}, 500
+    result = {"error": "Server error"}, 500
+
+    return result
 
 
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-def main():
-logger.debug("server_error took %.4fs", time.perf_counter() - _start)
-    _start = time.perf_counter()
-logger.debug("server_error took %.4fs", time.perf_counter() - _start)
+class WhitelistLoggerFilter(logging.Filter):
+    def filter(self, record):
+        # Only allow logs if the logger name matches exactly
+        return True
+        # return record.name == "shared.graph.crystal_graph"
+
+
+def main() -> int:
     """Main entry point."""
+    _start = time.perf_counter()
 
     parser = argparse.ArgumentParser(description="Ranking System Server")
     parser.add_argument(
@@ -352,40 +352,35 @@ logger.debug("server_error took %.4fs", time.perf_counter() - _start)
 
     args = parser.parse_args()
 
-    # Configure global logging based on debug flag
     log_level = logging.DEBUG if args.debug else logging.INFO
 
-    # Simple configuration that works well for both console and redirected output
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
-        force=True,  # Ensure we override any existing configuration
+        force=True,
     )
 
-    # Initialize system
-    # If debug mode is ON, Flask runs twice (reloader).
-    # We only want to initialize in the actual worker process.
+    for handler in logging.root.handlers:
+        handler.addFilter(WhitelistLoggerFilter())
+
     should_init = True
-    if args.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    if args.debug and (
+        "WERKZEUG_RUN_MAIN" not in os.environ
+        or os.environ["WERKZEUG_RUN_MAIN"] != "true"
+    ):
         should_init = False
 
     if should_init:
         if not init_ranking_system(args.image_root, sync_existing=args.sync_existing):
             return 1
 
-    # Start server
     logger.info(f"Starting ranking server on {args.host}:{args.port}...\n")
 
-    try:
-        app.run(host=args.host, port=args.port, debug=args.debug)
-    except KeyboardInterrupt:
-        return 0
+    app.run(host=args.host, port=args.port, debug=args.debug)
 
     return 0
 
 
-    _start = time.perf_counter()
 if __name__ == "__main__":
-logger.debug("main took %.4fs", time.perf_counter() - _start)
     sys.exit(main())

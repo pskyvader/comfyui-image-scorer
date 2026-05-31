@@ -17,6 +17,212 @@ from ..config import config
 from .helpers import l2_normalize_batch
 from ..io import load_json, atomic_write_json
 from ..paths import vectors_size_file
+from .batch_sizer import BatchSizer
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ImageConverter:
+    @staticmethod
+    def to_pil(arr: Any) -> list[Image.Image]:
+        arr_np = np.asarray(arr)
+        if arr_np.ndim == 4:
+            result: list[Image.Image] = []
+            for index in range(arr_np.shape[0]):
+                result.extend(ImageConverter.to_pil(arr_np[index]))
+            return result
+        if arr_np.ndim == 3:
+            if arr_np.shape[0] in (1, 3, 4):
+                arr_np = np.transpose(arr_np, (1, 2, 0))
+            if arr_np.shape[2] == 1:
+                arr_np = np.repeat(arr_np, 3, axis=2)
+            if arr_np.shape[2] == 4:
+                arr_np = arr_np[:, :, :3]
+            if np.issubdtype(arr_np.dtype, np.floating):
+                arr_np = np.clip(arr_np, 0.0, 1.0)
+                arr_np = (arr_np * 255.0).round().astype(np.uint8)
+            else:
+                arr_np = np.clip(arr_np, 0, 255).astype(np.uint8)
+            result = [Image.fromarray(arr_np).convert("RGB")]
+            return result
+        if arr_np.ndim == 2:
+            if np.issubdtype(arr_np.dtype, np.floating):
+                arr_np = np.clip(arr_np, 0.0, 1.0)
+                arr_np = (arr_np * 255.0).round().astype(np.uint8)
+            arr_np = np.stack([arr_np] * 3, axis=-1)
+            result = [Image.fromarray(arr_np).convert("RGB")]
+            return result
+        raise ValueError(f"Unsupported ndarray shape: {arr_np.shape}")
+
+    @staticmethod
+    def from_path(image_path: str) -> list[Image.Image]:
+        try:
+            with Image.open(image_path) as image:
+                result = [image.convert("RGB")]
+        except Exception:
+            try:
+                with Image.open(image_path) as temp_img:
+                    size = temp_img.size
+            except Exception:
+                size = (512, 512)
+            result = [Image.new("RGB", size, (0, 0, 0))]
+        return result
+
+    @staticmethod
+    def prepare(image: Any) -> list[Image.Image]:
+        if isinstance(image, str):
+            result = ImageConverter.from_path(image)
+        elif isinstance(image, Image.Image):
+            result = [image.convert("RGB")]
+        elif isinstance(image, torch.Tensor):
+            result = ImageConverter.to_pil(image.detach().cpu().numpy())
+        elif isinstance(image, np.ndarray):
+            result = ImageConverter.to_pil(image)
+        elif isinstance(image, (list, tuple)):
+            result = []
+            for item in image:
+                result.extend(ImageConverter.prepare(item))
+        else:
+            raise TypeError(f"Unsupported image type: {type(image)}")
+        return result
+
+    @staticmethod
+    def get_size_from_path(img_path: str) -> tuple[int, int]:
+        try:
+            with Image.open(img_path) as image:
+                result = image.size
+        except Exception:
+            result = (512, 512)
+        return result
+
+
+class VectorEncoder:
+    _transform: transforms.Compose | None = None
+
+    @classmethod
+    def get_transform(cls) -> transforms.Compose:
+        if cls._transform is None:
+            cls._transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=(0.485, 0.456, 0.406),
+                        std=(0.229, 0.224, 0.225),
+                    ),
+                ]
+            )
+        return cls._transform
+
+    @staticmethod
+    def encode(
+        images: list[Image.Image],
+        model: torch.nn.Module,
+        vector_length: int,
+        transform: transforms.Compose,
+    ) -> list[list[float]]:
+        transformed_images = [transform(img) for img in images]
+        device = next(model.parameters()).device
+        batch_tensor = torch.stack(transformed_images, dim=0).to(
+            device, non_blocking=True
+        )
+        with torch.no_grad():
+            outputs = model(batch_tensor)
+        _, output_length = outputs.shape
+        if output_length != vector_length:
+            raise RuntimeError(f"Unexpected vector length {output_length}")
+        processed = outputs.detach().cpu().float().numpy()
+        normalized = l2_normalize_batch(processed)
+        result = normalized.tolist()
+        return result
+
+    @staticmethod
+    def run_test(
+        model: torch.nn.Module, batch_tensor: torch.Tensor, device: str
+    ) -> None:
+        with torch.inference_mode():
+            model.eval()
+            model(batch_tensor)
+            torch.cuda.synchronize(device)
+
+
+class PathProcessor:
+    @staticmethod
+    def build_buckets(
+        path_list: list[str],
+    ) -> dict[tuple[int, int], list[tuple[int, str]]]:
+        buckets: dict[tuple[int, int], list[tuple[int, str]]] = defaultdict(list)
+        for index, path in enumerate(path_list):
+            size = ImageConverter.get_size_from_path(path)
+            buckets[size].append((index, path))
+        return buckets
+
+    @staticmethod
+    def sort_buckets(
+        buckets: dict[tuple[int, int], list[tuple[int, str]]],
+    ) -> dict[tuple[int, int], list[tuple[int, str]]]:
+        result = dict(
+            sorted(
+                buckets.items(),
+                key=lambda item: item[0][0] * item[0][1],
+                reverse=True,
+            )
+        )
+        return result
+
+    @staticmethod
+    def process_bucket(
+        items: list[tuple[int, str]],
+        size: tuple[int, int],
+        model: torch.nn.Module,
+        vector_length: int,
+        transform: transforms.Compose,
+        batch_sizer: Any,
+        memory_usage: float,
+        vectors: list[list[float]],
+        pbar: tqdm,
+        rebuild: bool = False,
+    ) -> tuple[int, int] | None:
+        width, height = size
+        batch_size = max(int(batch_sizer.get(width, height, rebuild) * memory_usage), 1)
+
+        for start in range(0, len(items), batch_size):
+            batch_slice = items[start : start + batch_size]
+            batch_indices = [index for index, _ in batch_slice]
+            batch_paths = [path for _, path in batch_slice]
+
+            try:
+                current_batch = ImageConverter.prepare(batch_paths)
+                batch_vectors = VectorEncoder.encode(
+                    current_batch,
+                    model,
+                    vector_length,
+                    transform,
+                )
+            except Exception:
+                torch.cuda.empty_cache()
+                retry_batch_size = max(
+                    int(batch_sizer.get(width, height, True) * memory_usage), 1
+                )
+                try:
+                    current_batch = ImageConverter.prepare(batch_paths)
+                    batch_vectors = VectorEncoder.encode(
+                        current_batch,
+                        model,
+                        vector_length,
+                        transform,
+                    )
+                except Exception:
+                    return size
+                batch_size = retry_batch_size
+
+            for index, vector in zip(batch_indices, batch_vectors):
+                vectors[index] = vector
+            pbar.update(len(batch_slice))
+
+        result = None
+        return result
 
 
 class ImageVector:
@@ -27,6 +233,7 @@ class ImageVector:
         self.vector_list: list[list[float]] = []
         self.model: Any = None
         self.vector_length: int = 0
+        self.batch_sizer = BatchSizer()
         self._transform = transforms.Compose(
             [
                 transforms.ToTensor(),
@@ -92,12 +299,13 @@ class ImageVector:
                 img = Image.open(image).convert("RGB")
                 return [img]
             except Exception as e:
-                print(f"Warning: Failed to load image {image}: {e}")
+                logger.warning(f"Warning: (retrying) Failed to load image {image}: {e}")
                 try:
                     with Image.open(image) as temp_img:
                         size = temp_img.size
-                except Exception:
-                    size = (512, 512)
+                except Exception as e:
+                    logger.error(f"Failed to load image {image}: {e}")
+                    raise
                 return [Image.new("RGB", size, (0, 0, 0))]
         if isinstance(image, Image.Image):
             return [image.convert("RGB")]
@@ -160,143 +368,15 @@ class ImageVector:
             torch.cuda.synchronize(device)
 
     def get_batch_size(self, width: int, height: int, rebuild: bool = False) -> int:
-        """
-        Estimate realistic peak GPU memory in bytes for a single image.
-        Measures the memory used by activations + intermediate buffers,
-        excluding model weights.
-
-        Uses the device specified in your vision model config.
-        """
-
-        width_str = str(width)
-        height_str = str(height)
-        vector_width: dict[str, int] = {}
-        if self.vector_sizes:
-            if width_str in self.vector_sizes:
-                vector_width = self.vector_sizes[width_str]
-                if height_str in vector_width and not rebuild:
-                    return vector_width[height_str]
-
-        channels = 3
-
-        max_size = 200
-        min_size = 1
-        last_size = 0
-
-        if not rebuild:
-            # if not rebuild requested and vector width exists, find closets numbers to send a quick estimate
-            approximated_size: int = max_size
-
-            if vector_width:
-                sorted_heights: list[str] = sorted(
-                    vector_width.keys(), key=lambda x: abs(int(x) - height)
-                )
-
-                approximated_size = vector_width[sorted_heights[0]]
-            print(
-                f"returning fast estimate for size ({width},{height}): {approximated_size}",
-                flush=True,
-            )
-
-            return approximated_size
-
-        # Get device from config
-        self.prepare_config = config["prepare"]
-        vision_model_config = self.prepare_config["vision_model"]
-        device: str = vision_model_config["device"]
-
-        # --------------------------
-        # Step 1: Measure model-only memory
-        # --------------------------
-
-        # only use dedicated memory
-        torch.cuda.set_per_process_memory_fraction(0.99, 0)
-        if self.model is None:
-            self.model, self.vector_length, total_memory = (
-                model_loader.load_vision_model()
-            )
-        total_memory = int(torch.cuda.get_device_properties(device).total_memory)
-        torch.backends.cudnn.benchmark = True
-
-        start_time: float = time.time()
-        while min_size < max_size:
-            torch.cuda.empty_cache()
-            torch.cuda.reset_peak_memory_stats(device)
-            initial_mem = int(torch.cuda.max_memory_allocated(device))
-            current_size = math.floor((max_size + min_size) / 2)
-            if current_size == last_size:
-                max_size = min_size = current_size
-                print(f"repeated size, setting final size: {current_size} ")
-                break
-            last_size = current_size
-            print("----")
-            print(
-                f"for size ({width},{height}) trying batch size {current_size} (min: {min_size}, max: {max_size})....",
-                flush=True,
-            )
-            batch_tensor = torch.zeros(  # type: ignore[attr-defined]
-                (current_size, channels, height, width), dtype=torch.float  # type: ignore[attr-defined]
-            ).to(device)
-
-            # --------------------------
-            # Step 2: Measure memory with dummy image
-            # --------------------------
-            try:
-                self.test_batch(batch_tensor, device)
-            except Exception as e:
-                max_size = current_size
-                # print(e)
-                print("error, setting new max size: ", max_size)
-                continue
-
-            final_mem = int(torch.cuda.max_memory_allocated(device))
-
-            image_vram = final_mem - initial_mem
-            print(
-                f"for batch size {current_size}, memory: {image_vram} ({final_mem}-{initial_mem}) (total memory:{total_memory})"
-            )
-            if image_vram > total_memory:
-                max_size = current_size
-                print(
-                    f"max dedicated memory exceeded,setting new max batch size: {max_size}"
-                )
-            else:
-                min_size = current_size
-                print("setting new min size: ", min_size)
-
-        end_time: float = time.time()
-        total_time: float = end_time - start_time
-        batch_size = max(int(max_size), 1)
-        print(f"setting final size: {batch_size}. time taken: {total_time:.2f} seconds")
-
-        # Set value for WxH
-        vector_width[height_str] = batch_size
-        vector_width = dict(
-            sorted(vector_width.items(), reverse=True, key=lambda x: int(x[0]))
-        )
-        self.vector_sizes[width_str] = vector_width
-
-        # Set value for HxW
-        if height_str not in self.vector_sizes:
-            self.vector_sizes[height_str] = {}
-        vector_height = self.vector_sizes[height_str]
-        vector_height[width_str] = batch_size
-        vector_height = dict(
-            sorted(vector_height.items(), reverse=True, key=lambda x: int(x[0]))
-        )
-        self.vector_sizes[height_str] = vector_height
-
-        # Combine and sort full list
-        self.vector_sizes = dict(
-            sorted(self.vector_sizes.items(), reverse=True, key=lambda x: int(x[0]))
-        )
-        atomic_write_json(vectors_size_file, self.vector_sizes, indent=4)
-        return batch_size
+        result = self.batch_sizer.get(width, height, rebuild)
+        return result
 
     def create_vector_list(
         self, memory_usage: float = 0.85, rebuild: bool = False
     ) -> list[list[float]] | None:
-
+        if not self.image_list:
+            result: list[list[float]] = []
+            return result
         self.model, self.vector_length, _ = model_loader.load_vision_model()
         batch_size: int = self.get_batch_size(
             self.image_list[0].size[0], self.image_list[0].size[1], rebuild

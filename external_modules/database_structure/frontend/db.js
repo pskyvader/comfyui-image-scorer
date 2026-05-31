@@ -2,6 +2,12 @@ class DbView {
     init(params) {
         this.container = document.getElementById("db-container");
         this.logArea = this.container?.querySelector("#log-area");
+        this.logger = FrontendLogger.create("external_modules.database_structure.frontend.db", {
+            target: () => this.logArea,
+            replaceProgress: true,
+            maxEntries: 100,
+            shouldAutoScroll: () => this.isAutoScrollEnabled,
+        });
         this.taskId = null;
         this.pollTimer = null;
         this.lastLogLen = 0;
@@ -78,48 +84,11 @@ class DbView {
     }
 
     log(msg) {
-        if (!this.logArea) {
-            return;
-        }
-
-        // Detect if this is a progress line (tqdm or similar)
-        const isProgress = msg.includes("%")
-            || msg.includes("|")
-            || msg.includes("img/s")
-            || msg.includes("items/s")
-            || msg.includes("it/s");
-
-        const lastDiv = this.logArea.lastElementChild;
-        const displayMsg = `[${new Date()
-            .toLocaleTimeString()}] ${msg}`;
-
-        if (isProgress && lastDiv && lastDiv.dataset?.isProgress === "true") {
-            // Update the last log if it's also a progress line
-            lastDiv.textContent = displayMsg;
-        } else {
-            // Add new log line
-            const div = document.createElement("div");
-            div.textContent = displayMsg;
-            div.dataset.isProgress = isProgress ? "true" : "false";
-            this.logArea.appendChild(div);
-        }
-
-        // Limit displayed logs to prevent freezing (keep last 100)
-        const maxVisibleLogs = 100;
-        while (this.logArea.children.length > maxVisibleLogs) {
-            this.logArea.removeChild(this.logArea.firstElementChild);
-        }
-
-        // Only autoscroll if user has enabled it by scrolling to the bottom
-        if (this.isAutoScrollEnabled) {
-            this.logArea.scrollTop = this.logArea.scrollHeight;
-        }
+        this.logger.info(msg);
     }
 
     clearLog() {
-        if (this.logArea) {
-            this.logArea.innerHTML = "";
-        }
+        this.logger.clear();
     }
 
     scrollToLog() {

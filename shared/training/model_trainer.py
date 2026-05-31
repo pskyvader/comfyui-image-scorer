@@ -80,7 +80,7 @@ grid_base: dict[str, Any] = {
         # Starting at zero: A good first non-zero step is around 0.1 or 0.01.
         "type": "float",
         "min": 0.0,
-        "max": 10.0,
+        "max": 20.0,
         "step": 0.1,
         "random": 0.01,
     },
@@ -90,7 +90,7 @@ grid_base: dict[str, Any] = {
         # Starting at zero: A good first non-zero step is around 0.1 or 0.01.
         "type": "float",
         "min": 0.0,
-        "max": 10.0,
+        "max": 20.0,
         "step": 0.1,
         "random": 0.01,
     },
@@ -162,18 +162,19 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
     higher = min(v * (1 + cell["step"]), vmax)
 
     # Random mutation based on probability
-    if random.random() < cell["random"]:
-        # Mutation: replace v with random value
-        if cell["type"] == "int":
-            v = int(random.randint(int(vmin), int(vmax)))
-        else:
-            v = float(random.uniform(vmin, vmax))
+    # if random.random() < cell["random"]:
+    # Mutation: replace v with random value
+    if cell["type"] == "int":
+        v = int(random.randint(int(vmin), int(vmax)))
+    else:
+        v = float(random.uniform(vmin, vmax))
 
     result: list[Union[int, float]] = []
     candidates: set[Union[int, float]] = set()
     if cell["type"] == "int":
         higher: int = int(higher)
         lower: int = int(lower)
+
         v = int(v)
         if v == lower and v > vmin:
             lower -= 1
@@ -182,11 +183,12 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
             higher += 1
 
         # Uniqueness: Use set to dedup, then sort
-        # candidates = {(higher), (v), (lower)}
-        candidates = {(higher), (lower)}
+        candidates = {(higher), (v), (lower)}
+        # candidates = {(higher), (lower)}
     if cell["type"] == "float":
         # candidates = {float(higher), float(v), float(lower)}
         candidates = {float(higher), float(lower)}
+        v_float = v
         v = int(v)
         if v == lower and v > vmin:
             lower -= 1
@@ -195,12 +197,8 @@ def around(label: str, val: Union[int, float, None]) -> Sequence[Union[int, floa
             higher += 1
 
         # Uniqueness: Use set to dedup, then sort
-        # candidates = {(higher), (v), (lower)}
-        candidates = {(higher), (lower)}
-    if cell["type"] == "float":
-        # candidates = {float(higher), float(v), float(lower)}
-        candidates = {float(higher), float(lower)}
-
+        candidates = {(higher), (v_float), (lower)}
+        # candidates = {(higher), (lower)}
     result = sorted(list(candidates), reverse=False)
     # Final check
     result = [x for x in result if vmin <= x <= vmax]
@@ -305,6 +303,7 @@ class ModelTrainer:
             )
 
         if self.user_verbosity >= 0:
+
             def pbar_callback(_):
                 progress_bar.update(1)
 
@@ -392,7 +391,9 @@ class ModelTrainer:
                     )
                 )
                 macro_recall = float(
-                    recall_score(y_test, predictions, average="macro", zero_division="0")
+                    recall_score(
+                        y_test, predictions, average="macro", zero_division="0"
+                    )
                 )
                 self.result_metrics["macro_f1"] = macro_f1
                 self.result_metrics["weighted_f1"] = weighted_f1

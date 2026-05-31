@@ -3,10 +3,11 @@
 from typing import Any
 import logging
 import time
+
 logger = logging.getLogger(__name__)
 
 
-def distribute(list[float], buckets: list[tuple[str, float]]) -> dict[str, int]:
+def distribute(values: list[float], buckets: list[tuple[str, float]]) -> dict[str, int]:
     """Distribute values into named buckets by threshold."""
     result: dict[str, int] = {}
     for label, _ in buckets:
@@ -18,6 +19,4 @@ def distribute(list[float], buckets: list[tuple[str, float]]) -> dict[str, int]:
                 break
         else:
             result[buckets[-1][0]] += 1
-    result = result
-    logger.debug("distribute took %.4fs", time.perf_counter() - _start)
     return result

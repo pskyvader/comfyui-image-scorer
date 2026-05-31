@@ -3,6 +3,7 @@ from __future__ import annotations
 from external_modules.database_structure import comparisons_table, images_table, schema
 import logging
 import time
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +40,6 @@ def test_normalize_comparisons_keeps_latest_pair_result(temp_db):
     assert stats["contradictions_removed"] == 1
     assert len(rows) == 1
     assert rows[0]["winner"] == "b.png"
-    logger.debug("test_normalize_comparisons_keeps_latest_pair_result took %.4fs", time.perf_counter() - _start)
 
 
 def test_normalize_comparisons_removes_self_links_and_missing_nodes(temp_db):
@@ -78,4 +78,3 @@ def test_normalize_comparisons_removes_self_links_and_missing_nodes(temp_db):
     assert stats["self_links_removed"] == 1
     assert stats["missing_nodes_removed"] == 1
     assert comparisons_table.get_all_comparisons() == []
-    logger.debug("test_normalize_comparisons_removes_self_links_and_missing_nodes took %.4fs", time.perf_counter() - _start)

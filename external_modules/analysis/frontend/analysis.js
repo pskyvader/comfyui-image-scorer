@@ -2,6 +2,10 @@ class AnalysisView {
     init(params) {
         this.container = document.getElementById('analysis-container');
         this.logArea = this.container?.querySelector('#log-area');
+        this.logger = FrontendLogger.create("external_modules.analysis.frontend.analysis", {
+            target: () => this.logArea,
+            maxEntries: 100,
+        });
         this.resultPanel = this.container?.querySelector('#result-panel');
         this.resultContent = this.container?.querySelector('#result-content');
         this.taskId = null;
@@ -55,15 +59,11 @@ class AnalysisView {
     }
 
     log(msg) {
-        if (!this.logArea) return;
-        const div = document.createElement('div');
-        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        this.logArea.appendChild(div);
-        this.logArea.scrollTop = this.logArea.scrollHeight;
+        this.logger.info(msg);
     }
 
     clearLog() {
-        if (this.logArea) this.logArea.innerHTML = '';
+        this.logger.clear();
     }
 
     showResult(html) {

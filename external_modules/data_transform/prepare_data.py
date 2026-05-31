@@ -5,16 +5,16 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 from tqdm import tqdm
+import time
+import traceback
 import logging
-
-# Ensure package imports resolve when running this file as a script per the project instructions
 
 if __name__ == "__main__":
     root_path = str(Path(__file__).parents[2])
     print(f"root path: {root_path}")
     sys.path.insert(0, root_path)
     if __package__ is None:
-        __package__ = "external_modules.data_transform"
+        __package__ = "comfyui-image-scorer.external_modules.data_transform"
 
 from shared.io import (
     load_single_jsonl,
@@ -35,19 +35,14 @@ from shared.paths import (
 from shared.helpers import remove_models, remove_vectors
 from shared.vectors.vectors import VectorList
 from shared.image_analysis import ImageAnalysis
-from .data.processing import (
-    check_for_leakage,
-)
-import traceback
-import time
+from .data.processing import check_for_leakage
 
-# Initialize logger
 logger = logging.getLogger(__name__)
 
 
-def run_prepare(int = 0) -> dict[str, int]:
+def run_prepare(limit: int) -> dict[str, int]:
+    _start = time.perf_counter()
     logger.info("Loading vector libraries...")
-
     logger.info("Starting image processing...")
 
     if not os.path.isdir(image_root):
@@ -69,7 +64,7 @@ def run_prepare(int = 0) -> dict[str, int]:
     if len(collected_data) == 0:
         logger.info("No new valid files found. Exiting.")
         result = {"total": len(index_list), "new": 0}
-        logger.debug("run_prepare took %.4fs", time.perf_counter() - _start)
+
         return result
 
     if limit > 0 and len(collected_data) > limit:
@@ -115,28 +110,20 @@ def run_prepare(int = 0) -> dict[str, int]:
     write_single_jsonl(text_data_file, new_text_list, mode="w")
     write_single_jsonl(scores_file, new_scores_list, mode="w")
 
-    summary = {
-        "total": len(index_list),
-        "new": len(processed_data),
-    }
+    summary = {"total": len(index_list), "new": len(processed_data)}
 
-    # Invalidate training cache if data changed
     if summary["new"] > 0:
         logger.info("Dataset updated. Cleaning trained models...")
-        # remove_models()
 
     logger.info("=== DONE ===")
     logger.info(f"Total: {summary['total']}, New: {summary['new']}")
     result = summary
-    logger.debug("run_prepare took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
-def run_text_only(int = 0) -> dict[str, int]:
-    """
-    Process text data only while preserving existing image vectors.
-    Useful when text parsing logic changes but images don't need re-analysis.
-    """
+def run_text_only(limit: int) -> dict[str, int]:
+    _start = time.perf_counter()
     logger.info("TEXT-ONLY MODE: Processing text parsing only...")
 
     if not os.path.isdir(image_root):
@@ -144,16 +131,12 @@ def run_text_only(int = 0) -> dict[str, int]:
             f"Configured image_root does not exist or is not a directory: {image_root}"
         )
 
-    # Load existing data
     logger.info("loading existing data...")
     index_list = load_single_jsonl(index_file)
     index_size = len(index_list)
-    # In text-only mode, we reprocess ALL existing scored images to update their text extraction
-    # Build processed_data for VectorList (same format as run_prepare)
     logger.info(f"collecting files in {image_root}...")
     files = list(discover_files(image_root))
 
-    # Get all files that are already scored (match index_list)
     processed_files = {s.split("#", 1)[0] for s in index_list}
     all_collected = collect_valid_files(
         files, set(), image_root, limit=0, max_workers=100, scored_only=True
@@ -161,15 +144,13 @@ def run_text_only(int = 0) -> dict[str, int]:
     if len(all_collected) == 0:
         logger.info("No scored files found. Exiting.")
         result = {"total": len(index_list), "new": 0, "text_processed": 0}
-        logger.debug("run_text_only took %.4fs", time.perf_counter() - _start)
         return result
 
-    all_collected_dict = {}
+    all_collected_dict: dict[str, Any] = {}
     for entry in all_collected:
         img_path: str = entry[3]
         all_collected_dict[img_path] = entry
 
-    # Filter to only the ones we've scored before
     collected_data: list[Any] = []
     last_processed: tuple[str, dict[str, Any], str, str] = all_collected[0]
 
@@ -180,7 +161,7 @@ def run_text_only(int = 0) -> dict[str, int]:
             logger.warning(
                 f"file not found during text-only process: {item}, using last found as placeholder"
             )
-            last_processed[1]["score"] = -1  # mark as not found
+            last_processed[1]["score"] = -1
 
         collected_data.append(last_processed)
 
@@ -193,14 +174,11 @@ def run_text_only(int = 0) -> dict[str, int]:
     if len(collected_data) == 0:
         logger.info("No scored files found. Exiting.")
         result = {"total": len(index_list), "new": 0, "text_processed": 0}
-        logger.debug("run_text_only took %.4fs", time.perf_counter() - _start)
         return result
 
     logger.info(f"Found {len(collected_data)} scored files for text reprocessing")
-    # logger.debug(f"collected data sample: {collected_data[0]}")
     logger.info(f"index list size: {len(index_list)} items")
 
-    # Create VectorList in text-only mode: only processes text data, not images
     vectors_list_parser = VectorList(
         collected_data,
         index_list,
@@ -210,59 +188,42 @@ def run_text_only(int = 0) -> dict[str, int]:
         add_new=False,
         merge_lists=False,
         read_only=False,
-        process_images=False,  # CRITICAL: Skip image processing
+        process_images=False,
     )
     logger.info(f"index list size: {len(index_list)} items")
 
     logger.info("processing text data only (no image analysis)...")
-    try:
-        vectors_list_parser.create_vectors()  # This will only process text when process_images=False
-        logger.info("joining text data...")
-        vectors_list_parser.join_text_data()
-        vectors_list_parser.update_lists()
+    vectors_list_parser.create_vectors()
+    logger.info("joining text data...")
+    vectors_list_parser.join_text_data()
+    vectors_list_parser.update_lists()
 
-        new_text_list = vectors_list_parser.text_list
-        new_score_list = vectors_list_parser.scores_list
-        if (
-            len(new_text_list) != len(new_score_list)
-            or len(new_text_list) != index_size
-        ):
-            raise RuntimeError(
-                f"list mismatched lengths: text {len(new_text_list)}, scores {len(new_score_list)}, index {len(index_list)}"
-            )
-        # Write only text data (preserve vectors)
-        logger.info("writing text data...")
-        write_single_jsonl(text_data_file, new_text_list, mode="w")
-        write_single_jsonl(scores_file, new_score_list, mode="w")
-
-        summary = {
-            "total": len(index_list),
-            "new": 0,
-            "text_processed": len([x for x in new_text_list if x is not None]),
-        }
-
-        logger.info(f"TEXT-ONLY PROCESSING COMPLETE")
-        logger.info(
-            f"Total: {summary['total']}, Text Processed: {summary['text_processed']}"
+    new_text_list = vectors_list_parser.text_list
+    new_score_list = vectors_list_parser.scores_list
+    if len(new_text_list) != len(new_score_list) or len(new_text_list) != index_size:
+        raise RuntimeError(
+            f"list mismatched lengths: text {len(new_text_list)}, scores {len(new_score_list)}, index {len(index_list)}"
         )
-        result = summary
-        logger.debug("run_text_only took %.4fs", time.perf_counter() - _start)
-        return result
+    logger.info("writing text data...")
+    write_single_jsonl(text_data_file, new_text_list, mode="w")
+    write_single_jsonl(scores_file, new_score_list, mode="w")
 
-    except Exception as e:
-        logger.error(f"ERROR during text processing: {e}")
+    summary = {
+        "total": len(index_list),
+        "new": 0,
+        "text_processed": len([x for x in new_text_list if x is not None]),
+    }
 
-        traceback.print_exc()
-        raise
+    logger.info("TEXT-ONLY PROCESSING COMPLETE")
+    logger.info(
+        f"Total: {summary['total']}, Text Processed: {summary['text_processed']}"
+    )
+    result = summary
+
+    return result
 
 
 def run_rebuild_scores_only() -> dict[str, int]:
-    """
-    Rebuild the scores file only, preserving the order from the index file.
-    Reads scores from the ranked JSON companion files in the processed tree.
-    For files that no longer exist, uses the previous cached score.
-    """
-    _start = time.perf_counter()
     _start = time.perf_counter()
     logger.info("Starting scores rebuild from ranked tree...")
 
@@ -279,15 +240,13 @@ def run_rebuild_scores_only() -> dict[str, int]:
     if not index_list:
         logger.info("No index file found. Cannot rebuild scores.")
         result = {"total": 0, "updated": 0, "missing": 0}
-        logger.debug("run_rebuild_scores_only took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("run_rebuild_scores_only took %.4fs", time.perf_counter() - _start)
+
         return result
 
     logger.info(f"Collecting files in {ranked_root}...")
     all_files = list(discover_files(ranked_root))
     collected_data: list[tuple[str, dict[str, Any], str, str]] = collect_valid_files(
-        all_files, set([]), ranked_root, max_workers=40, scored_only=True
+        all_files, set(), ranked_root, limit=0, max_workers=40, scored_only=True
     )
 
     final_data: dict[str, dict[str, Any]] = {x[3]: x[1] for x in collected_data}
@@ -297,20 +256,10 @@ def run_rebuild_scores_only() -> dict[str, int]:
     missing_count = 0
 
     for idx, index_entry in enumerate(index_list):
-        matching_file = final_data.get(index_entry)
+        matching_file = final_data[index_entry]
 
-        if matching_file:
-            new_scores_list.append(float(matching_file["score"]))
-            updated_count += 1
-        else:
-            old_score: Any | Literal[3] = (
-                old_scores_list[idx] if idx < len(old_scores_list) else 3
-            )
-            new_scores_list.append(old_score)
-            missing_count += 1
-            logger.warning(
-                f"File not found in ranked tree: {index_entry}. Using cached score: {old_score}"
-            )
+        new_scores_list.append(float(matching_file["score"]))
+        updated_count += 1
 
     write_single_jsonl(scores_file, new_scores_list, mode="w")
 
@@ -327,41 +276,27 @@ def run_rebuild_scores_only() -> dict[str, int]:
         f"Total: {summary['total']}, Updated: {summary['updated']}, Missing: {summary['missing']}"
     )
     result = summary
-    logger.debug("run_rebuild_scores_only took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("run_rebuild_scores_only took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 def run_rebuild_from_splits() -> dict[str, int]:
-    """
-    Rebuild the main vectors.jsonl and text_data.jsonl files using the small
-    split files in the 'split' directory. This is useful if the main files
-    were corrupted or incomplete.
-    """
-    _start = time.perf_counter()
     _start = time.perf_counter()
     logger.info("Starting rebuild from splits...")
 
-    # Load index file to get the master list of IDs in the correct order
     index_list = load_single_jsonl(index_file)
     if not index_list:
         logger.info("No index file found. Cannot rebuild.")
         result = {"total": 0, "processed": 0}
-        logger.debug("run_rebuild_from_splits took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("run_rebuild_from_splits took %.4fs", time.perf_counter() - _start)
+
         return result
 
     logger.info(f"Index has {len(index_list)} entries.")
 
-    # Get vector config to know which fields to expect
     vector_config = config["vector"]["vectors"]
     vectors_dir_local = os.path.dirname(vectors_file)
 
-    # Data structures to hold loaded split data
-    # mapping: field_name -> {id: {"raw": ..., "vector": ...}}
-    split_data_map = {}
+    split_data_map: dict[str, dict[str, Any]] = {}
 
     for current_type in vector_config:
         v_type = current_type["type"]
@@ -374,38 +309,30 @@ def run_rebuild_from_splits() -> dict[str, int]:
             continue
 
         print(f"Loading split file: {split_file}")
-        field_data = {}
-        # We use jsonlines directly to avoid loading everything at once if we can,
-        # though we still store it in field_data dict which will take memory.
-        # But this is necessary to reorder according to index_list.
+        field_data: dict[str, Any] = {}
         with jsonlines.open(split_file, mode="r") as reader:
             for obj in reader:
                 field_data[obj["id"]] = obj
         split_data_map[name] = field_data
 
-    final_vectors = []
-    final_text_data = []
+    final_vectors: list[list[float]] = []
+    final_text_data: list[dict[str, Any]] = []
 
     with tqdm(total=len(index_list), desc="Assembling", unit=" entries") as pbar:
         for uid in index_list:
-            row_vector = []
-            row_text = {}
+            row_vector: list[float] = []
+            row_text: dict[str, Any] = {}
 
             for current_type in vector_config:
                 name = current_type["name"]
                 v_type = current_type["type"]
                 slot_size = current_type["slot_size"]
 
-                entry = split_data_map[name].get(uid)
+                entry = split_data_map[name][uid]
 
-                if entry:
-                    vec = entry.get("vector")
-                    raw = entry.get("raw")
-                else:
-                    vec = None
-                    raw = None
+                vec = entry["vector"] if "vector" in entry else None
+                raw = entry["raw"] if "raw" in entry else None
 
-                # Handle missing vector (padding with zeros)
                 if vec is None:
                     vec = [0.0] * slot_size
                 elif len(vec) != slot_size:
@@ -414,7 +341,6 @@ def run_rebuild_from_splits() -> dict[str, int]:
                     else:
                         vec = vec[:slot_size]
 
-                # Handle missing raw metadata
                 if raw is None:
                     if v_type == "embedding":
                         raw = {}
@@ -432,7 +358,6 @@ def run_rebuild_from_splits() -> dict[str, int]:
         f"Assembled {len(final_vectors)} vectors and {len(final_text_data)} text entries."
     )
 
-    # Write files
     logger.info(f"Writing {vectors_file}...")
     write_single_jsonl(vectors_file, final_vectors, mode="w")
     logger.info(f"Writing {text_data_file}...")
@@ -440,32 +365,27 @@ def run_rebuild_from_splits() -> dict[str, int]:
 
     logger.info("=== REBUILD COMPLETE ===")
     result = {"total": len(index_list), "processed": len(final_vectors)}
-    logger.debug("run_rebuild_from_splits took %.4fs", time.perf_counter() - _start)
-    result = result
-    logger.debug("run_rebuild_from_splits took %.4fs", time.perf_counter() - _start)
+
     return result
 
 
 def main(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    rebuild: bool = False,
-    test_run: bool = False,
-    limit: int = 0,
-    batch: bool = False,
-    rebuild_scores: bool = False,
-    text_only: bool = False,
-    rebuild_from_splits: bool = False,
-    debug: bool = False,
-    logger.debug("main took %.4fs", time.perf_counter() - _start)
+    rebuild: bool,
+    test_run: bool,
+    limit: int,
+    batch: bool,
+    rebuild_scores: bool,
+    text_only: bool,
+    rebuild_from_splits: bool,
+    debug: bool,
 ) -> None:
-    # Configure global logging based on debug flag
+    _start = time.perf_counter()
     log_level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
-        force=True,  # Ensure we override any existing configuration
+        force=True,
     )
 
     logger.info("Starting data prepare...")
@@ -551,9 +471,7 @@ if __name__ == "__main__":
         help="Validate configuration and exit without performing processing",
     )
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode (verbose output)",
+        "--debug", action="store_true", help="Enable debug mode (verbose output)"
     )
     args = parser.parse_args()
     main(

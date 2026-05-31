@@ -1,27 +1,21 @@
-import os
-import json
-from shutil import move
-from typing import Iterator, Any, cast
+"""Data manager helpers.
 
-try:
-    from ..config import schema as schema_module  # type: ignore[attr-defined,misc]
-except ImportError:
-    schema_module = None
+The `collect_files` helper is currently unused in the repository, so it remains
+commented out per the todo instructions.
+"""
 
-try:
-    from ....shared.io import load_json
-import logging
-import time
-logger = logging.getLogger(__name__)
-except ImportError:
-    load_json = None  # type: ignore[misc]
+# from __future__ import annotations
+#
+# import os
+# from collections.abc import Iterator
+#
+#
+# def collect_files(root: str) -> Iterator[tuple[str, str]]:
+#     for dirpath, _, files in os.walk(root):
+#         for filename in files:
+#             if filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+#                 full = os.path.join(dirpath, filename)
+#                 json_path = full.rsplit(".", 1)[0] + ".json"
+#                 if os.path.exists(json_path):
+#                     yield full, json_path
 
-
-def collect_files(str) -> Iterator[tuple[str, str]]:
-    for dirpath, _, files in os.walk(root):
-        for f in files:
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                full = os.path.join(dirpath, f)
-                json_path = full.rsplit(".", 1)[0] + ".json"
-                if os.path.exists(json_path):
-                    yield (full, json_path)

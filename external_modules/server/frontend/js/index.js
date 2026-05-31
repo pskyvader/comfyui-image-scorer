@@ -1,3 +1,5 @@
+const routerLogger = FrontendLogger.create("external_modules.server.frontend.js.index");
+
 const router = {
     routes: {
         compare: {
@@ -71,7 +73,7 @@ const router = {
         if (this.routes[routeName]) {
             await this.loadRoute(routeName, params);
         } else {
-            console.warn(`Route not found: ${routeName}`);
+            routerLogger.warn(`Route not found: ${routeName}`);
             window.location.hash = "#compare";
         }
     },
@@ -106,7 +108,7 @@ const router = {
 
             this.currentRoute = routeName;
         } catch (e) {
-            console.error("Router error:", e);
+            routerLogger.error("Router error:", null, e);
             contentArea.innerHTML = `
                 <div class="p-12 glass rounded-2xl text-center">
                     <h2 class="text-2xl font-bold text-red-400 mb-2">Navigation Error</h2>
@@ -144,7 +146,7 @@ const router = {
             this._currentInstance = instance;
             this._currentSection = sectionName;
         } else {
-            console.error(`Section class not found: ${sectionName}`);
+            routerLogger.error(`Section class not found: ${sectionName}`);
         }
     },
 

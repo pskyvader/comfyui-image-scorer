@@ -2,6 +2,8 @@
  * Gallery View Logic (SPA Compatible)
  */
 
+const galleryLogger = FrontendLogger.create("external_modules.gallery.frontend.gallery");
+
 class GalleryView {
     constructor() {
         this.currentPage = 1;
@@ -18,19 +20,35 @@ class GalleryView {
 
     async _getGalleryImages(page, perPage, filters) {
         const params = new URLSearchParams({ page, per_page: perPage });
-        if (filters.scoreMin !== undefined) params.set("score_min", filters.scoreMin);
-        if (filters.scoreMax !== undefined) params.set("score_max", filters.scoreMax);
-        if (filters.comparisonsMin !== undefined) params.set("comparisons_min", filters.comparisonsMin);
-        if (filters.comparisonsMax !== undefined) params.set("comparisons_max", filters.comparisonsMax);
-        if (filters.sort) params.set("sort", filters.sort);
-        if (filters.tags) params.set("tags", filters.tags);
-        if (filters.tagsMode) params.set("tags_mode", filters.tagsMode);
-        if (filters.search) params.set("search", filters.search);
+        if (filters.scoreMin !== undefined) {
+            params.set("score_min", filters.scoreMin);
+        }
+        if (filters.scoreMax !== undefined) {
+            params.set("score_max", filters.scoreMax);
+        }
+        if (filters.comparisonsMin !== undefined) {
+            params.set("comparisons_min", filters.comparisonsMin);
+        }
+        if (filters.comparisonsMax !== undefined) {
+            params.set("comparisons_max", filters.comparisonsMax);
+        }
+        if (filters.sort) {
+            params.set("sort", filters.sort);
+        }
+        if (filters.tags) {
+            params.set("tags", filters.tags);
+        }
+        if (filters.tagsMode) {
+            params.set("tags_mode", filters.tagsMode);
+        }
+        if (filters.search) {
+            params.set("search", filters.search);
+        }
         return api._get(`/gallery/images?${params.toString()}`);
     }
 
     async _getImageHistory(filename) {
-        return api._get(`/gallery/image/${encodeURIComponent(filename)}/history`);
+        return api._get(`/gallery/history/${encodeURIComponent(filename)}`);
     }
 
     cacheElements() {
@@ -154,7 +172,7 @@ class GalleryView {
     }
 
     async init() {
-        console.log("Initializing GalleryView...");
+        galleryLogger.info("Initializing GalleryView...");
         this.cacheElements();
         this.loadFilters();
         this.attachEventListeners();
@@ -199,7 +217,7 @@ class GalleryView {
                     this.els.comparisonsDisplay.textContent = `${this.els.comparisonsMin.value} - ${this.els.comparisonsMax.value}`;
                 }
             } catch (e) {
-                console.warn("Failed to load gallery filters", e);
+                galleryLogger.warn("Failed to load gallery filters", null, e);
             }
         }
     }
@@ -281,7 +299,7 @@ class GalleryView {
                 }
             }
         } catch (e) {
-            console.error("Gallery fetch failed:", e);
+            galleryLogger.error("Gallery fetch failed:", null, e);
         } finally {
             this.isLoading = false;
             this.els.scrollSentinel?.classList.add("opacity-0");
@@ -406,7 +424,7 @@ class GalleryView {
 
             this.els.modalHistory.classList.remove("hidden");
         } catch (e) {
-            console.error("History load failed:", e);
+            galleryLogger.error("History load failed:", null, e);
         }
     }
 

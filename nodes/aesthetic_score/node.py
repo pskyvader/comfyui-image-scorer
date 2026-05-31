@@ -20,7 +20,7 @@ class AestheticScoreNode:
                 "image": ("IMAGE",),  # [B, H, W, C],
                 "threshold": (
                     "FLOAT",
-                    {"default": 2.5, "min": 0.1, "max": 5.0, "step": 0.1},
+                    {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.05},
                 ),
                 "positive": ("STRING", {"multiline": True}),
                 "negative": ("STRING", {"multiline": True}),
@@ -137,7 +137,7 @@ class AestheticScoreNode:
         final_vectors = vector_list.join_vectors()
         matrix = np.array(final_vectors, dtype=np.float32)
 
-        filtered_vectors = data_transformer.apply_feature_filter([matrix])
+        filtered_vectors = data_transformer.apply_feature_filter(list(matrix))
         # interaction_vectors=data_transformer.apply_interaction_features(filtered_vectors)
 
         model = training_loader.load_training_model()  # type: ignore[union-attr]

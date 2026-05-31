@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import time
 import logging
 
-from external_modules.database_structure.comparisons_table import add_comparison, comparison_exists_for_pair
+from external_modules.database_structure.comparisons_table import (
+    add_comparison,
+    comparison_exists_for_pair,
+    get_all_comparisons,
+)
 from external_modules.database_structure.images_table import (
     get_image as get_image_data,
     update_image_rating_state,
@@ -25,16 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 def update_scores_after_comparison(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     winner_filename: str,
     loser_filename: str,
     winner_data: dict[str, Any],
     loser_data: dict[str, Any],
-    impact_factor: float = 1.0,
-    logger.debug("update_scores_after_comparison took %.4fs", time.perf_counter() - _start)
+    impact_factor: float,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Compatibility helper that now performs a TrueSkill update."""
+    _start = time.perf_counter()
 
     winner_rating, loser_rating = update_ratings(
         rating_from_row(winner_data), rating_from_row(loser_data)
@@ -50,13 +53,13 @@ def update_scores_after_comparison(
     loser_data["rating_sigma"] = loser_rating.sigma
     loser_data["score"] = public_score_from_rating(loser_rating)
     loser_data["comparison_count"] = int(loser_data["comparison_count"]) + 1
+
     return winner_data, loser_data
 
 
-def _persist_image_state(str, data: dict[str, Any]) -> bool:
+def _persist_image_state(filename: str, data: dict[str, Any]) -> bool:
+    _start = time.perf_counter()
     result = update_image_rating_state(
-    logger.debug("_persist_image_state took %.4fs", time.perf_counter() - _start)
-    return result
         filename=filename,
         score=float(data["score"]),
         rating_mu=float(data["rating_mu"]),
@@ -65,26 +68,30 @@ def _persist_image_state(str, data: dict[str, Any]) -> bool:
         touch_timestamp=True,
     )
 
+    return result
+
 
 def record_comparison(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename_a: str,
     filename_b: str,
     winner: str,
-    impact_factor: float = 1.0,
-    transitive_depth: int = 0,
-    logger.debug("record_comparison took %.4fs", time.perf_counter() - _start)
+    impact_factor: float,
+    transitive_depth: int,
 ) -> bool:
     """Record one direct comparison and update both image ratings."""
+    _start = time.perf_counter()
 
     if comparison_exists_for_pair(filename_a, filename_b):
-        logger.info("Skipping duplicate pair comparison for %s vs %s", filename_a, filename_b)
+        logger.error(
+            "Skipping duplicate pair comparison for %s vs %s", filename_a, filename_b
+        )
+
         return False
 
     data_a = get_image_data(filename_a)
     data_b = get_image_data(filename_b)
     if not data_a or not data_b or filename_a == filename_b:
+
         return False
 
     if winner == filename_a:
@@ -114,14 +121,15 @@ def record_comparison(
             filename_b,
             winner,
         )
+
         return False
 
     if not _persist_image_state(winner_filename, winner_data):
+
         return False
     if not _persist_image_state(loser_filename, loser_data):
-        return False
 
-    from external_modules.database_structure.comparisons_table import get_all_comparisons
+        return False
 
     all_comparisons = get_all_comparisons()
     saved_winner = sync_image_metadata_to_json(
@@ -147,8 +155,10 @@ def record_comparison(
             winner_filename,
             loser_filename,
         )
+
         return False
 
     crystal_graph.apply_comparison(winner_filename, loser_filename)
     invalidate_images_cache()
+
     return True

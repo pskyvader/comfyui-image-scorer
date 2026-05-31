@@ -15,15 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 def add_image(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename: str,
     score: float = 0.5,
     comparison_count: int = 0,
     prompt_tags: str | None = None,
     rating_mu: float = MU0,
     rating_sigma: float = SIGMA0,
-    logger.debug("add_image took %.4fs", time.perf_counter() - _start)
 ) -> bool:
     """Add or update an image row."""
 
@@ -58,7 +55,8 @@ def add_image(
         return False
 
 
-def update_image_tags(str, prompt_tags: str) -> bool:
+def update_image_tags(filename: str, prompt_tags: str) -> bool:
+    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             conn.execute(
@@ -67,34 +65,33 @@ def update_image_tags(str, prompt_tags: str) -> bool:
             )
             conn.commit()
         result = True
-        logger.debug("update_image_tags took %.4fs", time.perf_counter() - _start)
+
         return result
     except Exception as exc:
         logger.error("Failed to update tags for %s: %s", filename, exc)
         result = False
-        logger.debug("update_image_tags took %.4fs", time.perf_counter() - _start)
+
         return result
 
 
-def get_image(str) -> dict[str, Any] | None:
+def get_image(filename: str) -> dict[str, Any] | None:
     try:
         with get_db_connection() as conn:
-            row = conn.execute("SELECT * FROM images WHERE filename=?", (filename,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM images WHERE filename=?", (filename,)
+            ).fetchone()
             if row is None:
                 result = None
-                logger.debug("get_image took %.4fs", time.perf_counter() - _start)
                 return result
             result = dict(row)
-            logger.debug("get_image took %.4fs", time.perf_counter() - _start)
             return result
     except Exception as exc:
         logger.error("Failed to load image %s: %s", filename, exc)
         result = None
-        logger.debug("get_image took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def update_image_score(str, score: float) -> bool:
+def update_image_score(filename: str, score: float) -> bool:
     try:
         with get_db_connection() as conn:
             conn.execute(
@@ -107,18 +104,14 @@ def update_image_score(str, score: float) -> bool:
             )
             conn.commit()
         result = True
-        logger.debug("update_image_score took %.4fs", time.perf_counter() - _start)
         return result
     except Exception as exc:
         logger.error("Failed to update score for %s: %s", filename, exc)
         result = False
-        logger.debug("update_image_score took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def update_image_rating_state(
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     filename: str,
     score: float,
     rating_mu: float,
@@ -126,7 +119,6 @@ def update_image_rating_state(
     comparison_count: int,
     touch_timestamp: bool = True,
     last_compared_at: str | None = None,
-    logger.debug("update_image_rating_state took %.4fs", time.perf_counter() - _start)
 ) -> bool:
     """Update the full public and internal rating state for one image."""
 
@@ -185,7 +177,7 @@ def update_image_rating_state(
         return False
 
 
-def reset_all_image_ratings(float = 0.5) -> bool:
+def reset_all_image_ratings(score: float = 0.5) -> bool:
     """Reset all image rows to the neutral prior before a rating replay."""
 
     try:
@@ -199,36 +191,28 @@ def reset_all_image_ratings(float = 0.5) -> bool:
             )
             conn.commit()
         result = True
-        logger.debug("reset_all_image_ratings took %.4fs", time.perf_counter() - _start)
         return result
     except Exception as exc:
         logger.error("Failed to reset ratings: %s", exc)
         result = False
-        logger.debug("reset_all_image_ratings took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def get_all_images() -> list[dict[str, Any]]:
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             rows = conn.execute("SELECT * FROM images").fetchall()
             result = [dict(row) for row in rows]
-            logger.debug("get_all_images took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_all_images took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Failed to fetch all images: %s", exc)
         result = []
-        logger.debug("get_all_images took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_all_images took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def get_images_by_tier(int) -> list[dict[str, Any]]:
+def get_images_by_tier(tier: int) -> list[dict[str, Any]]:
+    _start = time.perf_counter()
     tier_min = tier / 10.0
     tier_max = (tier + 1) / 10.0
 
@@ -239,36 +223,32 @@ def get_images_by_tier(int) -> list[dict[str, Any]]:
                 (tier_min, tier_max),
             ).fetchall()
             result = [dict(row) for row in rows]
-            logger.debug("get_images_by_tier took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Failed to fetch tier %s: %s", tier, exc)
         result = []
-        logger.debug("get_images_by_tier took %.4fs", time.perf_counter() - _start)
         return result
 
 
 def get_image_count() -> int:
     _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             row = conn.execute("SELECT COUNT(*) as cnt FROM images").fetchone()
             result = row["cnt"] if row else 0
-            logger.debug("get_image_count took %.4fs", time.perf_counter() - _start)
-            result = result
-            logger.debug("get_image_count took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Failed to count images: %s", exc)
         result = 0
-        logger.debug("get_image_count took %.4fs", time.perf_counter() - _start)
-        result = result
-        logger.debug("get_image_count took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def get_scored_images(int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+def get_scored_images(
+    limit: int = 100, offset: int = 0
+) -> tuple[list[dict[str, Any]], int]:
+    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             total_row = conn.execute(
@@ -280,25 +260,22 @@ def get_scored_images(int = 100, offset: int = 0) -> tuple[list[dict[str, Any]],
                 (limit, offset),
             ).fetchall()
             result = [dict(row) for row in rows], total
-            logger.debug("get_scored_images took %.4fs", time.perf_counter() - _start)
+
             return result
     except Exception as exc:
         logger.error("Failed to fetch scored images: %s", exc)
         result = [], 0
-        logger.debug("get_scored_images took %.4fs", time.perf_counter() - _start)
         return result
 
 
-def delete_image(str) -> bool:
+def delete_image(filename: str) -> bool:
     try:
         with get_db_connection() as conn:
             cur = conn.execute("DELETE FROM images WHERE filename=?", (filename,))
             conn.commit()
         result = cur.rowcount > 0
-        logger.debug("delete_image took %.4fs", time.perf_counter() - _start)
         return result
     except Exception as exc:
         logger.error("Failed to delete image %s: %s", filename, exc)
         result = False
-        logger.debug("delete_image took %.4fs", time.perf_counter() - _start)
         return result
