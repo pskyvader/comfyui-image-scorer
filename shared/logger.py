@@ -2,23 +2,304 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import queue
 import threading
 import time
 from contextlib import contextmanager
-from typing import ClassVar, Iterator, Literal
+from typing import Callable, ClassVar, Iterator, Literal
+
+
+# ── Global tqdm tuning ────────────────────────────────────────────────
+try:
+    import tqdm as _tqdm_module
+    _tqdm_module.tqdm.mininterval = 1.0
+except ImportError:
+    pass
 
 LogLevelName = Literal["debug", "info", "warning", "error", "critical"]
 
+_PROGRESS_INDICATORS = ["%", "|", "img/s", "items/s", "[00:", "it/s"]
+
+
+def _is_progress_line(line: str) -> bool:
+    return any(indicator in line for indicator in _PROGRESS_INDICATORS)
+
+
+# ── Global filter hook — called for EVERY output line ─────────────────
+
+_log_filter_hook: Callable[[str, str | None], bool] | None = None
+
+
+def set_log_filter_hook(fn: Callable[[str, str | None], bool] | None) -> None:
+    """Install a hook that is called for **every** output line across all
+    channels (console, task buffer, SSE stream).
+
+    The hook receives ``(line, module_name)`` where *module_name* is
+    ``None`` for raw I/O (print, tqdm, cancel messages).  Return
+    ``True`` to allow the line or ``False`` to suppress it entirely.
+    """
+    global _log_filter_hook
+    _log_filter_hook = fn
+
+
+# ── The single output manager for ALL task output ─────────────────────
+
+class _TaskOutput:
+    """Single point of control for ALL task output: logs, progress, prints,
+    SSE streaming. Everything routes through here."""
+
+    _task_buffers: ClassVar[dict[str, list[str]]] = {}
+    _lock: ClassVar[threading.RLock] = threading.RLock()
+    _context: ClassVar[threading.local] = threading.local()
+    MAX_LINES: ClassVar[int] = 500
+
+    # ── Context ───────────────────────────────────────────────────────
+
+    @classmethod
+    @contextmanager
+    def context(cls, task_id: str) -> Iterator[None]:
+        previous = getattr(cls._context, "task_id", None)
+        cls._context.task_id = task_id
+        try:
+            yield
+        finally:
+            if previous is None:
+                delattr(cls._context, "task_id")
+            else:
+                cls._context.task_id = previous
+
+    @classmethod
+    def current_task_id(cls) -> str | None:
+        return getattr(cls._context, "task_id", None)
+
+    @classmethod
+    def register_buffer(cls, task_id: str, lines: list[str]) -> None:
+        with cls._lock:
+            cls._task_buffers[task_id] = lines
+
+    @classmethod
+    def unregister_buffer(cls, task_id: str) -> None:
+        with cls._lock:
+            cls._task_buffers.pop(task_id, None)
+
+    @classmethod
+    def has_buffer(cls, task_id: str) -> bool:
+        with cls._lock:
+            return task_id in cls._task_buffers
+
+    # ── The ONE output method ─────────────────────────────────────────
+
+    @classmethod
+    def write(
+        cls,
+        task_id: str | None,
+        line: str,
+        *,
+        is_progress: bool = False,
+        module_name: str | None = None,
+    ) -> None:
+        """Write a line of output. The single path for buffer + SSE.
+
+        - is_progress=True : appended to buffer normally but **not**
+          broadcast via SSE.
+        - module_name     : when provided, checked against the naming
+          filter (``SharedLogger.should_emit``).  Lines from filtered-out
+          modules are silently dropped from the buffer and SSE stream
+          entirely — not just from the console.
+        """
+        if task_id is None:
+            return
+        if _log_filter_hook is not None and not _log_filter_hook(line, module_name):
+            return
+        if module_name is not None and not SharedLogger.should_emit(module_name):
+            return
+        with cls._lock:
+            lines = cls._task_buffers.get(task_id)
+            if lines is None:
+                return
+            lines.append(line)
+            while len(lines) > cls.MAX_LINES:
+                lines.pop(0)
+        if not is_progress:
+            SSELogBroadcaster.broadcast(line)
+
+
+# ── I/O capture (feeds into _TaskOutput) ─────────────────────────────
+
+class _CaptureStream(io.TextIOBase):
+    """Wraps stdout/stderr during a task.
+
+    - Passes all data through to the original stream (console).
+    - Feeds completed lines into ``_TaskOutput``, the single output
+      manager (buffer + SSE).
+    - Progress lines (tqdm, etc.) are marked so ``_TaskOutput`` can
+      replace the previous progress line instead of appending.
+    - Standalone ``\\r`` (carriage return without ``\\n``) overwrites
+      the internal buffer instead of creating a new line, preventing
+      character‑by‑character output from flooding the system.
+    """
+
+    def __init__(
+        self, lines: list[str], original_stream: io.TextIOWrapper | None, *, task_id: str | None = None
+    ) -> None:
+        _start = time.perf_counter()
+        self.lines = lines
+        self._buf = ""
+        self.original_stream = original_stream
+        self._task_id = task_id
+
+    def write(self, s: str) -> int:
+        _start = time.perf_counter()
+        if self.original_stream:
+            self.original_stream.write(s)
+            self.original_stream.flush()
+
+        self._buf += s
+
+        while True:
+            if "\r\n" in self._buf:
+                line, self._buf = self._buf.split("\r\n", 1)
+                self._process_line(line)
+            elif "\r" in self._buf:
+                line, self._buf = self._buf.rsplit("\r", 1)
+                self._process_line(line)
+            elif "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                self._process_line(line)
+            else:
+                break
+
+        result = len(s)
+
+        return result
+
+    def _process_line(self, line: str) -> None:
+        _start = time.perf_counter()
+        if not line:
+            return
+
+        is_progress = _is_progress_line(line)
+        task_id = self._task_id or _TaskOutput.current_task_id()
+
+        if task_id is not None:
+            _TaskOutput.write(task_id, line, is_progress=is_progress)
+        else:
+            if is_progress and self.lines:
+                last = self.lines[-1]
+                if _is_progress_line(last):
+                    self.lines[-1] = line
+                    return
+            self.lines.append(line)
+            if len(self.lines) > _TaskOutput.MAX_LINES:
+                self.lines.pop(0)
+
+    def flush(self) -> None:
+        _start = time.perf_counter()
+        if self.original_stream:
+            self.original_stream.flush()
+
+    def _flush_remaining(self) -> None:
+        if self._buf:
+            self._process_line(self._buf)
+            self._buf = ""
+
+
+# ── SSE broadcaster (used by _TaskOutput) ─────────────────────────────
+
+class SSELogBroadcaster:
+    """Broadcasts log lines to all connected SSE clients in real time.
+
+    Uses a background dispatch thread with batching to avoid blocking
+    log-producing threads under high throughput.
+    """
+
+    _subscribers: ClassVar[dict[int, queue.Queue]] = {}
+    _lock: ClassVar[threading.Lock] = threading.Lock()
+    _counter: ClassVar[int] = 0
+    _inbox: ClassVar[queue.Queue] = queue.Queue(maxsize=5000)
+    _dispatch_thread: ClassVar[threading.Thread | None] = None
+    _dispatch_started: ClassVar[bool] = False
+
+    @classmethod
+    def _ensure_dispatch(cls) -> None:
+        if cls._dispatch_started:
+            return
+        cls._dispatch_started = True
+        cls._dispatch_thread = threading.Thread(
+            target=cls._dispatch_loop, daemon=True
+        )
+        cls._dispatch_thread.start()
+
+    @classmethod
+    def _dispatch_loop(cls) -> None:
+        BATCH_SIZE = 50
+        BATCH_TIMEOUT = 0.1
+        while True:
+            batch: list[str] = []
+            try:
+                batch.append(cls._inbox.get(timeout=BATCH_TIMEOUT))
+                for _ in range(BATCH_SIZE - 1):
+                    try:
+                        batch.append(cls._inbox.get_nowait())
+                    except queue.Empty:
+                        break
+            except queue.Empty:
+                continue
+
+            with cls._lock:
+                if not cls._subscribers:
+                    continue
+                dead: list[int] = []
+                for sub_id, q in cls._subscribers.items():
+                    for line in batch:
+                        try:
+                            q.put_nowait(line)
+                        except queue.Full:
+                            dead.append(sub_id)
+                            break
+                for sub_id in dead:
+                    cls._subscribers.pop(sub_id, None)
+
+    @classmethod
+    def subscribe(cls) -> tuple[int, queue.Queue]:
+        cls._ensure_dispatch()
+        with cls._lock:
+            cls._counter += 1
+            sub_id = cls._counter
+            q: queue.Queue = queue.Queue(maxsize=1000)
+            cls._subscribers[sub_id] = q
+        return sub_id, q
+
+    @classmethod
+    def unsubscribe(cls, sub_id: int) -> None:
+        with cls._lock:
+            cls._subscribers.pop(sub_id, None)
+
+    @classmethod
+    def broadcast(cls, line: str) -> None:
+        cls._ensure_dispatch()
+        try:
+            cls._inbox.put_nowait(line)
+        except queue.Full:
+            pass
+
+
+# ── Python logging integration ────────────────────────────────────────
 
 class _DynamicModuleFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        result = SharedLogger.should_emit(record.name)
-        return result
+        return SharedLogger.should_emit(record.name)
 
 
 class TaskLogHandler(logging.Handler):
-    """Capture unmanaged logging records for a single task thread."""
+    """Capture unmanaged logging records for a single task thread.
+
+    For log records that bypass SharedLogger (direct logging.getLogger()
+    calls), this handler formats them and feeds them through _TaskOutput
+    so they end up in the task buffer and SSE stream.
+    """
 
     def __init__(self, lines: list[str], owner_thread_id: int) -> None:
         super().__init__(level=logging.DEBUG)
@@ -35,13 +316,13 @@ class TaskLogHandler(logging.Handler):
         if record.levelno < SharedLogger.frontend_level:
             return
 
-        message = record.getMessage()
         task_line = SharedLogger.format_task_line(
             module_name=record.name,
             level_name=record.levelname,
-            message=message,
+            message=record.getMessage(),
         )
-        SharedLogger.append_task_line(self._lines, task_line)
+        task_id = hasattr(record, "task_id") and record.task_id or _TaskOutput.current_task_id()
+        _TaskOutput.write(task_id, task_line, module_name=record.name)
 
 
 class ModuleLogger:
@@ -78,17 +359,18 @@ class ModuleLogger:
 
 
 class SharedLogger:
-    """Centralized backend logger and task log router."""
+    """Centralized backend logger and task log router.
+
+    Filtering (name/level), formatting, and console output live here.
+    Task buffer and SSE broadcast are delegated to ``_TaskOutput``,
+    the single output manager.
+    """
 
     frontend_level: ClassVar[int] = logging.INFO
-    max_task_lines: ClassVar[int] = 500
     allowed_exact_names: ClassVar[frozenset[str]] = frozenset()
     allowed_prefixes: ClassVar[tuple[str, ...]] = ()
     _name_filter: ClassVar[_DynamicModuleFilter] = _DynamicModuleFilter()
     _filter_installed: ClassVar[bool] = False
-    _task_buffers: ClassVar[dict[str, list[str]]] = {}
-    _task_lock: ClassVar[threading.RLock] = threading.RLock()
-    _task_context: ClassVar[threading.local] = threading.local()
 
     @classmethod
     def install_root_filter(cls) -> None:
@@ -130,34 +412,29 @@ class SharedLogger:
         result = ModuleLogger(module_name)
         return result
 
+    # ── Delegation to _TaskOutput ─────────────────────────────────────
+    # Kept as classmethods so existing callers (tasks.py, tests) still
+    # work without import changes.
+
     @classmethod
     def register_task_buffer(cls, task_id: str, lines: list[str]) -> None:
-        with cls._task_lock:
-            cls._task_buffers[task_id] = lines
+        _TaskOutput.register_buffer(task_id, lines)
 
     @classmethod
     def unregister_task_buffer(cls, task_id: str) -> None:
-        with cls._task_lock:
-            if task_id in cls._task_buffers:
-                del cls._task_buffers[task_id]
+        _TaskOutput.unregister_buffer(task_id)
 
     @classmethod
     @contextmanager
     def task_context(cls, task_id: str) -> Iterator[None]:
-        previous_task_id = getattr(cls._task_context, "task_id", None)
-        cls._task_context.task_id = task_id
-        try:
+        with _TaskOutput.context(task_id):
             yield
-        finally:
-            if previous_task_id is None:
-                delattr(cls._task_context, "task_id")
-            else:
-                cls._task_context.task_id = previous_task_id
 
     @classmethod
     def current_task_id(cls) -> str | None:
-        result = getattr(cls._task_context, "task_id", None)
-        return result
+        return _TaskOutput.current_task_id()
+
+    # ── Formatting ────────────────────────────────────────────────────
 
     @classmethod
     def format_message(cls, message: str, start_timer: float | None) -> str:
@@ -176,11 +453,7 @@ class SharedLogger:
         result = f"{level_name.upper()} {module_name} - {message}"
         return result
 
-    @classmethod
-    def append_task_line(cls, lines: list[str], line: str) -> None:
-        lines.append(line)
-        while len(lines) > cls.max_task_lines:
-            lines.pop(0)
+    # ── The log method ────────────────────────────────────────────────
 
     @classmethod
     def log(
@@ -197,19 +470,17 @@ class SharedLogger:
 
         rendered_message = cls.format_message(message, start_timer)
         level = cls._normalize_level(level_name)
+
+        # Console output via Python logging (includes timestamped format)
         logging.getLogger(module_name).log(
             level,
             rendered_message,
             extra={"_shared_logger_managed": True},
         )
 
+        # Task buffer + SSE via the single output manager
         active_task_id = task_id if task_id is not None else cls.current_task_id()
         if active_task_id is None or level < cls.frontend_level:
-            return
-
-        with cls._task_lock:
-            lines = cls._task_buffers.get(active_task_id)
-        if lines is None:
             return
 
         task_line = cls.format_task_line(
@@ -217,7 +488,7 @@ class SharedLogger:
             level_name=level_name,
             message=rendered_message,
         )
-        cls.append_task_line(lines, task_line)
+        _TaskOutput.write(active_task_id, task_line, module_name=module_name)
 
     @staticmethod
     def _normalize_level(level_name: LogLevelName) -> int:

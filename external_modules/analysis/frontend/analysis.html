@@ -38,9 +38,15 @@
     <!-- Analysis Actions -->
     <div class="glass rounded-2xl p-6 shadow-2xl">
         <div class="section-title">Analysis</div>
-        <div class="flex flex-wrap gap-2">
-            <button class="action-btn" data-action="analyze-parameters">📊 Parameter Analysis</button>
-            <button class="action-btn" data-action="analyze-matrix">🔢 Matrix Analysis</button>
+        <div class="space-y-2">
+            <div class="action-row">
+                <button class="action-btn" data-action="analyze-parameters">📊 Parameter Analysis</button>
+                <span class="action-desc">Analyze how each image parameter affects ranking score</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="analyze-matrix">🔢 Matrix Analysis</button>
+                <span class="action-desc">Run cross-matrix analysis across all parameters</span>
+            </div>
         </div>
     </div>
 

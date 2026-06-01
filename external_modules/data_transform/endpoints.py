@@ -41,12 +41,12 @@ def prepare_data():
     _start = time.perf_counter()
     data = request.json or {}
     flags = {
-        "rebuild": data["rebuild"],
-        "limit": data["limit"],
-        "text_only": data["text_only"],
-        "rebuild_scores": data["rebuild_scores"],
-        "rebuild_from_splits": data["rebuild_from_splits"],
-        "test_run": data["test_run"],
+        "limit": data.get("limit", 0),
+        "batch": data.get("batch", False),
+        "text_only": data.get("text_only", False),
+        "rebuild_scores": data.get("rebuild_scores", False),
+        "rebuild_from_splits": data.get("rebuild_from_splits", False),
+        "test_run": data.get("test_run", False),
     }
 
     def _run(tid):
@@ -66,8 +66,6 @@ def prepare_data():
             summary = run_text_only(limit=flags["limit"])
             result = {"type": "text_only", "summary": summary}
         else:
-            if flags["rebuild"]:
-                remove_vectors()
             summary = run_prepare(limit=flags["limit"])
             result = {"type": "full", "summary": summary}
 
@@ -77,11 +75,15 @@ def prepare_data():
             ("index", index_file),
             ("text", text_data_file),
         ]:
-            sz = _os.path.getsize(path)
-            with open(path, encoding="utf-8") as f:
-                line_count = sum(1 for _ in f)
-            result[f"{name}_lines"] = line_count
-            result[f"{name}_bytes"] = sz
+            try:
+                sz = _os.path.getsize(path)
+                with open(path, encoding="utf-8") as f:
+                    line_count = sum(1 for _ in f)
+                result[f"{name}_lines"] = line_count
+                result[f"{name}_bytes"] = sz
+            except FileNotFoundError:
+                result[f"{name}_lines"] = 0
+                result[f"{name}_bytes"] = 0
 
         set_task_output(tid, {"status": "done", "result": result})
 
@@ -94,7 +96,7 @@ def prepare_data():
 def scan_import():
     _start = time.perf_counter()
     data = request.json or {}
-    batch_size = data["batch_size"]
+    batch_size = data.get("batch_size", 100)
     processor = _get_processor()
     if not processor:
         result = jsonify({"error": "Image processor not available"}), 500
@@ -104,6 +106,25 @@ def scan_import():
     result = jsonify({"status": "success", "stats": stats})
 
     return result
+
+
+@data_bp.route("/delete-vectors", methods=["POST"])
+def delete_vectors():
+    """Delete all vector files from disk.
+
+    Requires explicit user confirmation in the front end before calling
+    — this operation cannot be undone.
+    """
+    _start = time.perf_counter()
+
+    def _run(tid):
+        _start = time.perf_counter()
+        remove_vectors()
+        set_task_output(tid, {"status": "done", "result": {"type": "delete_vectors", "message": "Vector files removed"}})
+
+    _, body = start_task(_run, task_prefix="delete-vectors", args=())
+
+    return jsonify(body)
 
 
 @data_bp.route("/task/<task_id>", methods=["GET"])

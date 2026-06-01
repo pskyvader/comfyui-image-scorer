@@ -1,5 +1,10 @@
 /**
- * Comparison Mode Logic
+ * Comparison Mode — UI Orchestrator
+ *
+ * Depends on compare_queue.js (must be loaded first):
+ *   - fetchWithTimeout, DEFAULT_TIMEOUT_MS
+ *   - QueueManager
+ *   - PrefetchManager
  */
 
 const compareLogger = FrontendLogger.create("external_modules.comparison.frontend.compare");
@@ -7,65 +12,41 @@ const compareLogger = FrontendLogger.create("external_modules.comparison.fronten
 class CompareMode {
     constructor() {
         this.currentPair = null;
-        this._submitting = false;
         this._hasSubmitted = false;
-        this._prefetching = false;
-        this._pairCache = [];
-        this._submissionQueue = [];
-        this._outgoingQueue = [];
-        this._processingQueue = false;
-        this._processLoopRunning = false;
-        this._UNDO_DELAY_MS = 10000;
-        this._submissionCount = 0;
         this._config = {};
-
         this.elements = {};
+
+        // Sub-managers (from compare_queue.js)
+        this._queue = new QueueManager();
+        this._prefetch = new PrefetchManager();
+
+        // Wire queue callbacks
+        this._queue.onQueueChange = () => this._updateQueueIndicator();
+        this._queue.onUndoUIUpdate = () => this._updateUndoUI();
+        this._queue.onSubmissionComplete = () => {
+            this._hasSubmitted = true;
+            if (this._queue._submissionCount % (this._config.reserve_count || 1) === 0) {
+                this.updateStats();
+            }
+        };
+        this._queue.onError = (msg) => {
+            Utils.showToast(msg, "error");
+            this._hasSubmitted = true;
+        };
+        this._queue.onDrained = () => this._prefetch.start();
+
+        // Wire prefetch callbacks
+        this._prefetch.onCacheChange = () => this._updateQueueIndicator();
+        this._prefetch.isBlocked = () => this._queue.outgoingQueue.length > 0;
     }
 
-    // ── API methods ──────────────────────────────────────────────────
-
-    async _getRankingConfig() {
-        return api._get("/ranking/config");
-    }
-
-    async _getStatus() {
-        return api._get("/ranking/status");
-    }
-
-    async _getNextPair() {
-        const resp = await fetch(`${api.apiBase}/ranking/next-pair`);
-        if (resp.status === 204) {
-            return null;
-        }
-        if (!resp.ok) {
-            throw new Error("Failed to get next pair");
-        }
-        return await resp.json();
-    }
-
-    async _submitComparison(filenameA, filenameB, winner) {
-        return api._post("/ranking/submit-comparison", {
-            filename_a: filenameA,
-            filename_b: filenameB,
-            winner: winner,
-        });
-    }
-
-    async _resetCache() {
-        return api._post("/ranking/reset");
-    }
-
-    async _getImage(filename) {
-        const resp = await fetch(`${api.apiBase}/gallery/image/${encodeURIComponent(filename)}`);
-        if (!resp.ok) {
-            throw new Error("Failed to get image info");
-        }
-        return await resp.json();
-    }
+    // ── API methods moved to compare_queue.js ──────────────────────────────
 
     get _targetCacheSize() {
         return this._hasSubmitted ? this._config.reserve_count : 0;
     }
+
+    // ── DOM caching ──────────────────────────────────────────────────
 
     cacheElements() {
         this.elements = {
@@ -111,6 +92,8 @@ class CompareMode {
             undoButton: this._createUndoButton(),
         };
     }
+
+    // ── UI element creation ──────────────────────────────────────────
 
     _createQueueIndicator() {
         const el = document.createElement("div");
@@ -187,14 +170,16 @@ class CompareMode {
         return el;
     }
 
+    // ── UI updates ───────────────────────────────────────────────────
+
     _updateQueueIndicator() {
         const el = this.elements.queueIndicator;
         if (!el) {
             return;
         }
-        const pending = this._outgoingQueue.length;
-        const queue = this._submissionQueue.length;
-        const ready = this._pairCache.length;
+        const pending = this._queue.outgoingQueue.length;
+        const queue = this._queue.submissionQueue.length;
+        const ready = this._prefetch.length;
 
         el.querySelector("#qi-queue").textContent = `🔄 ${queue}`;
         el.querySelector("#qi-pending").textContent = `⬆ ${pending}`;
@@ -202,6 +187,104 @@ class CompareMode {
 
         el.style.opacity = (pending + ready) > 0 ? "1" : "0.5";
     }
+
+    _updateUndoUI() {
+        const btn = this.elements.undoButton;
+        if (!btn) {
+            return;
+        }
+
+        if (this._queue.submissionQueue.length === 0) {
+            btn.style.display = "none";
+            return;
+        }
+
+        btn.style.display = "block";
+        compareLogger.info("Updating undo UI for submission queue:", null, this._queue.submissionQueue);
+
+        const last = this._queue.peekLast();
+        const isLeftWinner = last.winnerFilename === last.filenameA;
+        const imgStyle = "width:64px;height:64px;object-fit:cover;border-radius:6px;";
+        const winnerBorder = "border:2px solid #10b981;box-shadow:0 0 8px rgba(16,185,129,0.5);";
+        const loserBorder = "border:1px solid rgba(255,255,255,0.1);opacity:0.5;";
+        const leftStyle = imgStyle + (isLeftWinner ? winnerBorder : loserBorder);
+        const rightStyle = imgStyle + (!isLeftWinner ? winnerBorder : loserBorder);
+        this._undoThumbsEl.innerHTML = `
+            <img src="${last.leftSrc}" style="${leftStyle}" title="${last.filenameA}" />
+            <img src="${last.rightSrc}" style="${rightStyle}" title="${last.filenameB}" />
+        `;
+
+        // Animate progress bar and timer for the last item
+        const start = last.queuedAt;
+        const undoDelay = this._queue._UNDO_DELAY_MS;
+        const tick = () => {
+            if (this._queue.submissionQueue.length === 0 || this._queue.peekLast() !== last) {
+                return;
+            }
+            const elapsed = Date.now() - start;
+            const pct = Math.min(elapsed / undoDelay, 1);
+            this._undoProgressEl.style.width = `${pct * 100}%`;
+            const secs = Math.max(0, Math.ceil((undoDelay - elapsed) / 1000));
+            this._undoTimerEl.textContent = `${secs}s`;
+            if (pct < 1) {
+                requestAnimationFrame(tick);
+            }
+        };
+        requestAnimationFrame(tick);
+    }
+
+    _showUndoButton() {
+        this._updateUndoUI();
+    }
+
+    _undoLast() {
+        if (this._queue.undoLast()) {
+            Utils.showToast("Vote undone", "info");
+        }
+    }
+
+    showLoading(show) {
+        const overlay = this.elements.loadingOverlay;
+        if (!overlay) {
+            return;
+        }
+
+        if (show) {
+            overlay.style.display = "flex";
+            overlay.style.opacity = "1";
+            overlay.style.pointerEvents = "auto";
+        } else {
+            overlay.style.opacity = "0";
+            overlay.style.pointerEvents = "none";
+            setTimeout(() => {
+                if (overlay.style.opacity === "0") {
+                    overlay.style.display = "none";
+                }
+            }, 300);
+        }
+    }
+
+    updateStatus(msg) {
+        if (this.elements.status) {
+            this.elements.status.textContent = msg;
+        }
+    }
+
+    _populateLegend() {
+        const fmt = n => n.toLocaleString();
+        for (const [id, val] of Object.entries({
+            "legend-seed-size": fmt(this._config.seed_size),
+            "legend-seed-target": fmt(this._config.seed_target_comparisons),
+            "legend-insertion-target": fmt(this._config.insertion_target_comparisons),
+        })) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.textContent = val;
+            }
+        }
+    }
+
+    // ── Event listeners ──────────────────────────────────────────────
 
     attachEventListeners() {
         const { leftButton, rightButton, skipButton, debugBtn, leftCard, rightCard, resetCacheButton } = this.elements;
@@ -238,19 +321,29 @@ class CompareMode {
         }
     }
 
+    // ── Initialization ───────────────────────────────────────────────
+
     async init(params) {
         compareLogger.info("Initializing CompareMode...");
         this.cacheElements();
         this.attachEventListeners();
 
-        const serverConfig = await this._getRankingConfig();
+        const serverConfig = await CompareApi.getRankingConfig();
         this._config.reserve_count = serverConfig.reserve_count;
         this._config.parallel_requests = serverConfig.parallel_requests;
+        this._config.timeout_ms = serverConfig.timeout_ms || 30000;
         this._config.seed_size = serverConfig.seed_size;
         this._config.seed_target_comparisons = serverConfig.seed_target_comparisons;
         this._config.insertion_target_comparisons = serverConfig.insertion_target_comparisons;
         this._populateLegend();
         compareLogger.info("Ranking config loaded:", null, this._config);
+
+        // Configure sub-managers from server config
+        this._queue._parallelRequests = !!this._config.parallel_requests;
+        this._queue._timeoutMs = this._config.timeout_ms;
+
+        this._prefetch._parallelRequests = !!this._config.parallel_requests;
+        this._prefetch._timeoutMs = this._config.timeout_ms;
 
         const leftFile = params?.get("left");
         const rightFile = params?.get("right");
@@ -258,8 +351,8 @@ class CompareMode {
         if (leftFile && rightFile) {
             this.updateStatus("Loading requested pair...");
             const [leftData, rightData] = await Promise.all([
-                this._getImage(leftFile),
-                this._getImage(rightFile),
+                CompareApi.getImage(leftFile),
+                CompareApi.getImage(rightFile),
             ]);
             this.currentPair = {
                 left: leftData,
@@ -277,23 +370,38 @@ class CompareMode {
         }
     }
 
+    // ── Pair loading ─────────────────────────────────────────────────
+
     async loadPair() {
         this.showLoading(true);
-        this.updateStatus(this._pairCache.length > 0 ? "Loading next pair..." : "Finding next pair...");
+        this.updateStatus(this._prefetch.length > 0 ? "Loading next pair..." : "Finding next pair...");
 
         let cached;
         let pair;
-        if (this._pairCache.length > 0) {
-            cached = this._pairCache.shift();
+        if (this._prefetch.length > 0) {
+            cached = this._prefetch.shift();
             pair = cached.pair;
         } else {
-            pair = await this._getNextPair();
+            try {
+                pair = await CompareApi.getNextPair(this._prefetch._timeoutMs);
+            } catch (e) {
+                const isTimeout = e.name === "AbortError";
+                const reason = isTimeout ? "timed out" : e.message || String(e);
+                compareLogger.warn("loadPair fetch failed:", null, reason);
+                Utils.showToast(`Failed to load pair (${reason}), retrying...`, "error");
+                // Drop this attempt and try the next one
+                this.showLoading(false);
+                setTimeout(() => this.loadPair(), 1000);
+                return;
+            }
 
-            const leftImg = new Image();
-            leftImg.src = `/images/${encodeURIComponent(pair.left.filename)}`;
-            const rightImg = new Image();
-            rightImg.src = `/images/${encodeURIComponent(pair.right.filename)}`;
-            cached = { pair, leftImg, rightImg };
+            if (pair) {
+                const leftImg = new Image();
+                leftImg.src = `/images/${encodeURIComponent(pair.left.filename)}`;
+                const rightImg = new Image();
+                rightImg.src = `/images/${encodeURIComponent(pair.right.filename)}`;
+                cached = { pair, leftImg, rightImg };
+            }
         }
 
         if (!pair) {
@@ -308,7 +416,8 @@ class CompareMode {
         await this.renderPair();
         this.showLoading(false);
 
-        this._startPrefetch();
+        this._prefetch.setTargetSize(this._targetCacheSize);
+        this._prefetch.start();
     }
 
     isSamePair(pairA, pairB) {
@@ -320,6 +429,8 @@ class CompareMode {
         const b = [pairB.left.filename, pairB.right.filename].sort();
         return a[0] === b[0] && a[1] === b[1];
     }
+
+    // ── Rendering ────────────────────────────────────────────────────
 
     async renderPair() {
         const { left, right, pair_meta, collapsable } = this.currentPair;
@@ -648,6 +759,8 @@ class CompareMode {
         }
     }
 
+    // ── Vote submission ──────────────────────────────────────────────
+
     async submitVote(winner) {
         compareLogger.info("Submitting vote for:", null, winner, this.currentPair);
         const winnerFilename = winner === "left" ? this.currentPair.left.filename : this.currentPair.right.filename;
@@ -657,245 +770,27 @@ class CompareMode {
         const leftSrc = this.currentPair._preloadedLeft?.src;
         const rightSrc = this.currentPair._preloadedRight?.src;
 
-        this._submissionQueue.push({
-            filenameA, filenameB, winnerFilename,
-            leftSrc, rightSrc,
-            queuedAt: Date.now(),
-        });
-        this._updateQueueIndicator();
+        this._queue.enqueue({ filenameA, filenameB, winnerFilename, leftSrc, rightSrc });
         this._showUndoButton();
 
         // Mark as submitted immediately so cache filling starts right away
         this._hasSubmitted = true;
 
-        // Start the processing loop
-        this._startProcessLoop();
-
         // Immediately advance to next pair without waiting
         this.loadPair();
     }
 
-    async _startProcessLoop() {
-        if (this._processLoopRunning) {
-            return;
-        }
-        this._processLoopRunning = true;
-        this._processLoop();
-    }
-
-    async _processLoop() {
-        while (this._processLoopRunning) {
-            if (this._submissionQueue.length === 0) {
-                this._processLoopRunning = false;
-                this._startPrefetch();
-                return;
-            }
-
-            const front = this._submissionQueue[0];
-            const elapsed = Date.now() - front.queuedAt;
-            const remaining = this._UNDO_DELAY_MS - elapsed;
-
-            if (remaining <= 0) {
-                this._submissionQueue.shift();
-                this._outgoingQueue.push(front);
-                this._updateQueueIndicator();
-                this._updateUndoUI();
-
-                const submitTask = this._submitComparison(front.filenameA, front.filenameB, front.winnerFilename)
-                    .then(() => {
-                        this._hasSubmitted = true;
-                        this._submissionCount++;
-                        if (this._submissionCount % this._config.reserve_count === 0) {
-                            this.updateStats();
-                        }
-                    })
-                    .catch((e) => {
-                        Utils.showToast(`Error submitting comparison: ${e}`, "error");
-                        this._hasSubmitted = true; // test to fix stuck queue
-                        this._outgoingQueue = [];
-                    })
-                    .finally(() => {
-                        this._outgoingQueue = this._outgoingQueue.filter(x => x !== front);
-                        this._updateQueueIndicator();
-                        this._updateUndoUI();
-
-                        this._prefetching = false;
-                    });
-
-                if (!this._config.parallel_requests) {
-                    await submitTask;
-                } else {
-                    submitTask();
-                }
-            } else {
-                await new Promise(r => setTimeout(r, remaining));
-            }
-        }
-    }
-
-    _undoLast() {
-        if (this._submissionQueue.length === 0) {
-            return;
-        }
-
-        this._submissionQueue.pop();
-
-        // Reset timer on the new last item so user gets another 10s to undo it
-        if (this._submissionQueue.length > 0) {
-            this._submissionQueue[this._submissionQueue.length - 1].queuedAt = Date.now();
-        }
-
-        this._updateQueueIndicator();
-        this._updateUndoUI();
-        Utils.showToast("Vote undone", "info");
-    }
-
-    _updateUndoUI() {
-        const btn = this.elements.undoButton;
-        if (!btn) {
-            return;
-        }
-
-        if (this._submissionQueue.length === 0) {
-            btn.style.display = "none";
-            return;
-        }
-
-        btn.style.display = "block";
-        compareLogger.info("Updating undo UI for submission queue:", null, this._submissionQueue);
-
-        const last = this._submissionQueue[this._submissionQueue.length - 1];
-        const isLeftWinner = last.winnerFilename === last.filenameA;
-        const imgStyle = "width:64px;height:64px;object-fit:cover;border-radius:6px;";
-        const winnerBorder = "border:2px solid #10b981;box-shadow:0 0 8px rgba(16,185,129,0.5);";
-        const loserBorder = "border:1px solid rgba(255,255,255,0.1);opacity:0.5;";
-        const leftStyle = imgStyle + (isLeftWinner ? winnerBorder : loserBorder);
-        const rightStyle = imgStyle + (!isLeftWinner ? winnerBorder : loserBorder);
-        this._undoThumbsEl.innerHTML = `
-            <img src="${last.leftSrc}" style="${leftStyle}" title="${last.filenameA}" />
-            <img src="${last.rightSrc}" style="${rightStyle}" title="${last.filenameB}" />
-        `;
-
-        // Animate progress bar and timer for the last item
-        const start = last.queuedAt;
-        const tick = () => {
-            if (this._submissionQueue.length === 0 || this._submissionQueue[this._submissionQueue.length - 1] !== last) {
-                return;
-            }
-            const elapsed = Date.now() - start;
-            const pct = Math.min(elapsed / this._UNDO_DELAY_MS, 1);
-            this._undoProgressEl.style.width = `${pct * 100}%`;
-            const secs = Math.max(0, Math.ceil((this._UNDO_DELAY_MS - elapsed) / 1000));
-            this._undoTimerEl.textContent = `${secs}s`;
-            if (pct < 1) {
-                requestAnimationFrame(tick);
-            }
-        };
-        requestAnimationFrame(tick);
-    }
-
-    _showUndoButton() {
-        this._updateUndoUI();
-    }
-
-    _startPrefetch() {
-        console.log("start prefetch");
-        if (this._prefetching || this._pairCache.length >= this._targetCacheSize) {
-            console.log("prefetch fails", this._prefetching, this._pairCache.length);
-
-            return;
-        }
-        this._prefetching = true;
-        this._prefetchLoop();
-    }
-
-    async _prefetchLoop() {
-        console.log("start prefetch loop");
-        while (this._prefetching && this._pairCache.length < this._targetCacheSize) {
-            console.log("while prefetch loop", this._prefetching, this._pairCache.length);
-            if (this._outgoingQueue.length > 0) {
-                await new Promise(r => setTimeout(r, 100));
-                continue;
-            }
-
-            const pair = await this._getNextPair();
-            if (!pair) {
-                break;
-            }
-            const leftUrl = `/images/${encodeURIComponent(pair.left.filename)}`;
-            const rightUrl = `/images/${encodeURIComponent(pair.right.filename)}`;
-            const leftImg = new Image();
-            const rightImg = new Image();
-            await Promise.all([
-                new Promise((r, j) => {
-                    leftImg.onload = r; leftImg.onerror = j; leftImg.src = leftUrl;
-                }),
-                new Promise((r, j) => {
-                    rightImg.onload = r; rightImg.onerror = j; rightImg.src = rightUrl;
-                }),
-            ]);
-            this._pairCache.push({ pair, leftImg, rightImg });
-            this._updateQueueIndicator();
-        }
-        this._prefetching = false;
-    }
-
-    showLoading(show) {
-        const overlay = this.elements.loadingOverlay;
-        if (!overlay) {
-            return;
-        }
-
-        if (show) {
-            overlay.style.display = "flex";
-            overlay.style.opacity = "1";
-            overlay.style.pointerEvents = "auto";
-        } else {
-            overlay.style.opacity = "0";
-            overlay.style.pointerEvents = "none";
-            setTimeout(() => {
-                if (overlay.style.opacity === "0") {
-                    overlay.style.display = "none";
-                }
-            }, 300);
-        }
-    }
-
-    updateStatus(msg) {
-        if (this.elements.status) {
-            this.elements.status.textContent = msg;
-        }
-    }
-
-    _populateLegend() {
-        const fmt = n => n.toLocaleString();
-        for (const [id, val] of Object.entries({
-            "legend-seed-size": fmt(this._config.seed_size),
-            "legend-seed-target": fmt(this._config.seed_target_comparisons),
-            "legend-insertion-target": fmt(this._config.insertion_target_comparisons),
-        })) {
-            const el = document.getElementById(id);
-            if (el) {
-                el.textContent = val;
-            }
-        }
-    }
+    // ── Reset / Stats ────────────────────────────────────────────────
 
     async resetCache() {
-        await this._resetCache();
-        this._pairCache = [];
-        this._prefetching = false;
-        this._submissionQueue = [];
-        this._outgoingQueue = [];
-        this._processingQueue = false;
-        this._processLoopRunning = false;
-        this._updateQueueIndicator();
-        this._updateUndoUI();
+        await CompareApi.resetCache();
+        this._prefetch.reset();
+        this._queue.reset();
         Utils.showToast("Cache cleared!", "success");
     }
 
     async updateStats() {
-        const status = await this._getStatus();
+        const status = await CompareApi.getStatus();
         const els = this.elements;
         if (els.statsTotal) {
             els.statsTotal.textContent = status.total_images;

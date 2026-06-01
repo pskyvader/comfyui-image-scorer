@@ -6,7 +6,14 @@ from pathlib import Path
 from PIL import Image
 import torch
 from torch import Tensor
-from .paths import models_dir, vectors_dir
+from .paths import (
+    models_dir,
+    vectors_dir,
+    vectors_file,
+    scores_file,
+    index_file,
+    text_data_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +29,15 @@ def remove_vectors() -> None:
     _start = time.perf_counter()
     directory_path = Path(vectors_dir)
     remove_directory(directory_path)
+
+
+def delete_full_vectors() -> None:
+    """Delete the four full vector files but keep the split/ directory intact."""
+    for path_str in [vectors_file, scores_file, index_file, text_data_file]:
+        p = Path(path_str)
+        if p.exists():
+            logger.info(f"Removing {p}")
+            p.unlink()
 
 
 def remove_models() -> None:

@@ -101,6 +101,7 @@ def get_ranking_config():
         {
             "reserve_count": int(ranking_conf["reserve_count"]),
             "parallel_requests": bool(ranking_conf["parallel_requests"]),
+            "timeout_ms": int(ranking_conf["timeout_ms"]),
             "seed_size": int(ranking_conf["seed_size"]),
             "seed_target_comparisons": int(ranking_conf["seed_target_comparisons"]),
             "insertion_target_comparisons": int(

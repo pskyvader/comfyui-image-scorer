@@ -1,9 +1,12 @@
+import logging
 from typing import Any
 import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
 import os
 import jsonlines
+
+logger = logging.getLogger(__name__)
 
 from ..config import config
 from .image_vector import ImageVector
@@ -303,6 +306,45 @@ class VectorList:
         for (v, _), segment in zip(self.sorted_vectors.items(), segments):
             converted_vector = segment.tolist()
             self.sorted_vectors[v]["vector"].vector_list = converted_vector
+
+    def load_split_files(self, base_dir: str) -> list[str]:
+        """Load split files back into each vector's ``.vector_list`` /
+        ``.value_list`` / ``.text_list`` — the reverse of
+        :meth:`export_split_files`.
+
+        Returns the ordered list of unique IDs found in the splits.
+        """
+        unique_ids: list[str] = []
+        for v in self.sorted_vectors:
+            c = self.sorted_vectors[v]
+            name = c["name"]
+            v_type = c["type"]
+            current_vector = c["vector"]
+
+            split_path = os.path.join(base_dir, "split", v_type, f"{name}.jsonl")
+            if not os.path.exists(split_path):
+                logger.warning("Split file not found: %s", split_path)
+                continue
+
+            raw_vals: list[Any] = []
+            vec_vals: list[list[float]] = []
+            ids: list[str] = []
+            with jsonlines.open(split_path, mode="r") as reader:
+                for obj in reader:
+                    ids.append(obj["id"])
+                    raw_vals.append(obj.get("raw"))
+                    vec_vals.append(obj.get("vector"))
+
+            if not unique_ids:
+                unique_ids = ids
+            current_vector.vector_list = vec_vals
+
+            if v_type in [self._MAP, self._INT, self._FLOAT]:
+                current_vector.value_list = raw_vals
+            elif v_type == self._EMBEDDING:
+                current_vector.text_list = raw_vals
+
+        return unique_ids
 
     def export_split_files(self, base_dir: str) -> None:
         print("Exporting split data files...")

@@ -39,13 +39,14 @@ def _get_processor():
 
 @database_bp.route("/status", methods=["GET"])
 def get_status():
-    jsonify(
+    result = jsonify(
         {
             "status": "ok",
             "images": get_image_count(),
             "comparisons": get_total_comparisons(),
         }
     )
+    return result
 
 
 @database_bp.route("/reset-ratings", methods=["POST"])
@@ -159,7 +160,7 @@ def sync_all():
             },
         )
 
-    _, body = start_task(_run, task_prefix="sync")
+    _, body = start_task(_run, task_prefix="sync", args=())
 
     return jsonify(body)
 
@@ -169,7 +170,7 @@ def run_cleanup_orphans():
     _start = time.perf_counter()
     _start = time.perf_counter()
     data = request.json or {}
-    dry_run = data["dry_run"]
+    dry_run = data.get("dry_run", True)
     try:
         result = cleanup_orphans(root=None, dry_run=dry_run, delete_enabled=not dry_run)
         result = jsonify({"status": "success", "result": result})
@@ -190,10 +191,11 @@ def run_deduplicate():
     _start = time.perf_counter()
     _start = time.perf_counter()
     data = request.json or {}
-    dry_run = data["dry_run"]
-    limit = data["limit"]
+    dry_run = data.get("dry_run", True)
+    limit = data.get("limit", 0)
     try:
-        result = deduplicate_scored(root=None, dry_run=dry_run, limit=limit)
+        from shared.paths import image_root_processed
+        result = deduplicate_scored(root=Path(image_root_processed), dry_run=dry_run, limit=limit)
         result = jsonify({"status": "success", "result": result})
 
         result = result
@@ -205,19 +207,6 @@ def run_deduplicate():
         result = result
 
         return result
-
-
-@database_bp.route("/remove-vectors", methods=["POST"])
-def delete_vectors():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    try:
-        from shared.helpers import remove_vectors
-
-        remove_vectors()
-        return jsonify({"status": "success"})
-    except Exception as exc:
-        return jsonify({"status": "error", "message": str(exc)}), 500
 
 
 @database_bp.route("/task/<task_id>", methods=["GET"])

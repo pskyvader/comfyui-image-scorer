@@ -1,10 +1,8 @@
 import argparse
-import jsonlines
 import sys
 import os
 from pathlib import Path
-from typing import Any, Literal
-from tqdm import tqdm
+from typing import Any
 import time
 import traceback
 import logging
@@ -14,7 +12,7 @@ if __name__ == "__main__":
     print(f"root path: {root_path}")
     sys.path.insert(0, root_path)
     if __package__ is None:
-        __package__ = "comfyui-image-scorer.external_modules.data_transform"
+        __package__ = "external_modules.data_transform"
 
 from shared.io import (
     load_single_jsonl,
@@ -75,7 +73,11 @@ def run_prepare(limit: int) -> dict[str, int]:
 
     logger.info("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
-    processed_data = image_analysis.analyze_images_from_paths()
+    batch_size = config["ranking"]["batch_size"]
+    max_workers = config["ranking"]["max_workers"]
+
+    logger.debug("processing analysis...")
+    processed_data = image_analysis.analyze_images_from_paths(batch_size, max_workers)
     logger.info("loading existing data...")
     vectors_list = load_single_jsonl(vectors_file)
     text_list = load_single_jsonl(text_data_file)
@@ -284,89 +286,91 @@ def run_rebuild_from_splits() -> dict[str, int]:
     _start = time.perf_counter()
     logger.info("Starting rebuild from splits...")
 
-    index_list = load_single_jsonl(index_file)
-    if not index_list:
-        logger.info("No index file found. Cannot rebuild.")
+    # Delete only the files that will be regenerated from splits.
+    # scores.jsonl and index.jsonl are *preserved* so existing data isn't lost.
+    for p in [vectors_file, text_data_file]:
+        if Path(p).exists():
+            Path(p).unlink()
+
+    # Build a minimal VectorList and load split data into its internals.
+    vectors_dir_local = os.path.dirname(vectors_file)
+    parser = VectorList(
+        [],
+        [],
+        [],
+        [],
+        [],
+        add_new=False,
+        merge_lists=False,
+        read_only=True,
+        process_images=False,
+    )
+    unique_ids = parser.load_split_files(vectors_dir_local)
+
+    if not unique_ids:
+        logger.info("No split data found. Nothing to rebuild.")
         result = {"total": 0, "processed": 0}
 
         return result
 
-    logger.info(f"Index has {len(index_list)} entries.")
+    logger.info("Found %d entries in split files.", len(unique_ids))
 
-    vector_config = config["vector"]["vectors"]
-    vectors_dir_local = os.path.dirname(vectors_file)
-
-    split_data_map: dict[str, dict[str, Any]] = {}
-
-    for current_type in vector_config:
-        v_type = current_type["type"]
-        name = current_type["name"]
-
-        split_file = os.path.join(vectors_dir_local, "split", v_type, f"{name}.jsonl")
-        if not os.path.exists(split_file):
-            print(f"Warning: Split file not found for {name}: {split_file}")
-            split_data_map[name] = {}
-            continue
-
-        print(f"Loading split file: {split_file}")
-        field_data: dict[str, Any] = {}
-        with jsonlines.open(split_file, mode="r") as reader:
-            for obj in reader:
-                field_data[obj["id"]] = obj
-        split_data_map[name] = field_data
-
-    final_vectors: list[list[float]] = []
-    final_text_data: list[dict[str, Any]] = []
-
-    with tqdm(total=len(index_list), desc="Assembling", unit=" entries") as pbar:
-        for uid in index_list:
-            row_vector: list[float] = []
-            row_text: dict[str, Any] = {}
-
-            for current_type in vector_config:
-                name = current_type["name"]
-                v_type = current_type["type"]
-                slot_size = current_type["slot_size"]
-
-                entry = split_data_map[name][uid]
-
-                vec = entry["vector"] if "vector" in entry else None
-                raw = entry["raw"] if "raw" in entry else None
-
-                if vec is None:
-                    vec = [0.0] * slot_size
-                elif len(vec) != slot_size:
-                    if len(vec) < slot_size:
-                        vec = vec + [0.0] * (slot_size - len(vec))
-                    else:
-                        vec = vec[:slot_size]
-
-                if raw is None:
-                    if v_type == "embedding":
-                        raw = {}
-                    else:
-                        raw = ""
-
-                row_vector.extend(vec)
-                row_text[name] = raw
-
-            final_vectors.append(row_vector)
-            final_text_data.append(row_text)
-            pbar.update(1)
-
-    logger.info(
-        f"Assembled {len(final_vectors)} vectors and {len(final_text_data)} text entries."
-    )
+    # Reuse the existing join methods instead of duplicating the assembly.
+    parser.join_vectors()
+    parser.join_text_data()
 
     logger.info(f"Writing {vectors_file}...")
-    write_single_jsonl(vectors_file, final_vectors, mode="w")
+    write_single_jsonl(vectors_file, parser.final_vector, mode="w")
     logger.info(f"Writing {text_data_file}...")
-    write_single_jsonl(text_data_file, final_text_data, mode="w")
+    write_single_jsonl(text_data_file, parser.final_text_data, mode="w")
+
+    # Write index from the derived unique IDs so it's always available.
+    logger.info(f"Writing {index_file}...")
+    write_single_jsonl(index_file, unique_ids, mode="w")
+
+    # If scores.jsonl doesn't exist, initialise with zeros.
+    if not os.path.exists(scores_file):
+        logger.info(f"Creating placeholder {scores_file}...")
+        write_single_jsonl(scores_file, [0.0] * len(unique_ids), mode="w")
 
     logger.info("=== REBUILD COMPLETE ===")
-    result = {"total": len(index_list), "processed": len(final_vectors)}
+    result = {"total": len(unique_ids), "processed": len(parser.final_vector)}
 
     return result
+
+
+def run_full_rebuild(limit: int, batch: bool) -> dict[str, int]:
+    """Full rebuild: delete all vectors, then run prepare.
+
+    When *batch* is ``True`` and *limit* > 0, images are processed in
+    repeated chunks of *limit* so the UI gets progress updates between
+    chunks instead of a single long silence.
+    """
+    remove_vectors()
+    if batch and limit > 0:
+        total_new = 0
+        total_index = 0
+        iterations = 0
+        while True:
+            summary = run_prepare(limit=limit)
+            total_new += int(summary["new"])
+            total_index = int(summary["total"])
+            iterations += 1
+            if int(summary["new"]) == 0:
+                break
+        if iterations > 1:
+            remove_models()
+        result = {"total": total_index, "new": total_new, "iterations": iterations}
+
+        return result
+    else:
+        summary = run_prepare(limit=limit)
+        new = int(summary["new"])
+        if new > 0:
+            remove_models()
+        result = {**summary, "iterations": 1}
+
+        return result
 
 
 def main(

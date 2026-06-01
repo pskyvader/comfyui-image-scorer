@@ -68,3 +68,49 @@
 #transform-container .log-area > div {
     padding: 1px 0;
 }
+
+/* Vertical action-list layout */
+#transform-container .action-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 6px 0;
+}
+#transform-container .action-desc {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
+    flex: 1 1 160px;
+}
+#transform-container .action-extra {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    width: 100%;
+    margin-top: 2px;
+    margin-left: 24px;
+}
+#transform-container .limit-btn {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+#transform-container .limit-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.3);
+    color: #c4b5fd;
+}
+#transform-container .batch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #94a3b8;
+    cursor: pointer;
+}

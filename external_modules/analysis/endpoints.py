@@ -245,7 +245,7 @@ def analyze_parameters():
             },
         )
 
-    _, body = start_task(_run, task_prefix="params")
+    _, body = start_task(_run, task_prefix="params", args=())
 
     return jsonify(body)
 
@@ -280,7 +280,7 @@ def analyze_matrix():
             tid, {"status": "done", "result": {"summary": summary, "path": matrix_path}}
         )
 
-    _, body = start_task(_run, task_prefix="matrix")
+    _, body = start_task(_run, task_prefix="matrix", args=())
 
     return jsonify(body)
 

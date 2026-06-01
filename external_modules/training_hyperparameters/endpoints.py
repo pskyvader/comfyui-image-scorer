@@ -45,8 +45,8 @@ def reset_configs():
 @training_bp.route("/train", methods=["POST"])
 def train_model():
     _start = time.perf_counter()
-    data = request.json
-    strategy = data["strategy"]
+    data = request.json or {}
+    strategy = data.get("strategy", "top1")
     max_combos = config["training"]["max_combos"]
 
     def _run(tid):
@@ -127,9 +127,9 @@ def train_model():
                 },
             )
         elif strategy == "hpo-cycle":
-            num_steps = data["num_steps"]
-            reset = data["reset"]
-            evaluate_base = data["evaluate_base"]
+            num_steps = data.get("num_steps", config["training"]["steps_per_cycle"])
+            reset = data.get("reset", False)
+            evaluate_base = data.get("evaluate_base", False)
             if reset:
                 reset_hyperparameters(evaluate=evaluate_base, X=X, y=y, force=True)
             elif evaluate_base:
@@ -235,8 +235,8 @@ def get_training_config():
 @training_bp.route("/config", methods=["POST"])
 def update_training_config():
     _start = time.perf_counter()
-    data = request.json
-    overwrite = bool(data["overwrite"])
+    data = request.json or {}
+    overwrite = bool(data.get("overwrite", False))
     payload = data["config"] if "config" in data else data
     if not isinstance(payload, dict):
         result = jsonify({"error": "Invalid config payload"}), 400

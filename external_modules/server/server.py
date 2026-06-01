@@ -9,6 +9,7 @@ from flask import Flask, send_from_directory, request, send_file, Response
 from urllib.parse import unquote
 import argparse
 import logging
+from typing import Callable, ClassVar
 
 # Set up paths FIRST before any imports
 current_dir = str(Path(__file__).parent)
@@ -46,8 +47,14 @@ from .image_processor import ImageProcessor
 
 from shared.config import config
 from shared.paths import image_root
+from shared.logger import (
+    SSELogBroadcaster,
+    SharedLogger,
+    get_logger,
+    set_log_filter_hook,
+)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Global image processor
 image_processor = ImageProcessor(max_workers=int(config["ranking"]["max_workers"]))
@@ -78,6 +85,34 @@ register_database_routes(app)
 register_data_transform_routes(app)
 register_training_routes(app)
 register_analysis_routes(app)
+
+
+# ── SSE log stream endpoint ──────────────────────────────────────────
+@app.route("/api/v2/logs/stream")
+def sse_log_stream():
+    sub_id, q = SSELogBroadcaster.subscribe()
+
+    def generate():
+        try:
+            yield f":connected\n\n"
+            while True:
+                line = q.get()
+                yield f"data: {line}\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            SSELogBroadcaster.unsubscribe(sub_id)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
 
 # Global image processor state
 scanner_thread: threading.Thread | None = None
@@ -311,11 +346,58 @@ def server_error(e: Exception):
     return result
 
 
-class WhitelistLoggerFilter(logging.Filter):
-    def filter(self, record):
-        # Only allow logs if the logger name matches exactly
-        return True
-        # return record.name == "shared.graph.crystal_graph"
+def set_log_filter(
+    hook: Callable[[str, str | None], bool] | None = None,
+    *,
+    exact_names: set[str] | frozenset[str] | tuple[str, ...] | list[str] = (),
+    prefixes: tuple[str, ...] | list[str] = (),
+) -> None:
+    """Configure a single filter that controls ALL output channels:
+
+    - Console (via Python logging handlers)
+    - Task buffer (via ``_TaskOutput``)
+    - SSE stream (via ``SSELogBroadcaster``)
+
+    The *hook* is called for **every** output line with
+    ``(line_text, module_name)``.  Return ``True`` to allow the
+    line or ``False`` to suppress it everywhere.
+
+    Additionally *exact_names* / *prefixes* restrict which module
+    names are allowed (same as ``SharedLogger.set_name_filters``).
+
+    Examples::
+
+        # Block messages containing "debug" in any channel.
+        set_log_filter(
+            hook=lambda line, mod: "debug" not in line,
+        )
+
+        # Block one specific function's output.
+        set_log_filter(
+            hook=lambda line, mod: mod != "shared.graph.noisy",
+        )
+
+        # Only allow ``shared.graph.crystal_graph``.
+        set_log_filter(exact_names={"shared.graph.crystal_graph"})
+
+        # Allow everything (default).
+        set_log_filter()
+    """
+    set_log_filter_hook(hook)
+
+    SharedLogger.set_name_filters(
+        exact_names=exact_names,
+        prefixes=prefixes,
+    )
+
+    class _ServerFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            if hook is not None and not hook(record.getMessage(), record.name):
+                return False
+            return SharedLogger.should_emit(record.name)
+
+    for handler in logging.root.handlers:
+        handler.addFilter(_ServerFilter())
 
 
 def main() -> int:
@@ -361,8 +443,13 @@ def main() -> int:
         force=True,
     )
 
-    for handler in logging.root.handlers:
-        handler.addFilter(WhitelistLoggerFilter())
+    # Suppress verbose third‑party loggers that have zero user value.
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+
+    # ── Uncomment to activate module / content filtering ──────────────
+    # set_log_filter(exact_names={"shared.graph.crystal_graph"})
+    # set_log_filter(prefixes=("shared.",))
+    # set_log_filter(hook=lambda line, mod: "accuracy" in line)
 
     should_init = True
     if args.debug and (

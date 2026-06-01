@@ -35,7 +35,7 @@ def test_capture_stream_replaces_progress_lines_and_flushes() -> None:
     stream.write("starting\n10%\n20%\npartial")
     assert lines == ["starting", "20%"]
 
-    stream.flush()
+    stream._flush_remaining()
     assert lines == ["starting", "20%", "partial"]
 
 

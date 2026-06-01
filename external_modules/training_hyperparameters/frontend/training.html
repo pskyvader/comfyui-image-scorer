@@ -2,16 +2,31 @@
     <!-- Training -->
     <div class="glass rounded-2xl p-6 shadow-2xl">
         <div class="section-title">Training</div>
-        <div class="flex flex-wrap gap-2 mb-3">
-            <button class="action-btn " data-action="reset-config">Reset Training objects</button>
-            <button class="action-btn primary" data-action="train-top">🧠 Train Top Model</button>
-
-            <button class="action-btn" data-action="optimize-hpo">🔬 Optimize Hyperparameters</button>
-            <button class="action-btn" data-action="hpo-cycle">🔄 HPO Cycle</button>
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <button class="action-btn" data-action="get-training-config">📋 View Config</button>
-            <button class="action-btn danger" data-action="remove-models">🗑 Remove Models</button>
+        <div class="space-y-2">
+            <div class="action-row">
+                <button class="action-btn primary" data-action="train-top">🧠 Train Top Model</button>
+                <span class="action-desc">Train the best-performing model from current data</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="optimize-hpo">🔬 Optimize Hyperparameters</button>
+                <span class="action-desc">Run hyperparameter optimisation on the top model</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="hpo-cycle">🔄 HPO Cycle</button>
+                <span class="action-desc">Run a full HPO cycle across multiple configurations</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="get-training-config">📋 View Config</button>
+                <span class="action-desc">Display current training configuration</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="reset-config">Reset Training objects</button>
+                <span class="action-desc">Reset all training objects to defaults</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn danger" data-action="remove-models">🗑 Remove Models</button>
+                <span class="action-desc">Delete all trained model files from disk</span>
+            </div>
         </div>
     </div>
 

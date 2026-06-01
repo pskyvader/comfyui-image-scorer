@@ -2,21 +2,44 @@
     <!-- Data Pipeline -->
     <div class="glass rounded-2xl p-6 shadow-2xl">
         <div class="section-title">Data Pipeline</div>
-        <div class="flex flex-wrap gap-2 mb-3">
-            <button class="action-btn primary" data-action="prepare-data">▶ Run Full Prepare</button>
-            <button class="action-btn primary" data-action="prepare-data-rebuild">▶ Rebuild + Prepare</button>
-            <button class="action-btn" data-action="prepare-scores">📊 Rebuild Scores Only</button>
-            <button class="action-btn" data-action="prepare-from-splits">📦 Rebuild from Splits</button>
-            <button class="action-btn" data-action="prepare-text-only">📝 Text-Only Reprocess</button>
-            <button class="action-btn primary" data-action="scan-import">📂 Scan & Import New</button>
-        </div>
-        <div class="flex flex-wrap gap-1 text-xs text-gray-500 items-center">
-            <span>Limit:</span>
-            <button class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10" data-prepare-limit="0">All</button>
-            <button class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10" data-prepare-limit="10">10</button>
-            <button class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10" data-prepare-limit="50">50</button>
-            <button class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10" data-prepare-limit="100">100</button>
-            <span class="ml-2 text-purple-400" id="prepare-limit-display">Current: All</span>
+        <div class="space-y-3">
+            <div class="action-row">
+                <button class="action-btn primary" data-action="prepare-data">▶ Run Full Prepare</button>
+                <span class="action-desc">Process new images and build/update vectors</span>
+                <div class="action-extra">
+                    <span class="text-xs text-gray-500">Limit:</span>
+                    <button class="limit-btn" data-prepare-limit="10">10</button>
+                    <button class="limit-btn" data-prepare-limit="100">100</button>
+                    <button class="limit-btn" data-prepare-limit="1000">1000</button>
+                    <button class="limit-btn" data-prepare-limit="2000">2000</button>
+                    <button class="limit-btn" data-prepare-limit="0">All</button>
+                    <label class="batch-label">
+                        <input type="checkbox" id="batch-toggle" class="accent-purple-500">
+                        <span>Batch</span>
+                    </label>
+                    <span class="text-purple-400" id="prepare-limit-display">Current: 100</span>
+                </div>
+            </div>
+            <div class="action-row">
+                <button class="action-btn danger" data-action="delete-vectors">🗑 Delete Vectors</button>
+                <span class="action-desc">Remove all vector files from disk</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="prepare-scores">📊 Rebuild Scores Only</button>
+                <span class="action-desc">Rebuild scores from ranked JSON companion files</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="prepare-from-splits">📦 Rebuild from Splits</button>
+                <span class="action-desc">Rebuild vectors.jsonl / text_data.jsonl from split shards</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn" data-action="prepare-text-only">📝 Text-Only Reprocess</button>
+                <span class="action-desc">Reprocess text parsing without re-analyzing images</span>
+            </div>
+            <div class="action-row">
+                <button class="action-btn primary" data-action="scan-import">📂 Scan & Import New</button>
+                <span class="action-desc">Scan and import new images in the background</span>
+            </div>
         </div>
     </div>
 
