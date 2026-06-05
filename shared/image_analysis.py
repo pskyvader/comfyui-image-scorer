@@ -9,12 +9,15 @@ from collections.abc import Callable
 from typing import Any
 from skimage.feature import local_binary_pattern
 
+from .config import config
 from .vectors.image_vector import ImageVector
 
 logger = logging.getLogger(__name__)
 
 # Type Alias for the shared data structure
 ImageEntry = tuple[str, dict[str, Any], str, str]
+
+processed_cache: dict[str, ImageEntry] = {}
 
 
 def process_single_batch(
@@ -23,7 +26,7 @@ def process_single_batch(
     paths: list[str],
     data: list[ImageEntry],
 ) -> list[ImageEntry]:
-    _start = time.perf_counter()
+
     image_batch: list[Image.Image] = prepare_func(paths)
     result: list[ImageEntry] = analyze_func(image_batch, data)
 
@@ -32,13 +35,18 @@ def process_single_batch(
 
 class ImageAnalysis(ImageVector):
     def __init__(self, raw_data: list[ImageEntry]) -> None:
-        _start = time.perf_counter()
-        super().__init__("tmp_image")
+        image_entries = [v for v in config["vector"]["vectors"] if v["type"] == "image"]
+        if not image_entries:
+            raise KeyError("No image-type entries found in vector_config")
+        model_key = image_entries[0]["model_key"]
+        super().__init__("tmp_image", model_key=model_key)
         self.raw_data: list[ImageEntry] = raw_data
         self.processed_data: list[ImageEntry] = []
 
         for data in self.raw_data:
-            self.path_list.append(data[0])
+            image_path = data[0]
+            file_id = data[3]
+            self.path_list[file_id] = image_path
 
         r, g, b = 255.0, 0.0, 0.0
         rg, yb = r - g, 0.5 * (r + g) - b
@@ -56,11 +64,11 @@ class ImageAnalysis(ImageVector):
 
         entry.update(
             {
+                "original_width": entry["width"] if "width" in entry else w,
+                "original_height": entry["height"] if "height" in entry else h,
                 "final_width": w,
                 "final_height": h,
                 "final_aspect_ratio": round(w / h, 4) if h > 0 else 0.0,
-                "original_width": entry["width"] if "width" in entry else w,
-                "original_height": entry["height"] if "height" in entry else h,
             }
         )
         entry["original_aspect_ratio"] = (
@@ -169,7 +177,6 @@ class ImageAnalysis(ImageVector):
         image_batch: list[Image.Image],
         data_batch: list[ImageEntry],
     ) -> list[ImageEntry]:
-        _start = time.perf_counter()
         if len(image_batch) != len(data_batch):
             raise IndexError("Batch mismatch")
 
@@ -190,8 +197,17 @@ class ImageAnalysis(ImageVector):
     def analyze_images_from_paths(
         self, batch_size: int, max_workers: int
     ) -> list[ImageEntry]:
-        _start = time.perf_counter()
-        total: int = len(self.path_list)
+        global processed_cache
+        new_path: list[str] = []
+        new_raw: list[ImageEntry] = []
+
+        for id, path in self.path_list.items():
+            if id not in processed_cache:
+                new_path.append(path)
+                current_raw: ImageEntry = next((d for d in self.raw_data if d[3] == id))
+                new_raw.append(current_raw)
+
+        total: int = len(new_path)
         result: list[ImageEntry] = []
 
         if total > 0:
@@ -199,8 +215,8 @@ class ImageAnalysis(ImageVector):
                 (
                     self.prepare_image_batch,
                     self.analyze_image_batch,
-                    self.path_list[i : i + batch_size],
-                    self.raw_data[i : i + batch_size],
+                    (new_path)[i : i + batch_size],
+                    new_raw[i : i + batch_size],
                 )
                 for i in range(0, total, batch_size)
             ]
@@ -213,8 +229,13 @@ class ImageAnalysis(ImageVector):
                         result.extend(res)
                         pbar.update(len(res))
 
-            self.processed_data = result
-        else:
-            self.processed_data = result
+        for entry in result:
+            processed_cache[entry[3]] = entry
+
+        self.processed_data = [
+            entry
+            for id, entry in list(processed_cache.items())
+            if id in set(self.path_list.keys())
+        ]
 
         return result

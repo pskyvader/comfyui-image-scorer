@@ -19,11 +19,9 @@ import sys
 from pathlib import Path
 import time
 
-_root = Path(__file__).parent.parent.parent
-if str(_root) not in sys.path:
-    sys.path.insert(0, str(_root))
-from shared.graph.crystal_graph import crystal_graph
-from shared.tasks import start_task, get_task_status, set_task_output
+
+from ...shared.graph.crystal_graph import crystal_graph
+from ...shared.tasks import start_task, get_task_status, set_task_output
 import logging
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -195,7 +193,10 @@ def run_deduplicate():
     limit = data.get("limit", 0)
     try:
         from shared.paths import image_root_processed
-        result = deduplicate_scored(root=Path(image_root_processed), dry_run=dry_run, limit=limit)
+
+        result = deduplicate_scored(
+            root=Path(image_root_processed), dry_run=dry_run, limit=limit
+        )
         result = jsonify({"status": "success", "result": result})
 
         result = result

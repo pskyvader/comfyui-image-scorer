@@ -14,11 +14,11 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, current_app, jsonify, request
 
-from external_modules.data_transform.prepare_data import (
+from .prepare_data import (
     run_prepare,
-    run_text_only,
+    # run_text_only,
     run_rebuild_scores_only,
-    run_rebuild_from_splits,
+    # run_rebuild_missing_vectors,
 )
 from shared.config import config
 from shared.paths import image_root
@@ -45,7 +45,7 @@ def prepare_data():
         "batch": data.get("batch", False),
         "text_only": data.get("text_only", False),
         "rebuild_scores": data.get("rebuild_scores", False),
-        "rebuild_from_splits": data.get("rebuild_from_splits", False),
+        "rebuild_missing_vectors": data.get("rebuild_missing_vectors", False),
         "test_run": data.get("test_run", False),
     }
 
@@ -53,17 +53,14 @@ def prepare_data():
         _start = time.perf_counter()
 
         result = {}
-        if flags["rebuild_scores"]:
+        if flags["rebuild_missing_vectors"]:
+            summary = run_rebuild_missing_vectors(limit=flags["limit"])
+            result = {"type": "rebuild_missing_vectors", "summary": summary}
+        elif flags["rebuild_scores"]:
             summary = run_rebuild_scores_only()
             result = {"type": "rebuild_scores", "summary": summary}
-        elif flags["rebuild_from_splits"]:
-            run_rebuild_from_splits()
-            result = {
-                "type": "rebuild_from_splits",
-                "message": "Rebuilt from split files",
-            }
         elif flags["text_only"]:
-            summary = run_text_only(limit=flags["limit"])
+            summary = run_text_only()
             result = {"type": "text_only", "summary": summary}
         else:
             summary = run_prepare(limit=flags["limit"])
@@ -120,7 +117,13 @@ def delete_vectors():
     def _run(tid):
         _start = time.perf_counter()
         remove_vectors()
-        set_task_output(tid, {"status": "done", "result": {"type": "delete_vectors", "message": "Vector files removed"}})
+        set_task_output(
+            tid,
+            {
+                "status": "done",
+                "result": {"type": "delete_vectors", "message": "Vector files removed"},
+            },
+        )
 
     _, body = start_task(_run, task_prefix="delete-vectors", args=())
 

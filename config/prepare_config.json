@@ -1,16 +1,32 @@
 {
+    "max_workers": 10,
+    "batch_size": 20,
     "prompt_representation": {
         "name": "all-mpnet-base-v2",
-        "mode": "embedding",
         "output_dim": 768,
         "device": "cuda"
     },
-    "vision_model": {
-        "name": "convnext_large.fb_in22k",
-        "weights": "IMAGENET22K_V1",
-        "device": "cuda",
-        "output_dim": 1536,
-        "encoding_batch_size": 16,
-        "variable_input": true
+    "vision_models": {
+        "convnext": {
+            "name": "convnext_large.fb_in22k",
+            "device": "cuda",
+            "output_dim": 1536,
+            "variable_input": true,
+            "global_pool": "avg"
+        },
+        "clip": {
+            "name": "vit_large_patch14_clip_224.openai",
+            "device": "cuda",
+            "output_dim": 1024,
+            "variable_input": false,
+            "global_pool": "avg"
+        },
+        "dino": {
+            "name": "vit_base_patch14_dinov2.lvd142m",
+            "device": "cuda",
+            "output_dim": 768,
+            "variable_input": false,
+            "global_pool": "token"
+        }
     }
 }

@@ -22,10 +22,10 @@ if str(_root) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
-from shared.config import config
-from shared.paths import image_root_processed, output_dir
+from ...shared.config import config
+from ...shared.paths import image_root_processed, output_dir
 
-from external_modules.database_structure.images_table import (
+from ..database_structure.images_table import (
     add_image,
     get_all_images,
     get_image as db_get_image,
@@ -34,23 +34,23 @@ from external_modules.database_structure.images_table import (
     update_image_rating_state,
     update_image_tags,
 )
-from external_modules.database_structure.comparisons_table import (
+from ..database_structure.comparisons_table import (
     add_historical_comparison,
     get_all_comparisons,
     normalize_comparisons,
 )
-from external_modules.database_structure.path_handler import (
+from ..database_structure.path_handler import (
     compute_path_from_filename,
     get_ranked_root,
     sync_image_metadata_to_json,
 )
-from external_modules.database_structure.deduplicate_scored import (
+from ..database_structure.deduplicate_scored import (
     deduplicate_scored,
 )
-from external_modules.database_structure.cleanup_orphans import (
+from ..database_structure.cleanup_orphans import (
     cleanup_orphans,
 )
-from external_modules.comparison.algorithm.trueskill_rating import (
+from ..comparison.algorithm.trueskill_rating import (
     INITIAL_MEAN,
     INITIAL_UNCERTAINTY,
     Rating,
@@ -58,7 +58,7 @@ from external_modules.comparison.algorithm.trueskill_rating import (
     update_ratings,
 )
 
-from shared.graph.crystal_graph import crystal_graph
+from ...shared.graph.crystal_graph import crystal_graph
 
 
 class ImageProcessor:

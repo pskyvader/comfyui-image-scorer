@@ -38,7 +38,7 @@ shared_config_stub.config = {
 }
 sys.modules.setdefault("shared.config", shared_config_stub)
 
-from shared.loaders import model_loader
+from ...loaders import model_loader
 
 
 def test_model_loader_init_uses_prepare_config() -> None:
@@ -61,21 +61,12 @@ def test_load_vision_model_caches(monkeypatch: pytest.MonkeyPatch) -> None:
             return self
 
     fake_model = FakeModel()
-    monkeypatch.setitem(
-        model_loader.model_loader.prepare_config["vision_model"],
-        "device",
-        "cuda",
-    )
-    monkeypatch.setitem(model_loader.model_loader.prepare_config["vision_model"], "name", "fake")
-    monkeypatch.setitem(
-        model_loader.model_loader.prepare_config["vision_model"],
-        "output_dim",
-        256,
-    )
+    vision_config = model_loader.model_loader.prepare_config.setdefault("vision_models", {})
+    vision_config["test_model"] = {"device": "cuda", "name": "fake", "output_dim": 256}
     monkeypatch.setattr(model_loader.timm, "create_model", lambda *args, **kwargs: fake_model)
 
-    result = model_loader.model_loader.load_vision_model()
-    cached = model_loader.model_loader.load_vision_model()
+    result = model_loader.model_loader.load_vision_model(model_key="test_model")
+    cached = model_loader.model_loader.load_vision_model(model_key="test_model")
 
     assert result[0] is fake_model
     assert result[1] == 256

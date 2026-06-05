@@ -6,24 +6,26 @@ from typing import Any
 
 import numpy as np
 
-from shared.io import load_json, atomic_write_json, load_single_jsonl
-from shared.paths import models_dir, vectors_file, scores_file
-from shared.training.model_trainer import grid_base, around, model_trainer
-from shared.training.data_transformer import data_transformer
-from shared.loaders.training_loader import training_loader
-from shared.config import config
-from external_modules.training_hyperparameters.config_utils import (
+from ...shared.io import load_json, atomic_write_json, load_single_jsonl
+from ...shared.paths import models_dir, vectors_file, scores_file, raw_data
+from ...shared.training.model_trainer import grid_base, around, model_trainer
+from ...shared.training.data_transformer import data_transformer
+from ...shared.loaders.training_loader import training_loader
+from ...shared.config import config
+from .config_utils import (
     generate_random_config,
     generate_fastest_setup,
     generate_slowest_setup,
     crossover_config,
 )
-from external_modules.training_hyperparameters.run import evaluate_hyperparameter_combo
+from .run import evaluate_hyperparameter_combo
 
 from collections.abc import Mapping
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 STATE_FILE = os.path.join(models_dir, "hyperparameter_state.json")
 NUM_CONFIGS = 4
@@ -77,48 +79,39 @@ def load_training_data(retrain: bool = False) -> tuple[np.ndarray, np.ndarray]:
     if retrain:
         _log("Retrain mode: removing cached models and data...")
         training_loader.remove_training_models()
+    logger.info("loading raw data ...")
 
-    cached = training_loader.load_filtered_data()
-    if cached is not None:
-        X, _kept = cached
-        _log(f"Loaded filtered data from cache: X={X.shape}")
-    else:
-        X_list = load_single_jsonl(vectors_file)
-        X = np.array(
-            [list(v.values()) if isinstance(v, dict) else v for v in X_list],
-            dtype=np.float32,
+    x, y = data_transformer.get_raw_data()
+
+    filter_steps = 500
+    logger.info(f"filtering unused features after {filter_steps}.steps...")
+    x, kept_indices = data_transformer.filter_unused_features(x, y, steps=filter_steps)
+
+    features: dict[str, dict[str, list[int]]] = {
+        name: {"kept": [], "removed": []}
+        for name in data_transformer.vector_ranges.keys()
+    }
+    for position, feature in data_transformer.feature_to_vector.items():
+        name = feature["vector_name"]
+        local_position = feature["position_in_vector"]
+
+        if position in kept_indices:
+            features[name]["kept"].append(local_position)
+        else:
+            features[name]["removed"].append(local_position)
+
+    for name, (feature) in features.items():
+        kept: list[int] = feature["kept"]
+        removed: list[int] = feature["removed"]
+        slot_size = data_transformer.vector_ranges[name]["slot_size"]
+        logger.debug(
+            f" {name}: \n"
+            f"kept: {len(kept)}/{slot_size} ({100*len(kept)/slot_size}%)\n"
+            f"removed: {len(removed)}/{slot_size} ({100*len(removed)/slot_size}%)"
         )
-        _log(f"Loaded raw vectors: X={X.shape}")
-        y_list = load_single_jsonl(scores_file)
-        y = np.array(
-            [float(s["score"]) if isinstance(s, dict) else float(s) for s in y_list],
-            dtype=np.float32,
-        )
-        # Require explicit `top1` base config for feature filtering.
-        try:
-            training_sub = config["training"]
-        except Exception:
-            raise RuntimeError(
-                "Missing training configuration (training_config.json) required for HPO."
-            )
 
-        try:
-            filter_steps = int(training_sub["top1"]["n_estimators"])
-        except Exception:
-            raise RuntimeError(
-                "Missing 'top1' in training configuration; HPO requires 'top1'..'top4' to be present."
-            )
-
-        X, _kept = data_transformer.filter_unused_features(X, y, steps=filter_steps)
-        _log(f"Feature filtering complete: X={X.shape}")
-
-    y_list = load_single_jsonl(scores_file)
-    y = np.array(
-        [float(s["score"]) if isinstance(s, dict) else float(s) for s in y_list],
-        dtype=np.float32,
-    )
-    _log(f"Scores loaded: y={y.shape}")
-    result = X, y
+    _log(f"Feature filtering complete: X={x.shape}")
+    result = (x, y)
     return result
 
 

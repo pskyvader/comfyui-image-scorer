@@ -10,12 +10,64 @@ from ..config import config
 from ..loaders.training_loader import training_loader
 from .model_trainer import model_trainer
 
+from ..logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_feature_mapping_from_config() -> dict[str, Any]:
+    """
+    Creates a mapping from feature indices to vector names and positions.
+    Returns both a forward map (index -> vector info) and reverse map (vector -> indices).
+    """
+    feature_to_vector = {}
+    vector_ranges = {}
+    current_idx = 0
+    config_vectors: list[dict[str, Any]] = config["vector"]["vectors"]
+    for vector_config in config_vectors:
+        vec_name = vector_config["name"]
+        slot_size = vector_config["slot_size"]
+        vector_ranges[vec_name] = {
+            "start_idx": current_idx,
+            "end_idx": current_idx + slot_size,
+            "slot_size": slot_size,
+            "type": vector_config["type"],
+        }
+
+        for i in range(slot_size):
+            feature_to_vector[current_idx + i] = {
+                "vector_name": vec_name,
+                "position_in_vector": i,
+                "total_in_vector": slot_size,
+            }
+
+        current_idx += slot_size
+
+    return {
+        "feature_to_vector": feature_to_vector,
+        "vector_ranges": vector_ranges,
+        "total_features": current_idx,
+    }
+
 
 class DataTransformer:
     poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
 
     def __init__(self) -> None:
-        pass
+        feature_mapping = get_feature_mapping_from_config()
+        self.feature_to_vector: dict[int, dict[str, Any]] = feature_mapping[
+            "feature_to_vector"
+        ]
+        self.vector_ranges = feature_mapping["vector_ranges"]
+
+    def get_raw_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        raw_data_cached = training_loader.load_raw_data()
+        if raw_data_cached:
+            return raw_data_cached
+        scores = training_loader.load_scores()
+        vectors = training_loader.load_vectors()
+        raw_data = training_loader.save_raw_data(vectors, scores)
+        return raw_data
 
     def filter_unused_features(
         self,
@@ -29,6 +81,7 @@ class DataTransformer:
         and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
         Handles its own caching via 'filtered_data_cache.npz'.
         """
+
         filtered_data_cached = training_loader.load_filtered_data()
         if filtered_data_cached:
             return filtered_data_cached

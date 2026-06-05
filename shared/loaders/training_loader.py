@@ -15,14 +15,20 @@ from ..paths import (
     models_dir,
     interaction_data,
     training_model,
+    raw_data,
 )
 from ..helpers import remove_directory
+from ..logger import get_logger, ModuleLogger
+
+logger: ModuleLogger = get_logger(__name__)
 
 
 class TrainingLoader:
     def __init__(self, use_cache: bool):
         self.training_model: Any | None = None
-        self.processed_data: Any | None = None
+        self.raw_data: (
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+        ) = None
         self.filtered_data: (
             tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
         ) = None
@@ -37,7 +43,7 @@ class TrainingLoader:
         self.vectors = None
         self.scores = None
         self.training_model = None
-        self.processed_data = None
+        self.raw_data = None
         self.filtered_data = None
         self.interaction_data = None
 
@@ -48,6 +54,8 @@ class TrainingLoader:
     def load_vectors(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.vectors is not None:
             return self.vectors
+
+        logger.info("loading vectors file...")
 
         vectors = load_single_jsonl(vectors_file)
         x_vector: npt.NDArray[np.float32] = np.array(vectors, dtype=float)
@@ -62,6 +70,32 @@ class TrainingLoader:
         y_vector: npt.NDArray[np.float32] = np.array(scores, dtype=float)
         self.scores = y_vector
         return self.scores
+
+    def load_raw_data(
+        self,
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+        if self.use_cache and self.raw_data is not None:
+            return self.raw_data
+
+        if os.path.exists(raw_data):
+            try:
+                data = np.load(raw_data)
+                if "x" in data and "y" in data:
+                    self.raw_data = data["x"], data["y"]
+                    return self.raw_data
+            except Exception:
+                pass
+        return None
+
+    def save_raw_data(
+        self, x: npt.NDArray[np.float32], y: npt.NDArray[Any]
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
+        os.makedirs(models_dir, exist_ok=True)
+        np.savez_compressed(raw_data, x=x, y=y)
+        saved_data = (x, y)
+        if self.use_cache:
+            self.raw_data = saved_data
+        return saved_data
 
     def load_filtered_data(
         self,

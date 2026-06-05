@@ -9,10 +9,10 @@ from collections import deque
 import time
 import logging
 
-from external_modules.database_structure.images_table import get_all_images
+from ...database_structure.images_table import get_all_images
 from .constants import IMAGES_CACHE_TTL
-from shared.config import config
-from shared.graph.crystal_graph import crystal_graph
+from ....shared.config import config
+from ....shared.graph.crystal_graph import crystal_graph
 
 logger: logging.Logger = logging.getLogger(__name__)
 

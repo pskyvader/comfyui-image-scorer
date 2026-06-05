@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from shared import config as config_module
+from .. import config as config_module
 
 
 def _write_json(path: Path, data: object) -> None:

@@ -13,7 +13,7 @@ helpers_stub = types.ModuleType("shared.helpers")
 helpers_stub.remove_directory = lambda path: None  # type: ignore[attr-defined]
 sys.modules.setdefault("shared.helpers", helpers_stub)
 
-from shared.loaders import training_loader
+from ...loaders import training_loader
 
 
 def _write_jsonl(path: Path, values: list[object]) -> None:

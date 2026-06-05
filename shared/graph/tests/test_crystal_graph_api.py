@@ -4,7 +4,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.append(str(PROJECT_ROOT))
 
-from shared.graph.crystal_graph import CrystalGraph, NodeProxy, ChainProxy, ComponentProxy
+from ...graph.crystal_graph import CrystalGraph, NodeProxy, ChainProxy, ComponentProxy
 
 
 def test_get_node():

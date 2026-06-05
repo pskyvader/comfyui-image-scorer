@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from shared.logger import SharedLogger, get_logger
-from shared import tasks
+from ..logger import SharedLogger, get_logger
+from .. import tasks
 
 
 @pytest.fixture(autouse=True)

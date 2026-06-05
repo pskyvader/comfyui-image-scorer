@@ -2,18 +2,6 @@
     "image_root": "E:/ComfyUI/output",
     "prepare_config": "config/prepare_config.json",
     "vector_config": "config/vector_config.json",
-    "vectors_file": "vectors.jsonl",
-    "scores_file": "scores.jsonl",
-    "index_file": "index.jsonl",
-    "error_log_file": "error_log.json",
-    "text_data_file": "text_data.jsonl",
-    "text_index_file": "text_index.json",
-    "text_error_log_file": "text_error_log.json",
     "training_config": "config/training_config.json",
-    "training_model": "model.npz",
-    "processed_data": "processed_data.npz",
-    "filtered_data": "filtered_data.npz",
-    "interaction_data": "interaction_data.npz",
-    "training_subfolder": "training",
     "ranking_config": "config/ranking_config.json"
 }

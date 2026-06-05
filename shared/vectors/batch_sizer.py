@@ -39,8 +39,8 @@ class ProfileData:
 class BatchSizer:
     _SAFETY_FRACTION: float = 0.9
 
-    def __init__(self) -> None:
-        _start = time.perf_counter()
+    def __init__(self, model_key: str) -> None:
+        self._model_key = model_key
         self._active: ProfileData | None = None
         self._ready: bool = False
 
@@ -66,9 +66,12 @@ class BatchSizer:
             }
             profiles.append(ProfileData(**profile_fields, history=history))
 
-        vision_config = config["prepare"]["vision_model"]
-        model_name: str = vision_config["name"]
-        device_id: str = vision_config["device"]
+        vision_models = config["prepare"]["vision_models"]
+        model_cfg = vision_models[self._model_key]
+        if not model_cfg:
+            model_cfg = next(iter(vision_models.values()), {})
+        model_name: str = model_cfg["name"]
+        device_id: str = model_cfg["device"]
         device_name = torch.cuda.get_device_name(device_id)
         total_mem = int(torch.cuda.get_device_properties(device_id).total_memory)
 
@@ -87,7 +90,7 @@ class BatchSizer:
                 model_memory_bytes=0,
             )
 
-        if model_loader.vision_model is not None:
+        if model_loader.vision_model_cache:
             self._active.model_memory_bytes = int(
                 torch.cuda.memory_allocated(self._active.device_id)
             )
@@ -130,7 +133,7 @@ class BatchSizer:
             profile.history[key] = []
 
         torch.cuda.set_per_process_memory_fraction(0.99, 0)
-        model, _, _ = model_loader.load_vision_model()
+        model, _, _, _ = model_loader.load_vision_model(model_key=self._model_key)
         profile.model_memory_bytes = int(torch.cuda.memory_allocated(profile.device_id))
 
         device_id = profile.device_id
@@ -155,7 +158,7 @@ class BatchSizer:
                 return result
             low, high = 1, best - 1
         else:
-            high = 200
+            high = 500
             if profile.pixel_cost is not None:
                 per_image = profile.pixel_cost * width * height * 3
                 fixed = profile.fixed_overhead or 0
@@ -165,7 +168,7 @@ class BatchSizer:
 
         last_success = 0
         while low <= high:
-            mid = (low + high) // 2
+            mid: int = (low + high) // 2
             if mid == last_success:
                 break
 
@@ -223,6 +226,10 @@ class BatchSizer:
         height: int,
         device_id: str,
     ) -> int | None:
+        result = None
+        logger.debug(
+            f"Evaluating batch size {candidate} for resolution {width}x{height}"
+        )
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device_id)
         batch_tensor = torch.zeros((candidate, 3, height, width), device=device_id)
@@ -243,6 +250,10 @@ class BatchSizer:
             )
             threshold = int(profile.total_memory * self._SAFETY_FRACTION)
             result = candidate if peak < threshold else None
+        except Exception as e:
+            logger.warning(
+                f"batch size {candidate} for resolution {width}x{height} failed with error: {e}"
+            )
         finally:
             del batch_tensor
             torch.cuda.empty_cache()

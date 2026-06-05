@@ -12,7 +12,7 @@ import random
 import time
 import logging
 
-from shared.graph import crystal_graph
+from ....shared.graph.crystal_graph import crystal_graph
 from .constants import MAX_PAIR_CANDIDATES
 
 logger = logging.getLogger(__name__)

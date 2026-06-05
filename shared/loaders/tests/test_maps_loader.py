@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from shared.loaders import maps_loader
+from ...loaders import maps_loader
 
 
 def _patch_maps_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:

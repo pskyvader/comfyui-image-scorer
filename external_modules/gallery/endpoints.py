@@ -13,8 +13,8 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, jsonify, request
 
-from external_modules.database_structure.comparisons_table import get_all_comparisons
-from external_modules.database_structure.images_table import get_all_images, get_image
+from ..database_structure.comparisons_table import get_all_comparisons
+from ..database_structure.images_table import get_all_images, get_image
 import time
 
 gallery_bp = Blueprint("gallery_v2", __name__, url_prefix="/api/v2/gallery")

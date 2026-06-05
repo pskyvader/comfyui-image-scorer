@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from external_modules.database_structure import comparisons_table, images_table, schema
+from .database_structure import comparisons_table, images_table, schema
 import logging
 import time
 

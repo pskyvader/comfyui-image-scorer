@@ -7,17 +7,17 @@ from typing import Any
 import time
 import logging
 
-from external_modules.database_structure.comparisons_table import (
+from ...database_structure.comparisons_table import (
     add_comparison,
     comparison_exists_for_pair,
     get_all_comparisons,
 )
-from external_modules.database_structure.images_table import (
+from ...database_structure.images_table import (
     get_image as get_image_data,
     update_image_rating_state,
 )
-from external_modules.database_structure.path_handler import sync_image_metadata_to_json
-from shared.graph import crystal_graph
+from ...database_structure.path_handler import sync_image_metadata_to_json
+from ....shared.graph.crystal_graph import crystal_graph
 from .state import invalidate_images_cache
 from .trueskill_rating import (
     Rating,

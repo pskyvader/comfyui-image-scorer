@@ -9,10 +9,10 @@ from typing import Any
 import logging
 import random
 
-from shared.graph import crystal_graph
-from shared.config import config
-from shared.logger import SharedLogger
-from external_modules.database_structure.comparisons_table import (
+from ....shared.graph.crystal_graph import crystal_graph
+from ....shared.config import config
+from ....shared.logger import SharedLogger
+from ...database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
     comparison_exists_for_pair,

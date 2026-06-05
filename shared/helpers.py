@@ -26,7 +26,6 @@ def remove_directory(directory_path: Path) -> None:
 
 
 def remove_vectors() -> None:
-    _start = time.perf_counter()
     directory_path = Path(vectors_dir)
     remove_directory(directory_path)
 

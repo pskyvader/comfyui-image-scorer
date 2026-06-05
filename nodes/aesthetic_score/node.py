@@ -1,6 +1,8 @@
+from PIL.Image import Image
 import torch
 from typing import Any
 import numpy as np
+from ...shared.config import config
 from ...shared.helpers import export_image_batch
 from ...shared.vectors.vectors import VectorList
 from ...shared.image_analysis import ImageAnalysis
@@ -96,53 +98,56 @@ class AestheticScoreNode:
             "negative_prompt": negative,
         }
         image_analysis = ImageAnalysis([])
-        images_list = image_analysis.prepare_image_batch(image)
+        images_list: list[Image] = image_analysis.prepare_image_batch(image)
+        data_list = [("", entry, "", str(i)) for i, _img in enumerate(images_list)]
+
         processed_data: list[tuple[str, dict[str, Any], str, str]] = []
         for i in range(0, len(images_list), batch_size):
-            current_batch = images_list[i : i + batch_size]
-            data: tuple[str, dict[str, Any], str, str] = ("", entry, "", "")
-            data_batch: list[tuple[str, dict[str, Any], str, str]] = [data] * len(
-                current_batch
-            )
-            data_batch = image_analysis.analyze_image_batch(current_batch, data_batch)
+            image_batch = images_list[i : i + batch_size]
+            data_batch = data_list[i : i + batch_size]
+            data_batch = image_analysis.analyze_image_batch(image_batch, data_batch)
             processed_data.extend(data_batch)
 
         vector_list = VectorList(
             processed_data,
-            [],
-            [],
-            [],
-            [],
-            add_new=False,
-            merge_lists=False,
             read_only=True,
-            process_images=False,
         )
         vector_list.create_vectors()
 
-        image_vector = ImageVector("image")
-        image_vector.image_list = images_list
-        rebuild = False
-        retry = True
-        while retry:
-            result = image_vector.create_vector_list(memory_usage, rebuild)
-            if result is None:
-                rebuild = True
-                retry = True
-            else:
-                retry = False
+        vector_config = config["vector"]["vectors"]
+        for entry in (v for v in vector_config if v["type"] == "image"):
+            name = entry["name"]
+            model_key = entry["model_key"]
+            image_vector = ImageVector(name, model_key=model_key)
+            # image_vector.image_list = images_list
+            images_dict = {str(i): image for i, image in enumerate(images_list)}
+            rebuild = False
+            retry = True
+            while retry:
+                result = image_vector.create_vector_list(images_dict, rebuild)
+                if result is None:
+                    rebuild = True
+                    retry = True
+                else:
+                    retry = False
+            vector_list.sorted_vectors[name]["vector"] = image_vector
 
-        vector_list.sorted_vectors["image"]["vector"] = image_vector
-
+        # vector_list.filter_missing_vectors()
+        # print(f"unique ids: {vector_list.unique_ids}")
         final_vectors = vector_list.join_vectors()
+        # print(f"final vectors: {len(final_vectors)}")
         matrix = np.array(final_vectors, dtype=np.float32)
+        # print(f"transformed vectors: {matrix.shape}")
 
         filtered_vectors = data_transformer.apply_feature_filter(list(matrix))
         # interaction_vectors=data_transformer.apply_interaction_features(filtered_vectors)
 
         model = training_loader.load_training_model()  # type: ignore[union-attr]
+        # print(
+        #     f"filtered vectors:{len(filtered_vectors)}, shape: {filtered_vectors[0].shape}"
+        # )
         all_scores = model.predict(filtered_vectors)
-        print(f"all_scores: {all_scores}")
+        # print(f"all_scores: {all_scores}")
 
         # Now we have `images_list` and `all_scores` matching by index
         n_images = len(images_list)

@@ -45,9 +45,9 @@ from ..database_structure.path_handler import (
 from ..database_structure.images_table import get_image as get_db_image
 from .image_processor import ImageProcessor
 
-from shared.config import config
-from shared.paths import image_root
-from shared.logger import (
+from ...shared.config import config
+from ...shared.paths import image_root
+from ...shared.logger import (
     SSELogBroadcaster,
     SharedLogger,
     get_logger,
@@ -440,7 +440,7 @@ def main() -> int:
         level=log_level,
         format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
-        force=True,
+        # force=True,
     )
 
     # Suppress verbose third‑party loggers that have zero user value.

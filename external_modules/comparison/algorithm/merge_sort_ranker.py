@@ -7,7 +7,7 @@ from typing import Any
 import time
 import logging
 
-from shared.graph import crystal_graph
+from ....shared.graph.crystal_graph import crystal_graph
 
 from .state import (
     set_last_pair_metadata,

@@ -2,14 +2,14 @@ import os
 from .config import config
 from pathlib import Path
 
-root: Path = Path(__file__).parent.parent
-config_dir: str = os.path.join(root, "config")
+root: Path = Path(__file__).parents[1]
+# config_dir: str = os.path.join(root, "config")
 output_dir: str = os.path.join(root, "output")
 maps_dir: str = os.path.join(output_dir, "maps")
 cache_file: str = os.path.join(output_dir, "cache.db")
 
 image_root: str = config["image_root"]
-image_root_processed: str = os.path.join(image_root, "scored/")
+image_root_processed: str = os.path.join(image_root, "scored")
 
 vectors_size_file: str = os.path.join(output_dir, "image_vector_size.json")
 hyperparameters_statistics: str = os.path.join(
@@ -17,22 +17,16 @@ hyperparameters_statistics: str = os.path.join(
 )
 
 vectors_dir: str = os.path.join(output_dir, "vectors")
-vectors_file: str = os.path.join(vectors_dir, config["vectors_file"])
-scores_file: str = os.path.join(vectors_dir, config["scores_file"])
-index_file: str = os.path.join(vectors_dir, config["index_file"])
-text_data_file: str = os.path.join(vectors_dir, config["text_data_file"])
-error_log_file: str = os.path.join(vectors_dir, "error_log.json")
+split_dir: str = os.path.join(vectors_dir, "split")
+vectors_file: str = os.path.join(vectors_dir, "vectors.jsonl")
+scores_file: str = os.path.join(vectors_dir, "scores.jsonl")
+index_file: str = os.path.join(vectors_dir, "index.jsonl")
+text_data_file: str = os.path.join(vectors_dir, "text_data.jsonl")
 
 
 models_dir: str = os.path.join(output_dir, "models")
-training_dir: str = os.path.join(output_dir, config["training_subfolder"])
 
-training_model: str = os.path.join(models_dir, config["training_model"])
-processed_data: str = os.path.join(models_dir, config["processed_data"])
-filtered_data: str = os.path.join(models_dir, config["filtered_data"])
-interaction_data: str = os.path.join(models_dir, config["interaction_data"])
-
-# Training and analysis file paths (hardcoded in training_dir)
-matrix_analysis_file: str = os.path.join(training_dir, "matrix_analysis_results.jsonl")
-matrix_summary_file: str = os.path.join(training_dir, "matrix_analysis_summary.json")
-analysis_results_file: str = os.path.join(training_dir, "analysis_results.json")
+training_model: str = os.path.join(models_dir, "model.npz")
+raw_data: str = os.path.join(models_dir, "raw_data.npz")
+filtered_data: str = os.path.join(models_dir, "filtered_data.npz")
+interaction_data: str = os.path.join(models_dir, "interaction_data.npz")

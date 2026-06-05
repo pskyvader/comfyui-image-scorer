@@ -15,19 +15,19 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, jsonify, request
 
-from external_modules.training_hyperparameters.hyperparameter_optimizer import (
+from .hyperparameter_optimizer import (
     evaluate_base_scores,
     hpo_cycle,
     reset_hyperparameters,
     run_hpo_cycles,
 )
-from external_modules.training_hyperparameters.run import optimize_hyperparameters
-from shared.config import config
-from shared.helpers import remove_models
-from shared.io import load_single_jsonl
-from shared.loaders import training_loader as training_loader_module
-from shared.paths import vectors_file, scores_file
-from shared.tasks import get_task_status, set_task_output, start_task
+from .run import optimize_hyperparameters
+from ...shared.config import config
+from ...shared.helpers import remove_models
+from ...shared.io import load_single_jsonl
+from ...shared.loaders import training_loader as training_loader_module
+from ...shared.paths import vectors_file, scores_file
+from ...shared.tasks import get_task_status, set_task_output, start_task
 from shared.training.data_transformer import data_transformer
 from shared.training.model_trainer import model_trainer
 

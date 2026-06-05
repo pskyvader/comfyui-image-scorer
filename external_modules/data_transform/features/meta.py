@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from shared.logger import get_logger
-from shared.utils import first_present, parse_custom_text
+from ....shared.logger import get_logger
+from ....shared.utils import first_present, parse_custom_text
 
 logger = get_logger(__name__)
 

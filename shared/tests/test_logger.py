@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from shared.logger import SharedLogger, TaskLogHandler, get_logger, log_message
-from shared.tasks import get_task_status, start_task
+from ..logger import SharedLogger, TaskLogHandler, get_logger, log_message
+from ..tasks import get_task_status, start_task
 
 
 @pytest.fixture(autouse=True)

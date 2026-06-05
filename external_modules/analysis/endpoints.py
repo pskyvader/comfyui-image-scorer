@@ -16,14 +16,14 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, jsonify, request
 
-from external_modules.database_structure.comparisons_table import (
+from ..database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
 )
-from external_modules.database_structure.images_table import get_all_images
-from external_modules.analysis.helpers import distribute
-from shared.graph import crystal_graph
-from shared.tasks import (
+from ..database_structure.images_table import get_all_images
+from .helpers import distribute
+from ...shared.graph.crystal_graph import crystal_graph
+from ...shared.tasks import (
     start_task,
     get_task_status,
     set_task_output,

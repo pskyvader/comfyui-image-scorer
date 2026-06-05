@@ -16,7 +16,7 @@ STEP01 = Path(__file__).resolve().parents[1]
 if str(STEP01) not in sys.path:
     sys.path.insert(0, str(STEP01))
 
-from shared.logger import get_logger
+from ..shared.logger import get_logger
 
 logger = get_logger(__name__)
 

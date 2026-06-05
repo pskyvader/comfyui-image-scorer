@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from external_modules.server.image_processor import ImageProcessor
+from .server.image_processor import ImageProcessor
 import logging
 import time
 

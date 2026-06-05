@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from shared.paths import cache_file
+from ...shared.paths import cache_file
 import logging
 import time
 

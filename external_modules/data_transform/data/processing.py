@@ -9,7 +9,9 @@ from shared.logger import get_logger
 logger = get_logger(__name__)
 
 
-def check_for_leakage(vectors_list: list[list[float]], scores_list: list[int]) -> None:
+def check_for_leakage(
+    vectors_list: list[list[float]], scores_list: list[float]
+) -> None:
     _start = time.perf_counter()
     if not vectors_list or not scores_list:
         raise RuntimeError(

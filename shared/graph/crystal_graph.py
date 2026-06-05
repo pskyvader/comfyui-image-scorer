@@ -8,10 +8,10 @@ import logging
 from tqdm import tqdm
 
 
-from external_modules.database_structure.images_table import (
+from ...external_modules.database_structure.images_table import (
     get_all_images,
 )
-from external_modules.database_structure.comparisons_table import (
+from ...external_modules.database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
 )

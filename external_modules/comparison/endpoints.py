@@ -14,25 +14,25 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, current_app, jsonify, request
 
-from external_modules.comparison.algorithm import (
+from ..comparison.algorithm import (
     merge_sort_ranker,
     state,
     graph_helpers,
     comparison_recorder,
 )
-from external_modules.comparison.algorithm.pair_active import _stable_seed_pool
-from external_modules.database_structure.comparisons_table import (
+from ..comparison.algorithm.pair_active import _stable_seed_pool
+from ..database_structure.comparisons_table import (
     get_all_comparisons,
     get_skipped_comparison_count,
     get_total_comparisons,
 )
-from external_modules.database_structure.images_table import (
+from ..database_structure.images_table import (
     get_all_images,
     get_image_count,
 )
-from external_modules.database_structure.path_handler import sync_image_metadata_to_json
-from shared.config import config
-from shared.graph import crystal_graph
+from ..database_structure.path_handler import sync_image_metadata_to_json
+from ...shared.config import config
+from ...shared.graph.crystal_graph import crystal_graph
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
 logger = logging.getLogger(__name__)

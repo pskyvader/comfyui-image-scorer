@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 def load_single_jsonl(filename: str) -> list[Any]:
-    _start = time.perf_counter()
     data: list[Any] = []
     if os.path.exists(filename):
         with jsonlines.open(filename, mode="r") as reader:
@@ -27,7 +26,6 @@ def load_single_jsonl(filename: str) -> list[Any]:
 
 
 def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
-    _start = time.perf_counter()
     file_path = Path(filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -87,11 +85,6 @@ def collect_single_file(
             else:
                 timestamp = next(iter(entry.keys())) if entry.keys() else "unknown"
 
-            if "comparison_count" in entry and entry["comparison_count"] > 5:
-                if "volatility" not in entry:
-                    entry["volatility"] = 0
-                    entry["comparison_count"] = 5
-
             result = (img_path, entry, timestamp, file_id)
 
     return result
@@ -105,7 +98,6 @@ def collect_valid_files(
     max_workers: int,
     scored_only: bool,
 ) -> list[tuple[str, dict[str, Any], str, str]]:
-    _start = time.perf_counter()
     collected_data: list[tuple[str, dict[str, Any], str, str]] = []
 
     if files:

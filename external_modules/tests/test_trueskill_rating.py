@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from external_modules.comparison.algorithm.trueskill_rating import (
+from .comparison.algorithm.trueskill_rating import (
     INITIAL_MEAN,
     EPSILON,
     _add_dynamics_noise,
@@ -18,7 +18,7 @@ from external_modules.comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     update_ratings,
 )
-from shared.logger import get_logger
+from ..shared.logger import get_logger
 
 logger = get_logger(__name__)
 

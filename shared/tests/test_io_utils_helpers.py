@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from shared import helpers, io, utils
+from .. import helpers, io, utils
 
 
 def test_jsonl_round_trip(tmp_path: Path) -> None:
