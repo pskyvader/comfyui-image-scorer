@@ -65,7 +65,6 @@ class ImageProcessor:
     """Process uninitialized images with parallel workers."""
 
     def __init__(self, max_workers: int):
-        _start = time.perf_counter()
         ranking_conf = config["ranking"]
         self.max_workers = max_workers
         self.batch_size = int(ranking_conf["batch_size"])
@@ -81,7 +80,7 @@ class ImageProcessor:
         self.lru_size = int(ranking_conf["lru_size"])
         self.recent_images: deque[str] = deque(maxlen=self.lru_size)
         self.recent_chains: deque[str] = deque(maxlen=self.lru_size)
-        self.recent_lock = Lock()
+        self.recent_lock: Lock = Lock()
         self.sync_processed_images_from_db()
 
     def _extract_prompt_tags(self, data: dict[str, Any]) -> str | None:
