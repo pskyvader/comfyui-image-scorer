@@ -32,6 +32,7 @@ from ...shared.config import config
 from ...shared.paths import (
     vectors_file,
     scores_file,
+    comparisons_file,
     index_file,
     image_root,
     text_data_file,
@@ -43,6 +44,7 @@ from ..comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     Rating,
 )
+from ..comparison.algorithm.comparison_recorder import get_all_comparisons
 from ..database_structure.images_table import get_image
 
 
@@ -51,6 +53,67 @@ from ...shared.logger import (
 )
 
 logger = get_logger(__name__)
+
+
+def build_comparison_rows(
+    index_list: list[str], score_lookup: dict[str, float]
+) -> list[dict[str, object]]:
+    index_lookup = {filename: idx for idx, filename in enumerate(index_list)}
+    comparison_rows: list[dict[str, object]] = []
+
+    for row in get_all_comparisons():
+        filename_a = str(row.get("filename_a", ""))
+        filename_b = str(row.get("filename_b", ""))
+        winner = str(row.get("winner", ""))
+
+        if (
+            filename_a not in index_lookup
+            or filename_b not in index_lookup
+            or winner not in index_lookup
+        ):
+            continue
+
+        if winner == filename_a:
+            loser = filename_b
+            winner_side = "a"
+        elif winner == filename_b:
+            loser = filename_a
+            winner_side = "b"
+        else:
+            continue
+
+        score_a = score_lookup.get(filename_a)
+        score_b = score_lookup.get(filename_b)
+        score_diff = (
+            abs(float(score_a) - float(score_b))
+            if score_a is not None and score_b is not None
+            else None
+        )
+        weight_value = row.get("weight", 1.0)
+        weight = 1.0 if weight_value is None else float(weight_value)
+
+        comparison_rows.append(
+            {
+                "comparison_id": int(row.get("id", 0) or 0),
+                "filename_a": filename_a,
+                "filename_b": filename_b,
+                "winner": winner,
+                "loser": loser,
+                "winner_side": winner_side,
+                "index_a": index_lookup[filename_a],
+                "index_b": index_lookup[filename_b],
+                "winner_index": index_lookup[winner],
+                "loser_index": index_lookup[loser],
+                "score_a": float(score_a) if score_a is not None else None,
+                "score_b": float(score_b) if score_b is not None else None,
+                "score_diff": score_diff,
+                "weight": weight,
+                "transitive_depth": int(row.get("transitive_depth", 0) or 0),
+                "timestamp": str(row.get("timestamp", "")),
+            }
+        )
+
+    return comparison_rows
 
 
 def run_prepare(limit: int) -> dict[str, int]:
@@ -107,6 +170,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     vectors_list_parser.filter_missing_vectors()
     vectors_list_parser.join_vectors()
     vectors_list_parser.join_text_data()
+    comparison_rows = vectors_list_parser.join_comparison_data()
     vectors_list_parser.update_lists()
 
     new_vectors_list = vectors_list_parser.vectors_list
@@ -119,6 +183,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     write_single_jsonl(vectors_file, new_vectors_list, mode="w")
     write_single_jsonl(text_data_file, new_text_list, mode="w")
     write_single_jsonl(scores_file, new_scores_list, mode="w")
+    write_single_jsonl(comparisons_file, comparison_rows, mode="w")
 
     summary = {"total": len(new_index_list), "new": len(processed_data)}
 
@@ -159,12 +224,20 @@ def run_rebuild_scores_only() -> dict[str, int]:
             new_scores_list.append(score)
             updated_count += 1
 
+    score_lookup = {
+        str(filename): float(score)
+        for filename, score in zip(index_list, new_scores_list, strict=False)
+    }
+    comparison_rows = build_comparison_rows(index_list, score_lookup)
+
     write_single_jsonl(scores_file, new_scores_list, mode="w")
+    write_single_jsonl(comparisons_file, comparison_rows, mode="w")
 
     summary = {
         "total": len(index_list),
         "updated": updated_count,
         "missing": missing_count,
+        "comparisons": len(comparison_rows),
     }
     logger.info("Scores rebuilt. Cleaning trained models...")
     remove_models()

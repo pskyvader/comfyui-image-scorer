@@ -1,13 +1,12 @@
-import logging
 import os
 import random
 from itertools import product, islice
 from typing import Any
 
 import numpy as np
+from numpy import typing as npt
 
-from ...shared.io import load_json, atomic_write_json, load_single_jsonl
-from ...shared.paths import models_dir, vectors_file, scores_file, raw_data
+from ...shared.paths import models_dir
 from ...shared.training.model_trainer import grid_base, around, model_trainer
 from ...shared.training.data_transformer import data_transformer
 from ...shared.loaders.training_loader import training_loader
@@ -20,7 +19,6 @@ from .config_utils import (
 )
 from .run import evaluate_hyperparameter_combo
 
-from collections.abc import Mapping
 import time
 
 from ...shared.logger import get_logger
@@ -36,14 +34,18 @@ NUM_CONFIGS = 4
 _hpo_running = False
 
 
+def _mapping_get(mapping: Any, key: str, default: Any = None) -> Any:
+    if key in mapping:
+        return mapping[key]
+    return default
+
+
 def _log(msg: str):
     print(msg, flush=True)
     logger.info(msg)
 
 
 def _load_state() -> dict[str, Any]:
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     training_config = config["training"]
     data = []
     data.append(training_config["top1"])
@@ -75,17 +77,7 @@ def _save_state(state: dict[str, Any]):
     # atomic_write_json(STATE_FILE, state, indent=4)
 
 
-def load_training_data(retrain: bool = False) -> tuple[np.ndarray, np.ndarray]:
-    if retrain:
-        _log("Retrain mode: removing cached models and data...")
-        training_loader.remove_training_models()
-    logger.info("loading raw data ...")
-
-    x, y = data_transformer.get_raw_data()
-
-    filter_steps = 500
-    logger.info(f"filtering unused features after {filter_steps}.steps...")
-    x, kept_indices = data_transformer.filter_unused_features(x, y, steps=filter_steps)
+def list_filtered_features(kept_indices: npt.NDArray[np.float32]):
 
     features: dict[str, dict[str, list[int]]] = {
         name: {"kept": [], "removed": []}
@@ -108,6 +100,29 @@ def load_training_data(retrain: bool = False) -> tuple[np.ndarray, np.ndarray]:
             f" {name}: \n"
             f"kept: {len(kept)}/{slot_size} ({100*len(kept)/slot_size}%)\n"
             f"removed: {len(removed)}/{slot_size} ({100*len(removed)/slot_size}%)"
+        )
+
+
+def load_training_data(
+    retrain: bool = False, filter_comparisons: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
+    if retrain:
+        _log("Retrain mode: removing cached models and data...")
+        training_loader.remove_training_models()
+    logger.info("loading raw data ...")
+    x, y = data_transformer.get_raw_data()
+    logger.info(f"raw data loaded, shape: {x.shape}, {y.shape}")
+
+    filter_steps = 500
+    logger.info(f"filtering unused features after {filter_steps} steps...")
+    x, kept_indices = data_transformer.filter_unused_features(x, y, steps=filter_steps)
+    list_filtered_features(kept_indices)
+    if filter_comparisons:
+        logger.info("filtering low comparison data ...")
+        threshold = config["training"]["min_comparisons_threshold"]
+        x, y = data_transformer.filter_low_comparisons(x, y, threshold=threshold)
+        logger.info(
+            f"filtered data by count (>={threshold}), shape: {x.shape}, {y.shape}"
         )
 
     _log(f"Feature filtering complete: X={x.shape}")
@@ -159,7 +174,7 @@ def evaluate_base_scores(x: np.ndarray, y: np.ndarray):
         _log(f"  Config {i + 1}: evaluating...")
         state["configs"][i] = _evaluate_config(state["configs"][i], X, y)
         _log(
-            f"    score={state['configs'][i].get('best_score', -1):.6f}  time={state['configs'][i].get('training_time', 0):.2f}s"
+            f"    score={_mapping_get(state['configs'][i], 'best_score', -1):.6f}  time={_mapping_get(state['configs'][i], 'training_time', 0):.2f}s"
         )
     _save_state(state)
     _log("Base scores updated.")
@@ -260,7 +275,11 @@ def _run_step_on_config(
 
 
 def hpo_cycle(
-    X: np.ndarray, y: np.ndarray, num_steps: int = 100, max_combos: int = 4
+    X: np.ndarray,
+    y: np.ndarray,
+    num_steps: int = 100,
+    max_combos: int = 4,
+    cycle: int = 0,
 ) -> dict[str, Any]:
     global _hpo_running
     if _hpo_running:
@@ -295,7 +314,6 @@ def hpo_cycle(
         configs = state["configs"]
         used_keys = state.get("used_keys", [])
         step_start = state.get("step", 0)
-        cycle = state.get("cycle", 0)
 
         _log(f"\n{'='*80}")
         _log(f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}")
@@ -345,11 +363,12 @@ def hpo_cycle(
             f"Sorting configs with higher_is_better={higher_is_better} (objective={training_objective})"
         )
         configs.sort(
-            key=lambda c: c.get("best_score", -1000000.0), reverse=higher_is_better
+            key=lambda c: _mapping_get(c, "best_score", -1000000.0),
+            reverse=higher_is_better,
         )
         for i, c in enumerate(configs):
             _log(
-                f"  Rank {i + 1}: score={c.get('best_score', -1):.6f}  time={c.get('training_time', 0):.2f}s"
+                f"  Rank {i + 1}: score={_mapping_get(c, 'best_score', -1):.6f}  time={_mapping_get(c, 'training_time', 0):.2f}s"
             )
 
         _log(
@@ -358,8 +377,8 @@ def hpo_cycle(
         parents = [configs[0], configs[1]]
         child1 = crossover_config(dict(parents[0]), dict(parents[1]))
         child2 = crossover_config(dict(parents[0]), dict(parents[1]))
-        _log(f"  Parent 1:  score={parents[0].get('best_score', -1):.6f}")
-        _log(f"  Parent 2:  score={parents[1].get('best_score', -1):.6f}")
+        _log(f"  Parent 1:  score={_mapping_get(parents[0], 'best_score', -1):.6f}")
+        _log(f"  Parent 2:  score={_mapping_get(parents[1], 'best_score', -1):.6f}")
         _log(f"  Child 1:   score=NEW (to be evaluated next cycle)")
         _log(f"  Child 2:   score=NEW (to be evaluated next cycle)")
 

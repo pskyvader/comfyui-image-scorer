@@ -16,6 +16,8 @@ from ...database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
     comparison_exists_for_pair,
+    get_images_with_only_wins,
+    get_images_with_only_losses
 )
 
 from .trueskill_rating import Rating, expected_win_probability, rating_from_row
@@ -30,7 +32,7 @@ def _log_timing(label: str):
     start = time.perf_counter()
     yield
     elapsed = time.perf_counter() - start
-    # logger.info("TIMING [%s]: %.3f s", label, elapsed)
+    logger.info(f"TIMING {label} ", start)
 
 
 def _stable_seed_pool(
@@ -119,16 +121,18 @@ def _are_in_different_paths(a: str, b: str) -> bool:
 def _build_low_count_pool(
     candidate_images: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    _start = time.perf_counter()
-    seed_target = int(config["ranking"]["seed_target_comparisons"])
-    for threshold in range(0, seed_target + 1, 2):
+    insertion_target = int(config["ranking"]["insertion_target_comparisons"])
+    reserve_count = int(config["ranking"]["reserve_count"])
+
+    for threshold in range(0, insertion_target + 1):
         pool = [
             img for img in candidate_images if int(img["comparison_count"]) <= threshold
         ]
-        if len(pool) >= 2:
+        if len(pool) >= max(threshold + 2, reserve_count):
+            #print("a", len(pool) , threshold,insertion_target,reserve_count)
             return pool
     result = [
-        img for img in candidate_images if int(img["comparison_count"]) <= seed_target
+        img for img in candidate_images if int(img["comparison_count"]) <= insertion_target
     ]
     return result
 
@@ -186,9 +190,7 @@ def _phase2_anchor_insert(
         [img for img in candidate_images if img["filename"] not in seed_pool]
     )
     if len(pool) < 2:
-        logger.warning(
-            f"_phase2_anchor_insert: pool too small ({time.perf_counter() - _start:.4f}s)"
-        )
+        logger.warning(f"_phase2_anchor_insert: pool too small", _start)
         return None, {}
 
     pool.sort(key=lambda img: int(img["comparison_count"]))
@@ -222,8 +224,9 @@ def _phase2_anchor_insert(
                 },
             },
         )
+        # logger.debug(f"returning result: {result}")
         return result
-
+    # logger.debug(f"no pair found out of {len(opponents)} opponents")
     return None, {}
 
 
@@ -231,7 +234,6 @@ def _phase3_collapsible_pairs(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
-    _start = time.perf_counter()
     candidate_names = {img["filename"] for img in candidate_images}
 
     chains = crystal_graph.get_all_chains()
@@ -245,7 +247,15 @@ def _phase3_collapsible_pairs(
         if chain.last and chain.last.filename in candidate_names:
             comp = _component_id(chain.last.filename)
             bottoms_by_comp[comp].append(chain.last.filename)
-
+            
+    only_wins=get_images_with_only_wins()
+    only_loses=get_images_with_only_losses()
+    
+    logger.debug(f"only wins: {only_wins}")
+    logger.debug(f"only loses: {only_loses}")
+    
+    
+    
     for comp_id, tops in tops_by_comp.items():
         if len(tops) < 2:
             continue
@@ -447,6 +457,11 @@ def _phase_fallback(
     return None, {}
 
 
+def reset_skip():
+    global _skip_before
+    _skip_before = 0
+
+
 def select_pair(
     all_images: list[dict[str, Any]],
     candidate_images: list[dict[str, Any]],
@@ -470,9 +485,10 @@ def select_pair(
     seed_candidates = [img for img in candidate_images if img["filename"] in seed_pool]
 
     reserve_count = int(config["ranking"]["reserve_count"])
-    total_comps = get_total_comparisons()
+    total_comps: int = get_total_comparisons()
+    logger.debug(f"total comps: {total_comps}, skip before:{_skip_before}")
     if total_comps % reserve_count == 0:
-        _skip_before = 0
+        reset_skip()
 
     if _skip_before <= 0:
         with _log_timing("phase1_seed_coverage"):

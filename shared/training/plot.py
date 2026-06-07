@@ -1,6 +1,7 @@
 from typing import Any, Union
 import os
 import time
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
@@ -10,6 +11,7 @@ import math
 
 from ..loaders.training_loader import training_loader
 from ..config import config
+from .calibration import apply_score_calibration, extract_score_calibration
 
 
 class PlotManager:
@@ -17,7 +19,7 @@ class PlotManager:
 
     # Metric direction mapping (shared across methods)
     METRIC_DIRECTIONS: dict[str, dict[str, bool]] = {
-        "lambdarank": {"ndcg": True},
+        "lambdarank": {"ndcg": True, "pairwise_accuracy": True, "score": True},
         "multiclass": {"multi_logloss": False, "multi_error": False},
         "binary": {"binary_logloss": False, "auc": True},
         "regression": {"l2": False, "rmse": False, "l1": False, "r2": True},
@@ -78,8 +80,14 @@ class PlotManager:
         max_size_px: float = 100.0,
         power: float = 0.5,
         label_threshold: int = 10,
+        title: str = "Actual vs Predicted (sample)",
+        x_label: str = "Actual",
+        y_label: str = "Predicted",
     ) -> None:
         """Plot actual vs predicted values with cluster sizes."""
+        if not plot:
+            return
+
         points = np.column_stack((y_plot, p_plot))
         unique_points, counts = np.unique(points, axis=0, return_counts=True)
 
@@ -117,9 +125,9 @@ class PlotManager:
         PlotManager._setup_scatter_axes(ax, ymin, ymax)
 
         ax.legend()
-        ax.set_xlabel("Actual")
-        ax.set_ylabel("Predicted")
-        ax.set_title("Actual vs Predicted (sample)")
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.set_title(title)
         ax.grid(True)
 
         if plot:
@@ -134,8 +142,13 @@ class PlotManager:
         max_size_px: float = 100.0,
         power: float = 0.5,
         label_threshold: int = 10,
+        title: str = "Actual vs Predicted (continuous)",
+        x_label: str = "Actual",
+        y_label: str = "Predicted",
     ) -> None:
         """Plot actual vs predicted values with continuous data."""
+        if not plot:
+            return
 
         sizes = PlotManager._calculate_scatter_sizes(
             np.ones(len(y_plot)), min_size_px, max_size_px, power
@@ -171,9 +184,9 @@ class PlotManager:
         PlotManager._setup_scatter_axes(ax, ymin, ymax)
 
         ax.legend()
-        ax.set_xlabel("Actual")
-        ax.set_ylabel("Predicted")
-        ax.set_title("Actual vs Predicted (continuous)")
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.set_title(title)
         ax.grid(True)
 
         if plot:
@@ -188,14 +201,41 @@ class PlotManager:
         return y_sample, preds_sample
 
     @staticmethod
-    def print_comparison_metrics(y: Any, preds: Any, metrics: Any) -> None:
+    def print_comparison_metrics(
+        y: Any,
+        preds: Any,
+        metrics: Any,
+        objective: str | None = None,
+        calibrated: bool = False,
+    ) -> None:
         """Print comparison metrics between predictions and true values."""
+        objective = objective or config["training"]["objective"]
         y_sample, p_sample = PlotManager._prepare_finite_data(y, preds)
         if y_sample.size > 0:
             sample_r2 = float(r2_score(y_sample, p_sample))
-            print(f"Comparison metrics (sample): r2={sample_r2:.4f}, n={len(y_sample)}")
-        if metrics is not None and "r2" in metrics:
-            print(f"Stored metrics: r2={float(metrics['r2']):.4f}")
+            label = "calibrated sample" if calibrated else "sample"
+            print(
+                f"Comparison metrics ({label}): r2={sample_r2:.4f}, n={len(y_sample)}"
+            )
+        if metrics is not None:
+            if objective == "lambdarank":
+                if "pairwise_accuracy" in metrics:
+                    print(
+                        f"Stored metrics: pairwise_accuracy={float(metrics['pairwise_accuracy']):.4f}"
+                    )
+                if (
+                    "score" in metrics
+                    and "primary_metric" in metrics
+                    and metrics["primary_metric"] != "pairwise_accuracy"
+                ):
+                    try:
+                        print(
+                            f"Stored metrics: {metrics['primary_metric']}={float(metrics['score']):.4f}"
+                        )
+                    except Exception:
+                        pass
+            elif "r2" in metrics:
+                print(f"Stored metrics: r2={float(metrics['r2']):.4f}")
 
     @staticmethod
     def compare_model_vs_data(
@@ -214,22 +254,49 @@ class PlotManager:
             return
 
         try:
-            preds = model.predict(x_sample)
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    message=".*X does not have valid feature names.*",
+                )
+                preds = model.predict(x_sample)
         except Exception as e:
             print(f"Error during prediction: {e}")
             return
 
-        metrics = None
-        data = training_loader.load_training_model_diagnostics()
-        if data is not None and "metrics" in data:
-            metrics = data["metrics"]
+        diagnostics = training_loader.load_training_model_diagnostics()
+        metrics = diagnostics if diagnostics is not None else None
+        objective = config["training"]["objective"]
 
-        PlotManager.print_comparison_metrics(y_sample, preds, metrics)
+        calibration = extract_score_calibration(diagnostics)
+        calibrated = False
+        if objective == "lambdarank" and calibration is not None:
+            preds = apply_score_calibration(preds, calibration)
+            calibrated = True
+        elif objective == "lambdarank":
+            print(
+                "Warning: no saved score calibration found; plotting raw ranker scores."
+            )
+
+        PlotManager.print_comparison_metrics(
+            y_sample, preds, metrics, objective=objective, calibrated=calibrated
+        )
 
         y_plot, p_plot = PlotManager.prepare_plot_data(y_sample, preds)
 
         if y_plot.size > 0 and p_plot.size > 0:
-            PlotManager.plot_scatter_comparison_continuous(y_plot, p_plot, plot)
+            if objective == "lambdarank":
+                PlotManager.plot_scatter_comparison_continuous(
+                    y_plot,
+                    p_plot,
+                    plot,
+                    title="Actual vs Calibrated Predicted (ranking)",
+                    x_label="Actual score",
+                    y_label="Calibrated predicted score",
+                )
+            else:
+                PlotManager.plot_scatter_comparison_continuous(y_plot, p_plot, plot)
 
     @staticmethod
     def _plot_metric_on_axes(
@@ -477,7 +544,9 @@ class PlotManager:
         plt.figure(figsize=(14, 8))
 
         # Color logic: Green for good, Red for bad based on sorting intent
-        cmap = plt.cm.get_cmap("RdYlGn") if not ascending else plt.cm.get_cmap("RdYlGn_r")
+        cmap = (
+            plt.cm.get_cmap("RdYlGn") if not ascending else plt.cm.get_cmap("RdYlGn_r")
+        )
         colors = cmap([0.1 + (0.8 * (i / len(means))) for i in range(len(means))])
 
         bars = plt.bar(

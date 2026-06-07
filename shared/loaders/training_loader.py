@@ -16,6 +16,9 @@ from ..paths import (
     interaction_data,
     training_model,
     raw_data,
+    index_file,
+    comparisons_file,
+    comparison_data,
 )
 from ..helpers import remove_directory
 from ..logger import get_logger, ModuleLogger
@@ -29,6 +32,9 @@ class TrainingLoader:
         self.raw_data: (
             tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
         ) = None
+        self.comparison_data: (
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+        ) = None
         self.filtered_data: (
             tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
         ) = None
@@ -37,6 +43,7 @@ class TrainingLoader:
         ) = None
         self.vectors: npt.NDArray[np.float32] | None = None
         self.scores: npt.NDArray[np.float32] | None = None
+        self.comparisons: dict[str, list[dict[str, str]]] | None = None
         self.use_cache = use_cache
 
     def _reset_models(self) -> None:
@@ -44,6 +51,7 @@ class TrainingLoader:
         self.scores = None
         self.training_model = None
         self.raw_data = None
+        self.comparison_data = None
         self.filtered_data = None
         self.interaction_data = None
 
@@ -65,11 +73,36 @@ class TrainingLoader:
     def load_scores(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.scores is not None:
             return self.scores
-
+        logger.debug("loading scores file....")
         scores = load_single_jsonl(scores_file)
         y_vector: npt.NDArray[np.float32] = np.array(scores, dtype=float)
         self.scores = y_vector
         return self.scores
+
+    def load_comparison_counts(self) -> dict[str, list[dict[str, str]]]:
+        if self.use_cache and self.comparisons is not None:
+            return self.comparisons
+        logger.debug("loading index file....")
+        index = load_single_jsonl(index_file)
+        comparisons: list[Any] = load_single_jsonl(comparisons_file)
+
+        comparisons_count: dict[str, list[dict[str, str]]] = {}
+        for i in index:
+            comparisons_count[i] = []
+
+        for c in comparisons:
+            filename_a: str = c["filename_a"]
+            filename_b: str = c["filename_b"]
+            winner: str = c["winner"]
+
+            record_a = {"other": filename_b, "winner": winner}
+            record_b = {"other": filename_a, "winner": winner}
+            if filename_a in comparisons_count:
+                comparisons_count[filename_a].append(record_a)
+            if filename_b in comparisons_count:
+                comparisons_count[filename_b].append(record_b)
+        self.comparisons = comparisons_count
+        return self.comparisons
 
     def load_raw_data(
         self,
@@ -90,11 +123,39 @@ class TrainingLoader:
     def save_raw_data(
         self, x: npt.NDArray[np.float32], y: npt.NDArray[Any]
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
+        logger.debug("saving raw data...")
         os.makedirs(models_dir, exist_ok=True)
         np.savez_compressed(raw_data, x=x, y=y)
         saved_data = (x, y)
         if self.use_cache:
             self.raw_data = saved_data
+        return saved_data
+
+    def load_comparison_data(
+        self,
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+        if self.use_cache and self.comparison_data is not None:
+            return self.comparison_data
+
+        if os.path.exists(comparison_data):
+            try:
+                data = np.load(comparison_data)
+                if "x" in data and "y" in data:
+                    self.comparison_data = data["x"], data["y"]
+                    return self.comparison_data
+            except Exception:
+                pass
+        return None
+
+    def save_comparison_data(
+        self, x: npt.NDArray[np.float32], y: npt.NDArray[Any]
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
+        logger.debug("saving comparison data...")
+        os.makedirs(models_dir, exist_ok=True)
+        np.savez_compressed(comparison_data, x=x, y=y)
+        saved_data = (x, y)
+        if self.use_cache:
+            self.comparison_data = saved_data
         return saved_data
 
     def load_filtered_data(
@@ -117,6 +178,7 @@ class TrainingLoader:
     def save_filtered_data(
         self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[Any]
     ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
+        logger.debug("saving filtered data...")
         os.makedirs(models_dir, exist_ok=True)
         np.savez_compressed(filtered_data, X=x, kept_indices=kept_indices)
         saved_data = (x, kept_indices)

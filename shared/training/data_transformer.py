@@ -69,6 +69,38 @@ class DataTransformer:
         raw_data = training_loader.save_raw_data(vectors, scores)
         return raw_data
 
+    def filter_low_comparisons(
+        self, x: npt.NDArray[np.float32], y: npt.NDArray[np.float32], threshold: int = 0
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        comparison_data_cached = training_loader.load_comparison_data()
+        if comparison_data_cached:
+            return comparison_data_cached
+
+        comparisons_dict: dict[str, list[dict[str, str]]] = (
+            training_loader.load_comparison_counts()
+        )
+        x_list: list[list[float]] = x.tolist()
+        y_list: list[float] = y.tolist()
+
+        if len(x_list) != len(y_list) != len(comparisons_dict.items()):
+            raise ValueError(
+                f" vectors or score list size mismatch with index: x:{len(x_list)}, y:{len(y_list)}, index:{len(comparisons_dict.items())}"
+            )
+
+        x_new: list[list[float]] = []
+        y_new: list[float] = []
+        for i, (_index, records) in enumerate(comparisons_dict.items()):
+            if len(records) >= threshold:
+                x_new.append(x_list[i])
+                y_new.append(y_list[i])
+
+        x_vector: npt.NDArray[np.float32] = np.array(x_new, dtype=float)
+        y_vector: npt.NDArray[np.float32] = np.array(y_new, dtype=float)
+
+        comparison_data = training_loader.save_comparison_data(x=x_vector, y=y_vector)
+
+        return comparison_data
+
     def filter_unused_features(
         self,
         x: npt.NDArray[np.float32],
@@ -92,6 +124,10 @@ class DataTransformer:
         config_dict: dict[str, Any] = {
             "n_estimators": steps,
         }
+        if config["training"]["objective"] == "lambdarank":
+            # Feature filtering still uses the scalar score target even when
+            # the final training objective is pairwise ranking.
+            config_dict["objective"] = "regression"
         model_trainer.create_training_model(config_dict)
         model: None | lgb.LGBMRanker | lgb.LGBMClassifier | lgb.LGBMRegressor = (
             model_trainer.training_model

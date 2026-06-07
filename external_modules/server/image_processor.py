@@ -58,6 +58,8 @@ from ..comparison.algorithm.trueskill_rating import (
     update_ratings,
 )
 
+from ..comparison.algorithm.pair_active import reset_skip
+
 from ...shared.graph.crystal_graph import crystal_graph
 
 
@@ -700,6 +702,7 @@ class ImageProcessor:
             )
 
     def clear_old_cache(self, force: bool) -> None:
+        global _skip_before
         should_clear = (
             force
             or len(self.recent_images) >= self.lru_size
@@ -719,4 +722,5 @@ class ImageProcessor:
             for _ in range(min(len(self.recent_chains), num_to_remove)):
                 self.recent_chains.popleft()
         if should_clear or crystal_graph.is_cache_stale():
+            reset_skip()
             crystal_graph.rebuild_from_database()

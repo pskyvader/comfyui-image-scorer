@@ -21,6 +21,7 @@ from ...external_modules.comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     Rating,
 )
+from ...external_modules.database_structure.comparisons_table import get_all_comparisons
 from ...external_modules.database_structure.images_table import get_image
 
 cache_split_data: dict[str, list[dict[str, Any]]] = {}
@@ -98,6 +99,7 @@ class VectorList:
             )
         self.final_vector: list[list[float]] = []
         self.final_text_data: list[dict[str, Any]] = []
+        self.final_comparison_data: list[dict[str, Any]] = []
 
     def configure_sorted_vectors(self) -> None:
         for current_type in self.vector_config:
@@ -345,12 +347,77 @@ class VectorList:
         self.final_text_data = clean_arrays
         return self.final_text_data
 
+    def join_comparison_data(self) -> list[dict[str, Any]]:
+        if self.final_comparison_data:
+            return self.final_comparison_data
+
+        index_list = getattr(self, "index_list", self.unique_ids)
+        index_lookup = {fid: idx for idx, fid in enumerate(index_list)}
+        comparison_rows: list[dict[str, Any]] = []
+
+        for row in get_all_comparisons():
+            filename_a = str(row.get("filename_a", ""))
+            filename_b = str(row.get("filename_b", ""))
+            winner = str(row.get("winner", ""))
+
+            if (
+                filename_a not in index_lookup
+                or filename_b not in index_lookup
+                or winner not in index_lookup
+            ):
+                continue
+
+            if winner == filename_a:
+                loser = filename_b
+                winner_side = "a"
+            elif winner == filename_b:
+                loser = filename_a
+                winner_side = "b"
+            else:
+                continue
+
+            score_a = self.scores.get(filename_a)
+            score_b = self.scores.get(filename_b)
+            score_diff = (
+                abs(float(score_a) - float(score_b))
+                if score_a is not None and score_b is not None
+                else None
+            )
+            weight_value = row.get("weight", 1.0)
+            weight = 1.0 if weight_value is None else float(weight_value)
+
+            comparison_rows.append(
+                {
+                    "comparison_id": int(row.get("id", 0) or 0),
+                    "filename_a": filename_a,
+                    "filename_b": filename_b,
+                    "winner": winner,
+                    "loser": loser,
+                    "winner_side": winner_side,
+                    "index_a": index_lookup[filename_a],
+                    "index_b": index_lookup[filename_b],
+                    "winner_index": index_lookup[winner],
+                    "loser_index": index_lookup[loser],
+                    "score_a": float(score_a) if score_a is not None else None,
+                    "score_b": float(score_b) if score_b is not None else None,
+                    "score_diff": score_diff,
+                    "weight": weight,
+                    "transitive_depth": int(row.get("transitive_depth", 0) or 0),
+                    "timestamp": str(row.get("timestamp", "")),
+                }
+            )
+
+        self.final_comparison_data = comparison_rows
+        self.comparisons_list = self.final_comparison_data
+        return self.final_comparison_data
+
     def update_lists(self) -> None:
         logger.info("updating vector lists...")
         self.vectors_list = self.final_vector
         self.text_list = self.final_text_data
         self.index_list: list[str] = self.unique_ids
         self.scores_list: list[float] = [self.scores[fid] for fid in self.index_list]
+        self.comparisons_list = self.final_comparison_data
 
     def load_split_files(self) -> None:
         """Load split files back into each vector's ``.vector_list`` /

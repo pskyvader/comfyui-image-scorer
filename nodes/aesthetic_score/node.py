@@ -2,6 +2,7 @@ from PIL.Image import Image
 import torch
 from typing import Any
 import numpy as np
+import warnings
 from ...shared.config import config
 from ...shared.helpers import export_image_batch
 from ...shared.vectors.vectors import VectorList
@@ -9,6 +10,10 @@ from ...shared.image_analysis import ImageAnalysis
 from ...shared.vectors.image_vector import ImageVector
 from ...shared.training.data_transformer import data_transformer
 from ...shared.loaders.training_loader import training_loader
+from ...shared.training.calibration import (
+    apply_score_calibration,
+    extract_score_calibration,
+)
 
 
 class AestheticScoreNode:
@@ -47,6 +52,83 @@ class AestheticScoreNode:
     RETURN_NAMES = ("images", "discarded images", "Available", "score")
     FUNCTION = "calculate_score"
     CATEGORY = "Scoring"
+
+    def _predict_scores(
+        self, model: Any, filtered_vectors: list[np.ndarray]
+    ) -> np.ndarray:
+        features = np.asarray(filtered_vectors, dtype=np.float32)
+        objective = None
+        if hasattr(model, "get_params"):
+            try:
+                objective = model.get_params().get("objective")
+            except Exception:
+                objective = None
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message=".*X does not have valid feature names.*",
+            )
+            if objective == "binary" and hasattr(model, "predict_proba"):
+                probabilities = np.asarray(
+                    model.predict_proba(features), dtype=np.float32
+                )
+                if probabilities.ndim == 2 and probabilities.shape[1] >= 2:
+                    scores = probabilities[:, 1]
+                else:
+                    scores = np.asarray(model.predict(features), dtype=np.float32).reshape(
+                        -1
+                    )
+            elif objective == "multiclass" and hasattr(model, "predict_proba"):
+                probabilities = np.asarray(
+                    model.predict_proba(features), dtype=np.float32
+                )
+                if probabilities.ndim == 2 and probabilities.shape[1] > 0:
+                    class_values = np.asarray(
+                        getattr(
+                            model,
+                            "classes_",
+                            np.arange(probabilities.shape[1], dtype=np.float32),
+                        ),
+                        dtype=np.float32,
+                    )
+                    if class_values.shape[0] == probabilities.shape[1]:
+                        expected = np.sum(
+                            probabilities * class_values[np.newaxis, :], axis=1
+                        )
+                        class_min = float(np.min(class_values))
+                        class_max = float(np.max(class_values))
+                        if class_max > class_min:
+                            scores = (expected - class_min) / (
+                                class_max - class_min
+                            )
+                        else:
+                            scores = expected
+                    else:
+                        scores = np.max(probabilities, axis=1)
+                else:
+                    scores = np.asarray(model.predict(features), dtype=np.float32).reshape(
+                        -1
+                    )
+            else:
+                scores = np.asarray(model.predict(features), dtype=np.float32).reshape(
+                    -1
+                )
+                if objective == "lambdarank":
+                    diagnostics = training_loader.load_training_model_diagnostics()
+                    calibration = extract_score_calibration(diagnostics)
+                    if calibration is not None:
+                        scores = apply_score_calibration(scores, calibration)
+                    elif scores.size > 1:
+                        low = float(np.min(scores))
+                        high = float(np.max(scores))
+                        if high > low:
+                            scores = ((scores - low) / (high - low)).astype(np.float32)
+                        else:
+                            scores = np.full(scores.shape, 0.5, dtype=np.float32)
+
+        return np.asarray(scores, dtype=np.float32).reshape(-1)
 
     def calculate_score(
         self,
@@ -146,7 +228,7 @@ class AestheticScoreNode:
         # print(
         #     f"filtered vectors:{len(filtered_vectors)}, shape: {filtered_vectors[0].shape}"
         # )
-        all_scores = model.predict(filtered_vectors)
+        all_scores = self._predict_scores(model, filtered_vectors)
         # print(f"all_scores: {all_scores}")
 
         # Now we have `images_list` and `all_scores` matching by index

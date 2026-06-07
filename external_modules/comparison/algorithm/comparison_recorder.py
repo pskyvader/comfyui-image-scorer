@@ -82,11 +82,12 @@ def record_comparison(
     _start = time.perf_counter()
 
     if comparison_exists_for_pair(filename_a, filename_b):
-        logger.error(
-            "Skipping duplicate pair comparison for %s vs %s", filename_a, filename_b
+        logger.warning(
+            "duplicate pair comparison for %s vs %s. remember to clean up later",
+            filename_a,
+            filename_b,
         )
-
-        return False
+        # return False
 
     data_a = get_image_data(filename_a)
     data_b = get_image_data(filename_b)

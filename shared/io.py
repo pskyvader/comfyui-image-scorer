@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 def load_single_jsonl(filename: str) -> list[Any]:
     data: list[Any] = []
     if os.path.exists(filename):
-        with jsonlines.open(filename, mode="r") as reader:
-            for obj in reader:
-                data.append(obj)
+        with tqdm() as pbar:
+            with jsonlines.open(filename, mode="r") as reader:
+                for obj in reader:
+                    data.append(obj)
+                    pbar.update(1)
     return data
 
 
@@ -30,9 +32,11 @@ def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not mode.startswith("r"):
-        with jsonlines.open(file_path, mode="w") as writer:
-            for item in data:
-                writer.write(item)
+        with tqdm(total=len(data)) as pbar:
+            with jsonlines.open(file_path, mode="w") as writer:
+                for item in data:
+                    writer.write(item)
+                    pbar.update(1)
 
 
 def discover_files(root: str) -> Iterator[tuple[str, str]]:

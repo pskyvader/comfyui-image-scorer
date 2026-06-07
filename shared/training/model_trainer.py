@@ -21,10 +21,15 @@ from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
 from ..config import config
+from ..io import load_single_jsonl
+from ..loaders.training_loader import training_loader
+from ..paths import index_file
+from .calibration import build_score_calibration
+from .pair_data import build_pairwise_dataset, load_comparison_records
 
-# from ..training.plot import LivePlotCallback
+from ..logger import get_logger
 
-# from ..paths import models_dir
+logger = get_logger(__name__)
 
 
 # step is relative percentage for float/int types
@@ -99,7 +104,7 @@ grid_base: dict[str, Any] = {
         # Speed: Lower values speed up training since less data is processed per iteration.
         "type": "float",
         "min": 0.1,
-        "max": 1.0,
+        "max": 0.99,
         "step": 0.1,
         "random": 0.01,
     },
@@ -137,7 +142,7 @@ grid_base: dict[str, Any] = {
         # Starting at zero: A good first non-zero step is around 0.1 or 0.01.
         "type": "float",
         "min": 0.001,
-        "max": 0.999,
+        "max": 0.99,
         "step": 0.1,
         "random": 0.01,
     },
@@ -248,6 +253,74 @@ class ModelTrainer:
     ) -> tuple[str, float, bool]:
         """Custom R2 metric for LightGBM evaluation."""
         return ("r2", float(r2_score(y_true, y_pred)), True)
+
+    @staticmethod
+    def _pairwise_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float | None:
+        """Compute pairwise accuracy for flattened 2-row comparison groups."""
+
+        y_true_flat = np.asarray(y_true).ravel()
+        y_pred_flat = np.asarray(y_pred).ravel()
+        if len(y_true_flat) < 2 or len(y_pred_flat) < 2:
+            return None
+
+        total = 0
+        correct = 0
+        for i in range(0, min(len(y_true_flat), len(y_pred_flat)) - 1, 2):
+            left_true = float(y_true_flat[i])
+            right_true = float(y_true_flat[i + 1])
+            if left_true == right_true:
+                continue
+
+            total += 1
+            left_pred = float(y_pred_flat[i])
+            right_pred = float(y_pred_flat[i + 1])
+            if left_true > right_true:
+                correct += int(left_pred > right_pred)
+            else:
+                correct += int(right_pred > left_pred)
+
+        if total == 0:
+            return None
+
+        return float(correct / total)
+
+    def _build_score_calibration(self, X: np.ndarray) -> dict[str, Any] | None:
+        """Build a fixed raw->score calibration for lambdarank models."""
+
+        if self.training_model is None:
+            return None
+
+        objective = self.training_model.get_params().get("objective")
+        if objective != "lambdarank":
+            return None
+
+        try:
+            target_scores = training_loader.load_scores()
+        except Exception as exc:
+            logger.warning("Skipping score calibration: failed to load scores: %s", exc)
+            return None
+
+        if len(target_scores) != len(X):
+            logger.warning(
+                "Skipping score calibration: scores length (%d) does not match X length (%d).",
+                len(target_scores),
+                len(X),
+            )
+            return None
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message=".*X does not have valid feature names.*",
+            )
+            raw_scores = self.training_model.predict(X)
+
+        calibration = build_score_calibration(raw_scores, target_scores)
+        if calibration is None:
+            return None
+
+        return calibration
 
     def create_training_model(self, config_dict: dict[str, Any]):
 
@@ -409,6 +482,11 @@ class ModelTrainer:
             except Exception:
                 pass
 
+        elif objective == "lambdarank":
+            pairwise_accuracy = self._pairwise_accuracy(y_test, y_pred)
+            if pairwise_accuracy is not None:
+                self.result_metrics["pairwise_accuracy"] = pairwise_accuracy
+
         # Ranking usually uses internal metrics only
 
         # Extract LightGBM evaluation results
@@ -448,6 +526,128 @@ class ModelTrainer:
                 self.result_metrics["score"] = metric_dict[primary_metric][-1]
                 self.result_metrics["primary_metric"] = primary_metric
 
+        if objective == "lambdarank" and "score" not in self.result_metrics:
+            fallback_accuracy = self._pairwise_accuracy(y_test, y_pred)
+            if fallback_accuracy is not None:
+                self.result_metrics["score"] = fallback_accuracy
+                self.result_metrics["primary_metric"] = "pairwise_accuracy"
+
+    def train_model_pairs(
+        self,
+        config_dict: dict[str, Any],
+        X: np.ndarray,
+        comparisons: list[dict[str, Any]],
+        index_list: list[str],
+        enable_plotting: bool = False,
+    ) -> tuple[Any, dict[str, Any]]:
+        if config["training"]["device"] != "cuda":
+            raise ValueError("Training must use CUDA device.")
+
+        self.create_training_model(config_dict)
+        if not isinstance(self.training_model, lgb.LGBMRanker):
+            raise TypeError("Pairwise training requires a lambdarank objective.")
+
+        if len(comparisons) < 2:
+            raise ValueError("Need at least two comparisons for pairwise training.")
+
+        random_state = config["training"]["random_state"]
+        comparison_indices = list(range(len(comparisons)))
+        split_res = cast(
+            tuple[list[int], list[int]],
+            tuple(
+                train_test_split(
+                    comparison_indices,
+                    test_size=self.test_size,
+                    random_state=random_state,
+                )
+            ),
+        )
+        train_indices, test_indices = split_res
+        train_comparisons = [comparisons[i] for i in train_indices]
+        test_comparisons = [comparisons[i] for i in test_indices]
+        logger.debug("building pairwise dataset...")
+
+        (
+            x_train,
+            y_train,
+            group_train,
+            weight_train,
+            valid_train_pairs,
+        ) = build_pairwise_dataset(X, index_list, train_comparisons)
+        (
+            x_test,
+            y_test,
+            group_test,
+            _weight_test,
+            valid_test_pairs,
+        ) = build_pairwise_dataset(X, index_list, test_comparisons)
+
+        if valid_train_pairs == 0 or valid_test_pairs == 0:
+            raise RuntimeError(
+                "Pairwise training split produced an empty train or validation set."
+            )
+
+        progress_bar = tqdm(
+            total=self.n_estimators, desc="Training LightGBM", position=0
+        )
+        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}")
+        logger.debug("creating callbacks...")
+
+        self.create_callbacks(
+            progress_bar, enable_plotting=enable_plotting, status_bar=status_bar
+        )
+        start = time.time()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message=".*X does not have valid feature names.*",
+            )
+
+            parameters: dict[str, Any] = {
+                "X": x_train,
+                "y": y_train,
+                "sample_weight": weight_train,
+                "eval_set": [(x_train, y_train), (x_test, y_test)],
+                "eval_names": ["train", "valid"],
+                "eval_metric": self.eval_metrics,
+                "callbacks": self.callbacks,
+            }
+
+            if self.training_model is None:
+                raise RuntimeError("Training model was not created")
+            logger.debug("beginning training...")
+            self.training_model.fit(
+                **parameters,
+                group=group_train,
+                eval_group=[group_train, group_test],
+            )
+
+            if self.training_model is None:
+                raise RuntimeError("Training failed")
+
+            if self.user_verbosity >= 0:
+                progress_bar.close()
+
+        training_time = time.time() - start
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message=".*X does not have valid feature names.*",
+            )
+            y_pred = self.training_model.predict(x_test)
+
+        self.create_metrics(y_test, np.asarray(y_pred), training_time)
+        score_calibration = self._build_score_calibration(X)
+        if score_calibration is not None:
+            self.result_metrics["score_calibration"] = score_calibration
+        self.result_metrics["pairwise_pairs_train"] = valid_train_pairs
+        self.result_metrics["pairwise_pairs_valid"] = valid_test_pairs
+
+        return self.training_model, self.result_metrics
+
     def train_model(
         self,
         config_dict: dict[str, Any],
@@ -457,6 +657,27 @@ class ModelTrainer:
     ) -> tuple[Any, dict[str, Any]]:
         if config["training"]["device"] != "cuda":
             raise ValueError("Training must use CUDA device.")
+
+        objective = config["training"]["objective"]
+        if objective == "lambdarank":
+            comparison_rows = load_comparison_records()
+            raw_index_list = load_single_jsonl(index_file)
+            index_list = [str(item) for item in raw_index_list]
+            if not comparison_rows:
+                raise FileNotFoundError(
+                    "No comparison data found. Run prepare data to export comparisons.jsonl first."
+                )
+            if not index_list:
+                raise FileNotFoundError(
+                    "No index data found. Run prepare data to export index.jsonl first."
+                )
+            return self.train_model_pairs(
+                config_dict=config_dict,
+                X=X,
+                comparisons=comparison_rows,
+                index_list=index_list,
+                enable_plotting=enable_plotting,
+            )
 
         # test_size = float(config["training"]["test_size"])
         # test_size=config_dict.pop("test_size")

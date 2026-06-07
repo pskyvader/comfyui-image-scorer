@@ -1,17 +1,13 @@
 from __future__ import annotations
 import json
-import logging
 import os
-import time
 from pathlib import Path
-from typing import Any, Union, Iterator
-from collections.abc import MutableMapping
+from typing import Any
+from collections.abc import MutableMapping, Iterator
 
 from .io import load_json
 
-logger = logging.getLogger(__name__)
-
-PathLike = Union[str, Path]
+PathLike = str | Path
 ConfigDict = dict[str, Any]
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 CONFIG_FILE: Path = PROJECT_ROOT.joinpath("config", "config.json")
@@ -24,32 +20,23 @@ SUB_CONFIG_MAPPING: dict[str, str] = {
 
 
 def _get_config_file(path: PathLike) -> Path:
-    _start = time.perf_counter()
     p = Path(path)
     if not p.is_absolute():
         p: Path = PROJECT_ROOT.joinpath(p)
-    result: Path = p
-    return result
+    return p
 
 
 def _load_raw_config(path: PathLike) -> ConfigDict:
-    _start = time.perf_counter()
     config_file: Path = _get_config_file(path)
-    result: ConfigDict
     if not config_file.exists():
-        result = {}
-    else:
-        data, err = load_json(str(config_file), expect=dict, default=None)
-        if err:
-            result = {}
-        else:
-            result = data or {}
-
-    return result
+        return {}
+    data, err = load_json(str(config_file), expect=dict, default=None)
+    if err:
+        return {}
+    return data or {}
 
 
 def _save_raw_config(data: ConfigDict, path: PathLike) -> None:
-    _start = time.perf_counter()
     config_file: Path = _get_config_file(path)
     ensure_dir(config_file.parent)
     with open(config_file, "w", encoding="utf-8") as f:
@@ -57,62 +44,54 @@ def _save_raw_config(data: ConfigDict, path: PathLike) -> None:
 
 
 def ensure_dir(path: PathLike) -> None:
-    _start = time.perf_counter()
     os.makedirs(Path(path), exist_ok=True)
+
+
+_sentinel = object()
 
 
 class AutoSaveDict(MutableMapping):
     def __init__(self, data: dict[str, Any], save_callback: Any) -> None:
-        _start = time.perf_counter()
         self._data: dict[str, Any] = data
         self._save_callback = save_callback
 
-    def get(self, key: str) -> Any:
-        _start = time.perf_counter()
-        result: Any = self[key]
-        return result
+    def get(self, key: str, default: Any = _sentinel) -> Any:
+        if default is not _sentinel:
+            # We strictly ban default values to avoid hidden hardcoded behavior
+            raise ValueError(
+                f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files."
+            )
+
+        # If no default is provided, it behaves like __getitem__ (raises KeyError if missing)
+        return self[key]
 
     def __getitem__(self, key: str) -> Any:
-        _start = time.perf_counter()
-        value = self._data[key]
-        result: Any
+        value: Any = self._data[key]
         if isinstance(value, dict):
-            result = AutoSaveDict(value, self._save_callback)
-        else:
-            result = value
-        return result
+            return AutoSaveDict(value, self._save_callback)
+        return value
 
     def __setitem__(self, key: str, value: Any) -> None:
-        _start = time.perf_counter()
         if isinstance(value, AutoSaveDict):
             value = value._data
         self._data[key] = value
         self._save_callback()
 
     def __delitem__(self, key: str) -> None:
-        _start = time.perf_counter()
         del self._data[key]
         self._save_callback()
 
     def __iter__(self) -> Iterator[str]:
-        _start = time.perf_counter()
-        result: Iterator[str] = iter(self._data)
-        return result
+        return iter(self._data)
 
     def __len__(self) -> int:
-        _start = time.perf_counter()
-        result: int = len(self._data)
-        return result
+        return len(self._data)
 
     def copy(self) -> dict[str, Any]:
-        _start = time.perf_counter()
-        result: dict[str, Any] = self._data.copy()
-        return result
+        return self._data.copy()
 
     def __repr__(self) -> str:
-        _start = time.perf_counter()
-        result: str = repr(self._data)
-        return result
+        return repr(self._data)
 
 
 class Config(MutableMapping):
@@ -131,93 +110,93 @@ class Config(MutableMapping):
     Use .get(key) (without default) or direct access [key]. Both will raise KeyError if missing.
     """
 
-    def __init__(self, config_file: PathLike) -> None:
-        _start = time.perf_counter()
+    def __init__(self, config_file: PathLike = CONFIG_FILE) -> None:
         self._root_path: Path = _get_config_file(config_file)
         self._cache: dict[str, Any] = {}
         self._root_data: ConfigDict | None = None
         self._wrappers: dict[str, AutoSaveDict] = {}
 
-    def get(self, key: str) -> Any:
-        _start = time.perf_counter()
-        result: Any = self[key]
+    def get(self, key: str, default: Any = _sentinel) -> Any:
+        if default is not _sentinel:
+            # We strictly ban default values to avoid hidden hardcoded behavior
+            raise ValueError(
+                f"Providing a default value for '{key}' is not allowed. All config values must be present in the configuration files."
+            )
 
-        return result
+        # If no default is provided, it behaves like __getitem__ (raises KeyError if missing)
+        return self[key]
 
     def _get_root(self) -> ConfigDict:
-        _start = time.perf_counter()
         if self._root_data is None:
             self._root_data = _load_raw_config(self._root_path)
-        result: ConfigDict = self._root_data
-        return result
+        return self._root_data
 
     def _save_root(self) -> None:
-        _start = time.perf_counter()
         if self._root_data is not None:
             _save_raw_config(self._root_data, self._root_path)
 
     def _get_sub(self, section: str) -> ConfigDict | None:
-        _start = time.perf_counter()
-        pointer: str = SUB_CONFIG_MAPPING[section]
-        root: dict[str, Any] = self._get_root()
-        result: ConfigDict | None
-        if pointer not in root:
-            result = None
-        else:
-            path = root[pointer]
-            if section not in self._cache:
-                self._cache[section] = _load_raw_config(path)
-                if section in self._wrappers:
-                    del self._wrappers[section]
-            result = self._cache[section]
+        pointer: str | None = SUB_CONFIG_MAPPING.get(section)
+        if not pointer:
+            return None
 
-        return result
+        root: dict[str, Any] = self._get_root()
+        if pointer not in root:
+            return None
+
+        path = root[pointer]
+        if section not in self._cache:
+            self._cache[section] = _load_raw_config(path)
+            # If valid wrapper exists but points to old data (unlikely if strictly controlled), invalidating is safe.
+            if section in self._wrappers:
+                del self._wrappers[section]
+
+        return self._cache[section]
 
     def _save_sub(self, section: str) -> None:
-        _start = time.perf_counter()
         if section not in self._cache:
-
             return
-        pointer: str = SUB_CONFIG_MAPPING[section]
+
+        pointer: str | None = SUB_CONFIG_MAPPING.get(section)
+        if pointer is None:
+            return
         root: dict[str, Any] = self._get_root()
         path = root[pointer]
         _save_raw_config(self._cache[section], path)
 
     def __getitem__(self, key: str) -> Any:
-        _start = time.perf_counter()
-        result: Any
+        # Check subconfig mappings
         if key in SUB_CONFIG_MAPPING:
             data: dict[str, Any] | None = self._get_sub(key)
             if data is None:
                 raise KeyError(f"Subconfig '{key}' not configured")
             if key not in self._wrappers:
                 self._wrappers[key] = AutoSaveDict(data, lambda: self._save_sub(key))
-            result = self._wrappers[key]
-        else:
-            root: dict[str, Any] = self._get_root()
-            if key in root:
-                val = root[key]
-                result = (
-                    AutoSaveDict(val, self._save_root) if isinstance(val, dict) else val
-                )
-            else:
-                found: bool = False
-                for section in SUB_CONFIG_MAPPING:
-                    data = self._get_sub(section)
-                    if data and key in data:
-                        sub_wrapper = AutoSaveDict(
-                            data, lambda s=section: self._save_sub(s)
-                        )
-                        result = sub_wrapper[key]
-                        found = True
-                        break
-                if not found:
-                    raise KeyError(f"Key '{key}' not found")
+            return self._wrappers[key]
 
-        return result
+        # Check root
+        root: dict[str, Any] = self._get_root()
+        if key in root:
+            val: Any = root[key]
+            if isinstance(val, dict):
+                # We could cache root wrappers too if needed, but usually root items are simple strings/paths
+                return AutoSaveDict(val, self._save_root)
+            return val
+
+        # Check deep keys in subconfigs
+        for section in SUB_CONFIG_MAPPING:
+            data: dict[str, Any] | None = self._get_sub(section)
+            if data and key in data:
+                # We return a wrapper for the sub-dict, but this wrapper is ephemeral.
+                # Logic for caching ephemeral deep wrappers is complex.
+                # Users generally shouldn't rely on 'is' identity for deep random access.
+                sub_wrapper = AutoSaveDict(data, lambda s=section: self._save_sub(s))
+                return sub_wrapper[key]
+
+        raise KeyError(f"Key '{key}' not found")
 
     def __setitem__(self, key: str, value: Any) -> None:
-        _start = time.perf_counter()
+        # If key is section name
         if key in SUB_CONFIG_MAPPING:
             if not isinstance(value, dict):
                 raise ValueError(
@@ -227,61 +206,56 @@ class Config(MutableMapping):
             if key in self._wrappers:
                 del self._wrappers[key]
             self._save_sub(key)
-        else:
-            root: dict[str, Any] = self._get_root()
-            overwritten: bool = False
-            for section in SUB_CONFIG_MAPPING:
-                data = self._get_sub(section)
-                if data is not None and key in data:
-                    data[key] = value
-                    self._save_sub(section)
-                    overwritten = True
-                    break
-            if not overwritten:
-                root[key] = value
-                self._save_root()
+            return
+
+        # If key in root
+        root: dict[str, Any] = self._get_root()
+
+        # Check if overwrite subconfig deep key
+        for section in SUB_CONFIG_MAPPING:
+            data: dict[str, Any] | None = self._get_sub(section)
+            if data is not None and key in data:
+                data[key] = value
+                self._save_sub(section)
+                return
+
+        root[key] = value
+        self._save_root()
 
     def __delitem__(self, key: str) -> None:
-        _start = time.perf_counter()
         root: dict[str, Any] = self._get_root()
         if key in root:
             del root[key]
             self._save_root()
-        else:
-            found: bool = False
-            for section in SUB_CONFIG_MAPPING:
-                data = self._get_sub(section)
-                if data and key in data:
-                    del data[key]
-                    self._save_sub(section)
-                    found = True
-                    break
-            if not found:
-                raise KeyError(key)
+            return
+
+        for section in SUB_CONFIG_MAPPING:
+            data: dict[str, Any] | None = self._get_sub(section)
+            if data and key in data:
+                del data[key]
+                self._save_sub(section)
+                return
+
+        raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
-        _start = time.perf_counter()
         keys: set[str] = set(self._get_root().keys())
         keys.update(SUB_CONFIG_MAPPING.keys())
         for section in SUB_CONFIG_MAPPING:
-            data = self._get_sub(section)
+            data: dict[str, Any] | None = self._get_sub(section)
             if data:
                 keys.update(data.keys())
-        result: Iterator[str] = iter(keys)
-
-        return result
+        return iter(keys)
 
     def __len__(self) -> int:
-        _start = time.perf_counter()
-        result: int = len(list(iter(self)))
-
-        return result
+        return len(list(iter(self)))
 
     def clear(self) -> None:
-        _start = time.perf_counter()
+        """Clear cache to force reload from disk."""
         self._root_data = None
         self._cache.clear()
         self._wrappers.clear()
 
 
+# Global singleton
 config = Config(CONFIG_FILE)
