@@ -66,7 +66,6 @@ def _get_level_progress_stats(
 
 
 def _node_payload(filename: str, img_data: dict[str, Any]) -> dict[str, Any]:
-    _start = time.perf_counter()
     node = crystal_graph.get_node(filename)
     comp = crystal_graph.get_component(node_id=filename)
     chain_length = crystal_graph.get_node_chain_length(filename)
@@ -89,7 +88,10 @@ def _node_payload(filename: str, img_data: dict[str, Any]) -> dict[str, Any]:
         "is_bottom": node.is_bottom() if node else False,
         "_extremes": left_extremes,
     }
-    #
+    if int(result["comparison_count"]) > 0 and result["chain_length"] == 0:
+        raise RuntimeError(
+            "a node can't have chain length 0 and comparison count > 0 at the same time"
+        )
     return result
 
 

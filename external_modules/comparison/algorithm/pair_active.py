@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from contextlib import contextmanager
 import time
-from typing import Any
+from typing import Any, Iterator
 import logging
 import random
 
@@ -17,7 +17,7 @@ from ...database_structure.comparisons_table import (
     get_total_comparisons,
     comparison_exists_for_pair,
     get_images_with_only_wins,
-    get_images_with_only_losses
+    get_images_with_only_losses,
 )
 
 from .trueskill_rating import Rating, expected_win_probability, rating_from_row
@@ -86,7 +86,6 @@ def _pair_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
 def _prefer_cross_path(a: str, b: str) -> int:
     _start = time.perf_counter()
     result = 0 if crystal_graph.are_in_same_path(a, b) else 1
-
     return result
 
 
@@ -101,15 +100,32 @@ def _find_unseen_candidates(
     source: dict[str, Any],
     candidates: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
-) -> list[dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
+
+    _start = time.perf_counter()
     source_name = source["filename"]
-    result = [
-        candidate
-        for candidate in candidates
-        if candidate["filename"] != source_name
-        and _pair_key(source_name, candidate["filename"]) not in pair_set
-    ]
-    return result
+    results = 0
+    for candidate in candidates:
+        if (
+            _pair_key(source_name, candidate["filename"]) not in pair_set
+            and candidate["filename"] != source_name
+        ):
+            yield candidate
+            results += 1
+            yield candidate
+
+    logger.debug(f"find unseen candidates length:{results}", _start)
+
+    # result = [
+    #     candidate
+    #     for candidate in candidates
+    #     if _score_gap(source, candidate) < score_gap
+    #     and _prefer_cross_path(source["filename"], candidate["filename"]) == 1
+    #     # and _pair_key(source_name, candidate["filename"]) not in pair_set
+    #     and candidate["filename"] != source_name
+    # ]
+
+    # return result
 
 
 def _are_in_different_paths(a: str, b: str) -> bool:
@@ -129,10 +145,12 @@ def _build_low_count_pool(
             img for img in candidate_images if int(img["comparison_count"]) <= threshold
         ]
         if len(pool) >= max(threshold + 2, reserve_count):
-            #print("a", len(pool) , threshold,insertion_target,reserve_count)
+            # print("a", len(pool) , threshold,insertion_target,reserve_count)
             return pool
     result = [
-        img for img in candidate_images if int(img["comparison_count"]) <= insertion_target
+        img
+        for img in candidate_images
+        if int(img["comparison_count"]) <= insertion_target
     ]
     return result
 
@@ -143,30 +161,41 @@ def _phase1_seed_coverage(
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
     _start = time.perf_counter()
     seed_target = int(config["ranking"]["seed_target_comparisons"])
-    p1_tiebreaker = _random_tiebreaker(seed_candidates)
+    # p1_tiebreaker = _random_tiebreaker(seed_candidates)
     under_seed_target = sorted(
         [img for img in seed_candidates if int(img["comparison_count"]) < seed_target],
         key=lambda img: (
             int(img["comparison_count"]),
             -float(img["rating_sigma"]),
-            p1_tiebreaker[img["filename"]],
+            # p1_tiebreaker[img["filename"]],
         ),
     )
     for source in under_seed_target:
         opponents = _find_unseen_candidates(source, seed_candidates, existing_pair_set)
         if not opponents:
             continue
-        opp_tiebreaker = _random_tiebreaker(opponents)
-        opponents.sort(
-            key=lambda opp: (
-                int(opp["comparison_count"]),
-                -_prefer_cross_path(source["filename"], opp["filename"]),
-                _score_gap(source, opp),
-                opp_tiebreaker[opp["filename"]],
-            )
-        )
-        chosen = opponents[0]
+        # opp_tiebreaker = _random_tiebreaker(opponents)
+        chosen = None
+        i = 0
+        for opp in opponents:
+            if not _are_in_different_paths(source["filename"], opp["filename"]):
+                continue
 
+            i += 1
+
+            if chosen is None:
+                chosen = opp
+                continue
+            if int(opp["comparison_count"]) < chosen["comparison_count"]:
+                chosen = opp
+                continue
+            if _score_gap(source, opp) < _score_gap(source, chosen):
+                chosen = opp
+                continue
+            if i > 10:
+                break
+        if chosen is None:
+            continue
         result = (
             (source["filename"], chosen["filename"]),
             {
@@ -176,6 +205,7 @@ def _phase1_seed_coverage(
                 "refinement_details": None,
             },
         )
+        logger.debug("return result", _start)
         return result
     return None, {}
 
@@ -241,25 +271,31 @@ def _phase3_collapsible_pairs(
     bottoms_by_comp: dict[int | None, list[str]] = defaultdict(list)
 
     for chain in chains:
-        if chain.first and chain.first.filename in candidate_names:
+        if (
+            chain.first
+            and chain.first.filename in candidate_names
+            and chain.first.is_top()
+        ):
             comp = _component_id(chain.first.filename)
             tops_by_comp[comp].append(chain.first.filename)
-        if chain.last and chain.last.filename in candidate_names:
+        if (
+            chain.last
+            and chain.last.filename in candidate_names
+            and chain.last.is_bottom()
+        ):
             comp = _component_id(chain.last.filename)
             bottoms_by_comp[comp].append(chain.last.filename)
-            
-    only_wins=get_images_with_only_wins()
-    only_loses=get_images_with_only_losses()
-    
-    logger.debug(f"only wins: {only_wins}")
-    logger.debug(f"only loses: {only_loses}")
-    
-    
-    
+
+    only_wins = get_images_with_only_wins()
+    only_loses = get_images_with_only_losses()
+
     for comp_id, tops in tops_by_comp.items():
         if len(tops) < 2:
             continue
+
         for i, a in enumerate(tops):
+            if a not in only_wins:
+                raise RuntimeError(f"top node {a} not present in only wins.")
             for b in tops[i + 1 :]:
                 if _pair_key(a, b) in pair_set:
                     continue
@@ -285,6 +321,9 @@ def _phase3_collapsible_pairs(
         if len(bottoms) < 2:
             continue
         for i, a in enumerate(bottoms):
+            if a not in only_loses:
+                raise RuntimeError(f"bottom node {a} not present in only loses.")
+
             for b in bottoms[i + 1 :]:
                 if _pair_key(a, b) in pair_set:
                     continue
@@ -385,11 +424,12 @@ def _phase5_uncertainty_refine(
     )
 
     for source in uncertainty_pool:
-        unseen = _find_unseen_candidates(source, candidate_images, pair_set)
-        if not unseen:
+        unseen_iterator = _find_unseen_candidates(source, candidate_images, pair_set)
+        if not unseen_iterator:
             continue
         source_comp = _component_id(source["filename"])
         source_rating = rating_from_row(source)
+        unseen = list(unseen_iterator)
         unseen_tiebreaker = _random_tiebreaker(unseen)
         unseen.sort(
             key=lambda opp: (

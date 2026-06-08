@@ -411,7 +411,7 @@ class CompareMode {
             this.showLoading(false);
             return;
         }
-        compareLogger.info("Loaded pair:", null, pair, { cached: cached != null });
+        compareLogger.info("Loaded pair:", null, pair, { cached: cached !== null });
         this.currentPair = { ...pair, _preloadedLeft: cached?.leftImg, _preloadedRight: cached?.rightImg };
         await this.renderPair();
         this.showLoading(false);
@@ -451,8 +451,31 @@ class CompareMode {
             this._preloadRight = null;
         }
 
-        els.leftFilename.innerHTML = left.filename + (left.is_seed ? " <span class=\"seed-badge\">🌱</span>" : "");
-        els.rightFilename.innerHTML = right.filename + (right.is_seed ? " <span class=\"seed-badge\">🌱</span>" : "");
+        els.leftFilename.textContent = left.filename;
+        els.rightFilename.textContent = right.filename;
+        // seed badge as sibling so it doesn't get clipped by truncate
+        let badge = els.leftFilename.parentElement.querySelector(".seed-badge");
+        if (left.is_seed) {
+            if (!badge) {
+                badge = document.createElement("span");
+                badge.className = "seed-badge";
+                badge.textContent = "🌱";
+                els.leftFilename.parentElement.appendChild(badge);
+            }
+        } else if (badge) {
+            badge.remove();
+        }
+        badge = els.rightFilename.parentElement.querySelector(".seed-badge");
+        if (right.is_seed) {
+            if (!badge) {
+                badge = document.createElement("span");
+                badge.className = "seed-badge";
+                badge.textContent = "🌱";
+                els.rightFilename.parentElement.appendChild(badge);
+            }
+        } else if (badge) {
+            badge.remove();
+        }
 
         // Update footer stats
         if (this.currentPair.global_stats) {

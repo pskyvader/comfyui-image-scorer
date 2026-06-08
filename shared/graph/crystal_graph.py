@@ -247,39 +247,68 @@ class ChainManager:
         self._top_nodes = [n for n in self._all_filenames if not self._better_than[n]]
         self._bottom_nodes = [n for n in self._all_filenames if not self._worse_than[n]]
 
-    def _calculate_chain_lengths(self) -> None:
-        """Chain length = longest_ending_at + longest_starting_from. Iterative DP."""
-        # Forward pass (longest path from node to sink)
-        self._chain_length_starting = {}
-        outdegree = {n: len(self._worse_than.get(n, [])) for n in self._all_filenames}
-        queue = deque([n for n in self._all_filenames if outdegree[n] == 0])
+    @staticmethod
+    def _kahn_longest_path(
+        nodes: set[str],
+        edges: dict[str, list[str]],
+        reverse_edges: dict[str, list[str]],
+    ) -> dict[str, int]:
+        """Longest-path DP using Kahn's algorithm.
+
+        Returns a dict of node → longest distance. Nodes in cycles are
+        assigned a value of at least 1 if they have any outgoing edge.
+        """
+        result: dict[str, int] = {}
+        outdegree = {n: len(edges.get(n, [])) for n in nodes}
+        queue = deque([n for n in nodes if outdegree[n] == 0])
         while queue:
             node = queue.popleft()
             best = 0
-            for succ in self._worse_than.get(node, []):
-                if self._chain_length_starting.get(succ, 0) + 1 > best:
-                    best = self._chain_length_starting.get(succ, 0) + 1
-            self._chain_length_starting[node] = best
-            for pred in self._better_than.get(node, []):
+            for succ in edges.get(node, []):
+                v = result.get(succ, 0)
+                if v + 1 > best:
+                    best = v + 1
+            result[node] = best
+            for pred in reverse_edges.get(node, []):
                 outdegree[pred] -= 1
                 if outdegree[pred] == 0:
                     queue.append(pred)
+        # Remaining nodes are in cycles. Assign a value that reflects
+        # the longest path using only edges to already-processed (DAG)
+        # nodes.  If such a path exists use it; otherwise assign 1
+        # (the node has at least the edge that puts it in a cycle).
+        remaining = [n for n in nodes if n not in result]
+        if remaining:
+            # Repeated propagation so values flow through cycle nodes
+            # whose successors have been resolved in a previous pass.
+            changed = True
+            while changed:
+                changed = False
+                for node in remaining:
+                    if node in result:
+                        continue
+                    best = -1
+                    for succ in edges.get(node, []):
+                        v = result.get(succ, -1)
+                        if v >= 0:
+                            best = max(best, v + 1)
+                    if best >= 0:
+                        result[node] = best
+                        changed = True
+            for node in remaining:
+                if node not in result:
+                    result[node] = 1 if edges.get(node) else 0
+        return result
 
-        # Backward pass (longest path from source to node)
-        self._chain_length_ending = {}
-        indegree = {n: len(self._better_than.get(n, [])) for n in self._all_filenames}
-        queue = deque([n for n in self._all_filenames if indegree[n] == 0])
-        while queue:
-            node = queue.popleft()
-            best = 0
-            for pred in self._better_than.get(node, []):
-                if self._chain_length_ending.get(pred, 0) + 1 > best:
-                    best = self._chain_length_ending.get(pred, 0) + 1
-            self._chain_length_ending[node] = best
-            for succ in self._worse_than.get(node, []):
-                indegree[succ] -= 1
-                if indegree[succ] == 0:
-                    queue.append(succ)
+    def _calculate_chain_lengths(self) -> None:
+        """Chain length = longest_ending_at + longest_starting_from. Iterative DP."""
+
+        self._chain_length_starting = self._kahn_longest_path(
+            self._all_filenames, self._worse_than, self._better_than
+        )
+        self._chain_length_ending = self._kahn_longest_path(
+            self._all_filenames, self._better_than, self._worse_than
+        )
 
         self._chain_length = {}
         self._nodes_by_length.clear()
@@ -427,22 +456,17 @@ class ChainManager:
                 in_chain.add(cur)
                 covered.add(cur)
                 successors = self._worse_than.get(cur, [])
-                candidates = [s for s in successors if s not in in_chain]
+                candidates = [
+                    s for s in successors if s not in in_chain
+                ]
                 if not candidates:
                     break
 
-                def score(n: str) -> tuple[int, int]:
-                    return (1 if n not in covered else 0, depth_to_sink.get(n, 0))
-
-                candidates.sort(key=score, reverse=True)
-                if len(candidates) > 1 and score(candidates[0])[0] == 1:
-                    best_score = score(candidates[0])
-                    tied = [c for c in candidates if score(c) == best_score]
-                    best = (
-                        max(tied, key=lambda n: _count_uncov_downstream(n, in_chain))
-                        if len(tied) > 1
-                        else tied[0]
-                    )
+                candidates.sort(key=lambda n: depth_to_sink.get(n, 0), reverse=True)
+                if len(candidates) > 1 and depth_to_sink.get(candidates[0]) == depth_to_sink.get(candidates[1]):
+                    max_depth = depth_to_sink.get(candidates[0], 0)
+                    tied = [n for n in candidates if depth_to_sink.get(n, 0) == max_depth]
+                    best = max(tied, key=lambda n: _count_uncov_downstream(n, in_chain))
                 else:
                     best = candidates[0]
                 cur = best
@@ -451,7 +475,9 @@ class ChainManager:
                 cur = start
                 while True:
                     preds = [
-                        p for p in self._better_than.get(cur, []) if p not in in_chain
+                        p
+                        for p in self._better_than.get(cur, [])
+                        if p not in in_chain
                     ]
                     if not preds:
                         break
@@ -925,9 +951,40 @@ class CrystalGraph:
             return ChainProxy(self._chain, chain_id, min_chains[chain_id])
         return None
 
-    def get_all_chains(self) -> list[ChainProxy]:
-        min_chains = self._chain.compute_min_chains()
-        return [ChainProxy(self._chain, i, c) for i, c in enumerate(min_chains)]
+    def get_all_chains(
+        self,
+        min_length: int = 0,
+        max_length: int | None = None,
+        sort_order: str = "desc",
+    ) -> list[ChainProxy]:
+        """Return all main chains, optionally filtered and sorted.
+
+        A main chain is a chain that is the primary (longest) chain for at
+        least one node.
+
+        Parameters
+        ----------
+        min_length : int
+            Minimum chain length (number of nodes) to include.
+        max_length : int | None
+            Maximum chain length to include (None = no limit).
+        sort_order : str
+            ``"desc"`` (default) for longest first, ``"asc"`` for shortest first.
+
+        Returns
+        -------
+        list[ChainProxy]
+            Main chains satisfying the filter, sorted by length.
+        """
+        result: list[ChainProxy] = []
+        for length_data in self.get_chains_map().values():
+            for chain, _ in length_data.values():
+                result.append(chain)
+        if min_length > 0 or max_length is not None:
+            max_len = max_length if max_length is not None else 2**63 - 1
+            result = [c for c in result if min_length <= c.length <= max_len]
+        result.sort(key=lambda c: c.length, reverse=(sort_order != "asc"))
+        return result
 
     def get_all_sub_chains(
         self, max_chains: int = 20000000, max_depth: int = 50000
@@ -1035,7 +1092,10 @@ class CrystalGraph:
         if self._chain_map is not None:
             return self._chain_map
 
-        chains: list[ChainProxy] = crystal_graph.get_all_chains()
+        min_chains_raw = self._chain.compute_min_chains()
+        chains: list[ChainProxy] = [
+            ChainProxy(self._chain, i, c) for i, c in enumerate(min_chains_raw)
+        ]
         chain_map: dict[int, list[ChainProxy]] = {}
         with tqdm(total=len(chains), desc="Mapping chains by length") as pbar:
             for c in chains:

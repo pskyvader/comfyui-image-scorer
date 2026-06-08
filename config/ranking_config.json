@@ -9,6 +9,6 @@
     "parallel_requests": false,
     "timeout_ms": 30000,
     "seed_size": 1000,
-    "seed_target_comparisons": 8,
+    "seed_target_comparisons": 10,
     "insertion_target_comparisons": 3
 }

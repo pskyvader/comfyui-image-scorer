@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import io
 import logging
 import queue
@@ -10,10 +11,10 @@ import time
 from contextlib import contextmanager
 from typing import Callable, ClassVar, Iterator, Literal
 
-
 # ── Global tqdm tuning ────────────────────────────────────────────────
 try:
     import tqdm as _tqdm_module
+
     _tqdm_module.tqdm.mininterval = 1.0
 except ImportError:
     pass
@@ -45,6 +46,7 @@ def set_log_filter_hook(fn: Callable[[str, str | None], bool] | None) -> None:
 
 
 # ── The single output manager for ALL task output ─────────────────────
+
 
 class _TaskOutput:
     """Single point of control for ALL task output: logs, progress, prints,
@@ -128,6 +130,7 @@ class _TaskOutput:
 
 # ── I/O capture (feeds into _TaskOutput) ─────────────────────────────
 
+
 class _CaptureStream(io.TextIOBase):
     """Wraps stdout/stderr during a task.
 
@@ -142,7 +145,11 @@ class _CaptureStream(io.TextIOBase):
     """
 
     def __init__(
-        self, lines: list[str], original_stream: io.TextIOWrapper | None, *, task_id: str | None = None
+        self,
+        lines: list[str],
+        original_stream: io.TextIOWrapper | None,
+        *,
+        task_id: str | None = None,
     ) -> None:
         _start = time.perf_counter()
         self.lines = lines
@@ -208,6 +215,7 @@ class _CaptureStream(io.TextIOBase):
 
 # ── SSE broadcaster (used by _TaskOutput) ─────────────────────────────
 
+
 class SSELogBroadcaster:
     """Broadcasts log lines to all connected SSE clients in real time.
 
@@ -227,9 +235,7 @@ class SSELogBroadcaster:
         if cls._dispatch_started:
             return
         cls._dispatch_started = True
-        cls._dispatch_thread = threading.Thread(
-            target=cls._dispatch_loop, daemon=True
-        )
+        cls._dispatch_thread = threading.Thread(target=cls._dispatch_loop, daemon=True)
         cls._dispatch_thread.start()
 
     @classmethod
@@ -288,6 +294,7 @@ class SSELogBroadcaster:
 
 # ── Python logging integration ────────────────────────────────────────
 
+
 class _DynamicModuleFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         return SharedLogger.should_emit(record.name)
@@ -321,7 +328,11 @@ class TaskLogHandler(logging.Handler):
             level_name=record.levelname,
             message=record.getMessage(),
         )
-        task_id = hasattr(record, "task_id") and record.task_id or _TaskOutput.current_task_id()
+        task_id = (
+            hasattr(record, "task_id")
+            and record.task_id
+            or _TaskOutput.current_task_id()
+        )
         _TaskOutput.write(task_id, task_line, module_name=record.name)
 
 
@@ -439,8 +450,13 @@ class SharedLogger:
     @classmethod
     def format_message(cls, message: str, start_timer: float | None) -> str:
         result = message
+
+        caller_name = sys._getframe(4).f_code.co_name
+
         if start_timer is not None:
-            result = f"{message} ({time.perf_counter() - start_timer:.4f}s)"
+            result = (
+                f"{message} ({caller_name}) ({time.perf_counter() - start_timer:.4f}s)"
+            )
         return result
 
     @classmethod

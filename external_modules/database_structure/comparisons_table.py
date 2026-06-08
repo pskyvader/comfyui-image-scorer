@@ -207,7 +207,6 @@ def get_recent_comparisons(
 
 
 def get_comparison_count(filename: str) -> int:
-    _start = time.perf_counter()
     try:
         with get_db_connection() as conn:
             row = conn.execute(
