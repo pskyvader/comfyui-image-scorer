@@ -33,6 +33,8 @@ const RENDER = {
     },
     link: {
         linkColor: "#ffffff",
+        mainChainColor: "#ffffff",
+        regularChainColor: "#888888",
         linkLineWidth: 1,
         linkViewportPadding: 10,
         linkOpacityMinDist: 10,
@@ -71,7 +73,8 @@ const RENDER = {
         padding: 150, // world boundary padding (canvas_renderer.js:78-79, main.js:303-307)
     },
     viewport: {
-        hitTestPadding: 10, // makes clicking small nodes easier (canvas_renderer.js:130)
+        hitTestPadding: 8, // makes clicking small nodes easier (canvas_renderer.js:130)
+        mobileHitTestPadding: 4, // smaller hit area on mobile
     },
 };
 

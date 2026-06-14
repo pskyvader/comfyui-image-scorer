@@ -49,10 +49,17 @@ ChainMapUI.prototype.setupSVGAndRenderer = function() {
     this.zoom = d3.zoom()
         .scaleExtent(CAMERA.zoomExtent)
         .filter((event) => {
-            if (event.type === "mousedown" || event.type === "touchstart") {
+            if (event.type === "mousedown") {
                 const p = this._getCanvasCoords(event);
                 const hit = this.renderer.hitTest({ x: p.x, y: p.y });
-                if (hit) return false; 
+                if (hit) return false;
+            }
+            if (event.type === "touchstart") {
+                const p = this._getCanvasCoords(event);
+                const touches = event.sourceEvent?.touches || event.touches || [];
+                if (touches.length >= 2) return true;
+                const hit = this.renderer.hitTest({ x: p.x, y: p.y });
+                if (hit) return false;
             }
             return !event.ctrlKey && !event.button;
         })

@@ -134,11 +134,11 @@
                 <button id="toggle-labels-btn"
                     class="p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10"
                     title="Toggle Filenames">
-                    <svg id="tag-icon-off" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg id="tag-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                     </svg>
-                    <svg id="tag-icon-on" class="w-5 h-5 hidden text-purple-400" fill="currentColor"
+                    <svg id="tag-icon-on" class="w-5 h-5 text-purple-400" fill="currentColor"
                         viewBox="0 0 24 24">
                         <path
                             d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -152,6 +152,26 @@
                     </svg>
                     <svg id="links-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                </button>
+                <button id="toggle-main-chains-btn"
+                    class="p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10"
+                    title="Toggle Main Chains">
+                    <svg id="main-chains-icon-on" class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                    <svg id="main-chains-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <button id="toggle-regular-chains-btn"
+                    class="p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10"
+                    title="Toggle Regular Chains">
+                    <svg id="regular-chains-icon-on" class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                    <svg id="regular-chains-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
                     </svg>
                 </button>
             </div>
@@ -216,6 +236,12 @@
                         </div>
                         <div class="w-4 h-0.5 bg-gray-500"></div>
                     </div><span>Winner &rarr; Loser (at middle)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-6 h-0.5 bg-white"></div><span>Main Chains</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-6 h-0.5 bg-gray-500"></div><span>Regular Chains</span>
                 </div>
             </div>
         </div>

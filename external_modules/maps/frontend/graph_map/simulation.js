@@ -56,6 +56,10 @@ class ChainSimulation {
         // When true, buoyancy uses per-component centers instead of absolute map center
         this._noCenterAttract = options.noCenterAttract !== false;
 
+        // Chain physics toggle
+        this._enableMainChainPhysics = options.enableMainChainPhysics !== false;
+        this._enableRegularChainPhysics = options.enableRegularChainPhysics !== false;
+
         // Grid & spatial hash
         this._maxNodeRadius = 8;
         this._cellSize = 30;
@@ -97,10 +101,10 @@ class ChainSimulation {
 
     initialize() {
         this.indexNodes();
-        this._computeMaxRadius();
         this._groupByComponent();
         this._sizedWorld();
         this._prepareLinks();
+        this._computeNodeDegrees();
         this._initPositions();
     }
 
@@ -108,6 +112,29 @@ class ChainSimulation {
         this._maxNodeRadius = 8;
         for (const n of this.nodes) {
             if (n._radius && n._radius > this._maxNodeRadius) {
+                this._maxNodeRadius = n._radius;
+            }
+        }
+        this._gap = 5;
+        this._cellSize = this._maxNodeRadius * 2 + this._gap;
+    }
+
+    _computeNodeDegrees() {
+        const degreeMap = new Map();
+        for (const link of this.links) {
+            const sId = this.getNodeId(link.source);
+            const tId = this.getNodeId(link.target);
+            degreeMap.set(sId, (degreeMap.get(sId) || 0) + 1);
+            degreeMap.set(tId, (degreeMap.get(tId) || 0) + 1);
+        }
+        const baseRadius = 4;
+        const maxRadius = baseRadius * 10;
+        const radiusMultiplier = 2.5;
+        for (const n of this.nodes) {
+            const degree = degreeMap.get(n.id) || 0;
+            n._degree = degree;
+            n._radius = Math.min(maxRadius, baseRadius + Math.pow(degree, 1.5) * radiusMultiplier);
+            if (n._radius > this._maxNodeRadius) {
                 this._maxNodeRadius = n._radius;
             }
         }
@@ -154,6 +181,7 @@ class ChainSimulation {
 
             const scoreDiff = Math.abs(source.score - target.score);
             link._targetDistance = this._baseLinkLength + scoreDiff * this._scoreDistanceScale;
+            link._isMainChain = link.isMainChain === true;
         }
     }
 
@@ -181,37 +209,15 @@ class ChainSimulation {
     }
 
     _initPositions() {
-        const cellSize = this._cellSize;
-        const cy = this.effectiveHeight / 2;
-        const compIds = Array.from(this._compNodesMap.keys());
-        if (compIds.length === 0) return;
+        const pad = this._boundaryPadding;
+        const w = this.effectiveWidth - pad * 2;
+        const h = this.effectiveHeight - pad * 2;
 
-        const compCols = Math.max(1, Math.ceil(Math.sqrt(compIds.length)));
-
-        for (let ci = 0; ci < compIds.length; ci++) {
-            const compId = compIds[ci];
-            const compNodes = this._compNodesMap.get(compId);
-            if (!compNodes || !compNodes.length) continue;
-
-            const col = ci % compCols;
-            const row = Math.floor(ci / compCols);
-
-            compNodes.sort((a, b) => b.score - a.score);
-            const count = compNodes.length;
-            const nodeCols = Math.max(1, Math.ceil(Math.sqrt(count)));
-            const totalW = nodeCols * cellSize;
-
-            const compX = this._boundaryPadding + col * (totalW + cellSize);
-
-            for (let i = 0; i < count; i++) {
-                const n = compNodes[i];
-                const nc = i % nodeCols;
-                const nr = Math.floor(i / nodeCols);
-                n.x = compX + nc * cellSize + cellSize / 2;
-                n.y = cy + (0.5 - n.score) * this._verticalScale + row * this._verticalScale * 0.2 + nr;
-                n.vx = 0;
-                n.vy = 0;
-            }
+        for (const n of this.nodes) {
+            n.x = pad + Math.random() * w;
+            n.y = pad + Math.random() * h;
+            n.vx = 0;
+            n.vy = 0;
         }
 
         const halfW = this.effectiveWidth / 2;
@@ -329,9 +335,15 @@ class ChainSimulation {
     }
 
     _applyLinkConstraints() {
+        if (!this._enableMainChainPhysics && !this._enableRegularChainPhysics) return;
+
         const strength = this._linkStrength * this._alpha;
 
         for (const link of this.links) {
+            const isMain = link._isMainChain === true;
+            if (isMain && !this._enableMainChainPhysics) continue;
+            if (!isMain && !this._enableRegularChainPhysics) continue;
+
             const source = link.source;
             const target = link.target;
             if (!source || !target) continue;

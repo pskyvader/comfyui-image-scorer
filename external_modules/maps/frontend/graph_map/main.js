@@ -11,6 +11,8 @@ class ChainMapUI {
         this.labelsOverridden = false;
         this.linksOverridden = false;
         this._showLinks = true;
+        this._showMainChains = true;
+        this._showRegularChains = true;
         this.width = 800;
         this.height = 600;
     }
@@ -156,6 +158,24 @@ class ChainMapUI {
             };
         }
 
+        const toggleMainChainsBtn = document.getElementById("toggle-main-chains-btn");
+        if (toggleMainChainsBtn) {
+            toggleMainChainsBtn.onclick = () => {
+                this._showMainChains = !this._showMainChains;
+                this._applyChainVisibility();
+                this.syncButtonStates();
+            };
+        }
+
+        const toggleRegularChainsBtn = document.getElementById("toggle-regular-chains-btn");
+        if (toggleRegularChainsBtn) {
+            toggleRegularChainsBtn.onclick = () => {
+                this._showRegularChains = !this._showRegularChains;
+                this._applyChainVisibility();
+                this.syncButtonStates();
+            };
+        }
+
         if (this.renderer.detailLevel) {
             this.syncButtonStates();
         }
@@ -186,6 +206,22 @@ class ChainMapUI {
         this.renderer.setDetailLevel({
             ...this.renderer.detailLevel,
             showLinks: this._showLinks,
+        });
+        this.renderer.update(this.chainSim.nodes, links);
+    }
+
+    _applyChainVisibility() {
+        if (!this.chainSim) return;
+        const links = this.chainSim.links;
+        for (const link of links) {
+            const isMain = link._isMainChain === true;
+            link._visible = this._showLinks && (isMain ? this._showMainChains : this._showRegularChains);
+        }
+        const visibleCount = links.filter(l => l._visible).length;
+        this.renderer.setVisibleLinkCount(visibleCount);
+        this.renderer.setDetailLevel({
+            ...this.renderer.detailLevel,
+            showLinks: this._showLinks && (this._showMainChains || this._showRegularChains),
         });
         this.renderer.update(this.chainSim.nodes, links);
     }
@@ -241,7 +277,7 @@ class ChainMapUI {
 
         const simNodes = nodes.map(d => ({
             ...d,
-            _radius: RENDER.node.baseRadius + Math.sqrt(d.comparison_count) * RENDER.node.radiusMultiplier,
+            _radius: 0,
             _fill: colorScale(d.score),
             _label: d.id.split('/').pop(),
             _shortLabel: d.id.split('/').pop().substring(0, RENDER.node.labelTruncateLength) + "...",
@@ -249,10 +285,25 @@ class ChainMapUI {
         }));
 
         const nodeMap = new Map(simNodes.map(n => [n.id, n]));
+
+        const mainChainEdges = new Set();
+        if (this.rawData.chains) {
+            for (const chain of this.rawData.chains) {
+                const chainNodes = chain.nodes;
+                for (let i = 0; i < chainNodes.length - 1; i++) {
+                    const a = chainNodes[i];
+                    const b = chainNodes[i + 1];
+                    mainChainEdges.add(`${a}|${b}`);
+                    mainChainEdges.add(`${b}|${a}`);
+                }
+            }
+        }
+
         const simLinks = links.map(d => ({
             source: nodeMap.get(d.source),
             target: nodeMap.get(d.target),
-            _opacity: RENDER.node.defaultOpacity
+            _opacity: RENDER.node.defaultOpacity,
+            isMainChain: mainChainEdges.has(`${d.source}|${d.target}`)
         })).filter(l => l.source && l.target);
 
         const self = this;
@@ -266,6 +317,9 @@ class ChainMapUI {
             width: this.width,
             height: this.height,
             rampTotal: 20,
+            enableMainChainPhysics: true,
+            enableRegularChainPhysics: false,
+            noCenterAttract: true,
             onTick: (data) => {
                 const sr = self.renderer.subRenderer;
                 const vp = sr.getViewportBounds(0);
@@ -340,6 +394,7 @@ class ChainMapUI {
         }
 
         this.syncButtonStates();
+        this._applyChainVisibility();
 
         this.chainSim.start();
     }
@@ -398,6 +453,16 @@ class ChainMapUI {
             const linksIconOff = document.getElementById("links-icon-off");
             if (linksIconOn) linksIconOn.classList.toggle("hidden", !this._showLinks);
             if (linksIconOff) linksIconOff.classList.toggle("hidden", this._showLinks);
+
+            const mainChainsIconOn = document.getElementById("main-chains-icon-on");
+            const mainChainsIconOff = document.getElementById("main-chains-icon-off");
+            if (mainChainsIconOn) mainChainsIconOn.classList.toggle("hidden", !this._showMainChains);
+            if (mainChainsIconOff) mainChainsIconOff.classList.toggle("hidden", this._showMainChains);
+
+            const regularChainsIconOn = document.getElementById("regular-chains-icon-on");
+            const regularChainsIconOff = document.getElementById("regular-chains-icon-off");
+            if (regularChainsIconOn) regularChainsIconOn.classList.toggle("hidden", !this._showRegularChains);
+            if (regularChainsIconOff) regularChainsIconOff.classList.toggle("hidden", this._showRegularChains);
         }
     }
 }

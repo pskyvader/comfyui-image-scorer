@@ -26,10 +26,10 @@ class CanvasGraphRenderer {
         this.linkBatchSize = 0;
         this.detailLevel = {
             showNodeBorders: false,
-            showLabels: false,
+            showLabels: true,
             showArrows: false,
             showLinks: true,
-            labelCap: 0,
+            labelCap: 500,
             arrowCap: 0,
             zoom: 1,
         };
@@ -133,7 +133,9 @@ class CanvasGraphRenderer {
         const scale = Math.max(this.transform.k, CAMERA.minScale);
         const worldX = (px - this.transform.x) / scale;
         const worldY = (py - this.transform.y) / scale;
-        const padding = RENDER.viewport.hitTestPadding / scale;
+        const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+        const basePadding = isMobile ? RENDER.viewport.mobileHitTestPadding : RENDER.viewport.hitTestPadding;
+        const padding = basePadding / scale;
 
         if (this._hitIndexDirty) this._buildHitSpatialIndex();
 
@@ -305,7 +307,6 @@ class CanvasGraphRenderer {
             : RENDER.link.linkOpacityMaxDist;
 
         this.ctx.globalAlpha = RENDER.link.linkOpacityMax;
-        this.ctx.strokeStyle = RENDER.link.linkColor;
         this.ctx.lineWidth = RENDER.link.linkLineWidth;
         this.ctx.beginPath();
 
@@ -323,6 +324,8 @@ class CanvasGraphRenderer {
                 continue;
             }
 
+            const isMain = link._isMainChain === true;
+            this.ctx.strokeStyle = isMain ? RENDER.link.mainChainColor : RENDER.link.regularChainColor;
             this.ctx.moveTo(source.x, source.y);
             this.ctx.lineTo(target.x, target.y);
         }

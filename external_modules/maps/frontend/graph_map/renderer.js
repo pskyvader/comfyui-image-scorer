@@ -12,10 +12,10 @@ class ChainMapRenderer {
         this.mode = "canvas";
         this.detailLevel = {
             showNodeBorders: true,
-            showLabels: false,
+            showLabels: true,
             showArrows: false,
             showLinks: true,
-            labelCap: 0,
+            labelCap: 500,
             arrowCap: 0,
             zoom: 1,
         };
