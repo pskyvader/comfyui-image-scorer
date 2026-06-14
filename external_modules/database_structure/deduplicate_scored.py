@@ -25,8 +25,6 @@ from shared.io import atomic_write_json, discover_files, load_json  # noqa: E402
 from shared.paths import image_root_processed  # noqa: E402
 import time
 
-logger = logging.getLogger(__name__)
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 JsonDict = dict[str, Any]

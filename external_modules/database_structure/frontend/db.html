@@ -13,14 +13,10 @@
                 <span class="text-xs text-gray-400">Re-import ranked/ folder images + scores into empty DB</span>
             </div>
             <div class="flex items-center gap-3">
-                <button class="action-btn warning whitespace-nowrap" data-action="reset-ratings">⟳ Reset
-                    Ratings</button>
-                <span class="text-xs text-gray-400">Reset all image ratings to defaults</span>
-            </div>
-            <div class="flex items-center gap-3">
-                <button class="action-btn whitespace-nowrap" data-action="normalize-comparisons">✓ Normalize
-                    Comparisons</button>
-                <span class="text-xs text-gray-400">Normalize all comparison records</span>
+                <button class="action-btn whitespace-nowrap" data-action="normalize-comparisons">
+                    ✓ Clean comparisons</button>
+                <span class="text-xs text-gray-400">Clean comparison records, removing duplicated, self compared,
+                    missing images, and contradicting comparisons</span>
             </div>
         </div>
     </div>
@@ -30,18 +26,9 @@
         <div class="section-title">File Management</div>
         <div class="space-y-2">
             <div class="flex items-center gap-3">
-                <button class="action-btn whitespace-nowrap" data-action="cleanup-orphans-dry">🧹 Orphans (Dry
-                    Run)</button>
-                <span class="text-xs text-gray-400">Preview orphaned files that can be removed</span>
-            </div>
-            <div class="flex items-center gap-3">
                 <button class="action-btn danger whitespace-nowrap" data-action="cleanup-orphans">🧹 Cleanup
                     Orphans</button>
                 <span class="text-xs text-gray-400">Remove orphaned files from disk</span>
-            </div>
-            <div class="flex items-center gap-3">
-                <button class="action-btn whitespace-nowrap" data-action="deduplicate-dry">📋 Dedup (Dry Run)</button>
-                <span class="text-xs text-gray-400">Preview duplicate scored entries</span>
             </div>
             <div class="flex items-center gap-3">
                 <button class="action-btn danger whitespace-nowrap" data-action="deduplicate">📋 Deduplicate</button>

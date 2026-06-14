@@ -368,7 +368,7 @@ def delete_comparison(filename_a: str, filename_b: str, winner: str) -> int:
         return result
 
 
-def normalize_comparisons() -> dict[str, int]:
+def clean_comparisons() -> dict[str, int]:
     """Clean imported comparison history before any rating replay.
 
     Rules:

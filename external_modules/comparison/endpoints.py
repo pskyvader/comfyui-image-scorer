@@ -249,12 +249,12 @@ def get_next_pair():
         component_data["size"] = left["component_size"]
 
     pair_data = {
-        "pair_type": pair_meta["pair_type"],
+        "pair_type": pair_meta.get("pair_type", "unknown"),
         "left_component_size": left["component_size"],
         "right_component_size": right["component_size"],
-        "left_comp_count": pair_meta["left_comp_count"],
-        "right_comp_count": pair_meta["right_comp_count"],
-        "refinement_details": pair_meta["refinement_details"],
+        "left_comp_count": pair_meta.get("left_comp_count", 0),
+        "right_comp_count": pair_meta.get("right_comp_count", 0),
+        "refinement_details": pair_meta.get("refinement_details", {}),
     }
 
     debug_data = {

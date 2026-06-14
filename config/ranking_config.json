@@ -1,7 +1,7 @@
 {
     "subfolder_threshold": 1000,
-    "transitive_depth": 2,
-    "lru_size": 100,
+    "transitive_depth": 5,
+    "lru_size": 200,
     "max_workers": 100,
     "batch_size": 1000,
     "default_score": 0.5,

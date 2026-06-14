@@ -34,10 +34,10 @@ class ChainManager:
     def enumerate_top_chains(self) -> list[list[str]]:
         ...
     
-    def is_redundant(self, u: str, v: str, skip_edges: set[tuple[str, str]] | None = ...) -> bool:
+    def is_redundant(self, u: str, v: str, skip_edges: set[tuple[str, str]] | None = ..., max_depth: int | None = ...) -> bool:
         ...
     
-    def are_in_same_path(self, img1: str, img2: str) -> bool:
+    def are_in_same_path(self, img1: str, img2: str, max_depth: int | None = ...) -> bool:
         ...
     
     def get_collapsable_pairs(self) -> list[tuple[str, str]]:

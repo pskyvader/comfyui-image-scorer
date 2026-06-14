@@ -9,7 +9,7 @@ from typing import Any, Iterator
 import logging
 import random
 
-from ....shared.graph.crystal_graph import crystal_graph
+from ....shared.graph.crystal_graph import NodeProxy, crystal_graph
 from ....shared.config import config
 from ....shared.logger import SharedLogger
 from ...database_structure.comparisons_table import (
@@ -110,7 +110,6 @@ def _find_unseen_candidates(
             _pair_key(source_name, candidate["filename"]) not in pair_set
             and candidate["filename"] != source_name
         ):
-            yield candidate
             results += 1
             yield candidate
 
@@ -171,29 +170,43 @@ def _phase1_seed_coverage(
         ),
     )
     for source in under_seed_target:
-        opponents = _find_unseen_candidates(source, seed_candidates, existing_pair_set)
-        if not opponents:
-            continue
+        logger.debug(f"starting iterator", _start)
+        opponents: Iterator[dict[str, Any]] = _find_unseen_candidates(
+            source, seed_candidates, existing_pair_set
+        )
+        # logger.debug("finish iterator", _start)
+
         # opp_tiebreaker = _random_tiebreaker(opponents)
         chosen = None
         i = 0
         for opp in opponents:
-            if not _are_in_different_paths(source["filename"], opp["filename"]):
-                continue
-
+            #  logger.debug(f"opponent {i}", _start)
             i += 1
-
             if chosen is None:
+                # if i < 3 and not _are_in_different_paths(
+                #     source["filename"], opp["filename"]
+                # ):
+                #     continue
                 chosen = opp
-                continue
+
+            if (
+                i > 5
+                and _score_gap(source, chosen) < 0.05
+                and int(source["comparison_count"]) <= chosen["comparison_count"] + 1
+            ):
+                logger.debug(f"good candidate found st {i} steps", _start)
+                break
+
+            if i > 10:
+                break
+
             if int(opp["comparison_count"]) < chosen["comparison_count"]:
                 chosen = opp
                 continue
             if _score_gap(source, opp) < _score_gap(source, chosen):
                 chosen = opp
                 continue
-            if i > 10:
-                break
+
         if chosen is None:
             continue
         result = (
@@ -205,7 +218,7 @@ def _phase1_seed_coverage(
                 "refinement_details": None,
             },
         )
-        logger.debug("return result", _start)
+        logger.debug(f"return result after {i} steps", _start)
         return result
     return None, {}
 
@@ -264,11 +277,17 @@ def _phase3_collapsible_pairs(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+    _start = time.perf_counter()
+    only_wins = get_images_with_only_wins()
+    only_loses = get_images_with_only_losses()
+    if len(only_wins) == 1 and len(only_loses) == 1:
+        return None, {}
+
     candidate_names = {img["filename"] for img in candidate_images}
 
     chains = crystal_graph.get_all_chains()
-    tops_by_comp: dict[int | None, list[str]] = defaultdict(list)
-    bottoms_by_comp: dict[int | None, list[str]] = defaultdict(list)
+    tops_by_comp: dict[int | None, dict[str, int]] = defaultdict(dict)
+    bottoms_by_comp: dict[int | None, dict[str, int]] = defaultdict(dict)
 
     for chain in chains:
         if (
@@ -276,31 +295,40 @@ def _phase3_collapsible_pairs(
             and chain.first.filename in candidate_names
             and chain.first.is_top()
         ):
+
             comp = _component_id(chain.first.filename)
-            tops_by_comp[comp].append(chain.first.filename)
+            if chain.first.filename not in tops_by_comp[comp]:
+                tops_by_comp[comp][chain.first.filename] = len(chain.first.get_links())
         if (
             chain.last
             and chain.last.filename in candidate_names
             and chain.last.is_bottom()
         ):
             comp = _component_id(chain.last.filename)
-            bottoms_by_comp[comp].append(chain.last.filename)
-
-    only_wins = get_images_with_only_wins()
-    only_loses = get_images_with_only_losses()
-
+            if chain.last.filename not in bottoms_by_comp[comp]:
+                bottoms_by_comp[comp][chain.last.filename] = len(chain.last.get_links())
+    # logger.debug("created chains",_start)
     for comp_id, tops in tops_by_comp.items():
-        if len(tops) < 2:
+        # tops: list[str] = list(set(tops))
+        if len(tops.items()) < 2:
             continue
 
-        for i, a in enumerate(tops):
+        sorted_top_dict: list[tuple[str, int]] = list(tops.items())
+        sorted_top_dict.sort(key=lambda top: top[1], reverse=False)
+        sorted_tops: list[str] = [top[0] for top in sorted_top_dict]
+
+        for i, a in enumerate(sorted_tops):
             if a not in only_wins:
                 raise RuntimeError(f"top node {a} not present in only wins.")
-            for b in tops[i + 1 :]:
-                if _pair_key(a, b) in pair_set:
-                    continue
-                if crystal_graph.are_in_same_path(a, b):
-                    continue
+            for b in sorted_tops[i + 1 :]:
+                if b not in only_wins:
+                    raise RuntimeError(f"top node {b} not present in only wins.")
+                # if _pair_key(a, b) in pair_set:
+                #     continue
+                # if crystal_graph.are_in_same_path(a, b):
+                #     continue
+
+                # logger.debug(f"collapsible pair winner: {a,b}", _start)
 
                 result = (
                     (a, b),
@@ -318,17 +346,28 @@ def _phase3_collapsible_pairs(
                 return result
 
     for comp_id, bottoms in bottoms_by_comp.items():
+        # tops: list[str] = list(set(bottoms))
+
         if len(bottoms) < 2:
             continue
-        for i, a in enumerate(bottoms):
+
+        sorted_bottom_dict: list[tuple[str, int]] = list(bottoms.items())
+        sorted_bottom_dict.sort(key=lambda bottom: bottom[1], reverse=False)
+        sorted_bottoms: list[str] = [bottom[0] for bottom in sorted_bottom_dict]
+
+        for i, a in enumerate(sorted_bottoms):
             if a not in only_loses:
                 raise RuntimeError(f"bottom node {a} not present in only loses.")
 
-            for b in bottoms[i + 1 :]:
-                if _pair_key(a, b) in pair_set:
-                    continue
-                if crystal_graph.are_in_same_path(a, b):
-                    continue
+            for b in sorted_bottoms[i + 1 :]:
+                if b not in only_loses:
+                    raise RuntimeError(f"bottom node {b} not present in only loses.")
+
+                # if _pair_key(a, b) in pair_set:
+                #     continue
+                # if crystal_graph.are_in_same_path(a, b):
+                #     continue
+                # logger.debug(f"collapsible pair loser: {a,b}", _start)
 
                 result = (
                     (a, b),
@@ -357,53 +396,64 @@ def _phase4_chain_merge(
 
     chains = [
         c
-        for c in crystal_graph.get_all_chains()
-        if c.length >= 3 and any(n.filename in candidate_names for n in c.nodes)
+        for c in crystal_graph.get_all_chains(min_length=3, sort_order="asc")
+        if any(n.filename in candidate_names for n in c.nodes)
     ]
-    if len(chains) < 2:
+    if len(chains) < 20:
         logger.warning(
-            f"_phase4_chain_merge: <2 chains ({time.perf_counter() - _start:.4f}s)"
+            f"_phase4_chain_merge: <20 chains ({time.perf_counter() - _start:.4f}s)"
         )
         return None, {}
 
-    chains.sort(key=lambda c: c.length, reverse=True)
-    top_n = min(20, len(chains))
+    chains.sort(key=lambda c: c.length, reverse=False)
+    top_n: int = min(20, len(chains))
 
-    for i in range(top_n):
-        a_nodes = [n for n in chains[i].nodes if n.filename in candidate_names]
-        if len(a_nodes) < 2:
+    for i in range(top_n - 1):
+        a_nodes: list[NodeProxy] = [
+            n for n in chains[i].nodes if n.filename in candidate_names
+        ]
+        if len(a_nodes) < 1:
             continue
-        a = a_nodes[len(a_nodes) // 2]
-        a_name = a.filename
+        a_mid: NodeProxy = a_nodes[len(a_nodes) // 2]
 
-        for j in range(len(chains)):
+        for j in range(i + 1, top_n):
             if i == j:
                 continue
-            b_nodes = [n for n in chains[j].nodes if n.filename in candidate_names]
-            if len(b_nodes) < 2:
-                continue
-            b = b_nodes[len(b_nodes) // 2]
-            b_name = b.filename
-
-            if _pair_key(a_name, b_name) in pair_set:
-                continue
-            if crystal_graph.are_in_same_path(a_name, b_name):
+            b_nodes: list[NodeProxy] = [
+                n for n in chains[j].nodes if n.filename in candidate_names
+            ]
+            if len(b_nodes) < 1:
                 continue
 
-            result = (
-                (a_name, b_name),
-                {
-                    "pair_type": "chain_merge",
-                    "left_comp_count": 0,
-                    "right_comp_count": 0,
-                    "refinement_details": {
-                        "source_chain_length": chains[i].length,
-                        "opponent_chain_length": chains[j].length,
-                    },
-                },
+            b_mid: NodeProxy = b_nodes[len(b_nodes) // 2]
+            pair_list: list[tuple[NodeProxy, NodeProxy]] = []
+            pair_list.insert(0, (a_mid, b_mid))
+            pair_list.extend(list(zip(a_nodes, b_nodes)))
+            pair_list.extend(
+                [(a, b) for a in a_nodes for b in b_nodes if a.filename != b.filename]
             )
+            for a, b in set(pair_list):
+                a_name = a.filename
+                b_name = b.filename
+                # if _pair_key(a_name, b_name) in pair_set:
+                #    continue
+                if crystal_graph.are_in_same_path(a_name, b_name):
+                    continue
 
-            return result
+                result = (
+                    (a_name, b_name),
+                    {
+                        "pair_type": "chain_merge",
+                        "left_comp_count": 0,
+                        "right_comp_count": 0,
+                        "refinement_details": {
+                            "source_chain_length": chains[i].length,
+                            "opponent_chain_length": chains[j].length,
+                        },
+                    },
+                )
+                logger.debug(f"I={i},j={j}", _start)
+                return result
 
     return None, {}
 
@@ -413,36 +463,37 @@ def _phase5_uncertainty_refine(
     pair_set: set[tuple[str, str]],
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
     _start = time.perf_counter()
-    p3_tiebreaker = _random_tiebreaker(candidate_images)
     uncertainty_pool = sorted(
         candidate_images,
-        key=lambda img: (
-            -float(img["rating_sigma"]),
-            int(img["comparison_count"]),
-            p3_tiebreaker[img["filename"]],
-        ),
+        key=lambda img: (-float(img["rating_sigma"]), int(img["comparison_count"])),
     )
 
     for source in uncertainty_pool:
-        unseen_iterator = _find_unseen_candidates(source, candidate_images, pair_set)
-        if not unseen_iterator:
-            continue
-        source_comp = _component_id(source["filename"])
         source_rating = rating_from_row(source)
-        unseen = list(unseen_iterator)
-        unseen_tiebreaker = _random_tiebreaker(unseen)
-        unseen.sort(
-            key=lambda opp: (
-                abs(
-                    expected_win_probability(source_rating, rating_from_row(opp)) - 0.5
-                ),
-                0 if _component_id(opp["filename"]) != source_comp else 1,
-                0 if _prefer_cross_path(source["filename"], opp["filename"]) else 1,
-                abs(float(opp["rating_sigma"]) - float(source["rating_sigma"])),
-                unseen_tiebreaker[opp["filename"]],
-            )
-        )
-        chosen = unseen[0]
+
+        unseen_iterator = _find_unseen_candidates(source, candidate_images, pair_set)
+
+        chosen = None
+        i = 0
+        for opp in unseen_iterator:
+            i += 1
+            a_name = source["filename"]
+            b_name = opp["filename"]
+            if crystal_graph.are_in_same_path(a_name, b_name):
+                continue
+            if chosen is None:
+                chosen = opp
+            else:
+                if abs(source["rating_mu"] - opp["rating_mu"]) < abs(
+                    source["rating_mu"] - chosen["rating_mu"]
+                ):
+                    chosen = opp
+            if i >= 5:
+                break
+
+        if chosen is None:
+            continue
+
         prob = _pair_probability(source, chosen)
 
         result = (

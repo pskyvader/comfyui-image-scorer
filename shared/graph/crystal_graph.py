@@ -4,10 +4,10 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any
 import time
-import logging
 from tqdm import tqdm
 
 
+from ..config import config
 from ...external_modules.database_structure.images_table import (
     get_all_images,
 )
@@ -16,7 +16,9 @@ from ...external_modules.database_structure.comparisons_table import (
     get_total_comparisons,
 )
 
-logger: logging.Logger = logging.getLogger(__name__)
+from ..logger import get_logger, ModuleLogger
+
+logger: ModuleLogger = get_logger(__name__)
 
 
 class ChainManager:
@@ -456,16 +458,18 @@ class ChainManager:
                 in_chain.add(cur)
                 covered.add(cur)
                 successors = self._worse_than.get(cur, [])
-                candidates = [
-                    s for s in successors if s not in in_chain
-                ]
+                candidates = [s for s in successors if s not in in_chain]
                 if not candidates:
                     break
 
                 candidates.sort(key=lambda n: depth_to_sink.get(n, 0), reverse=True)
-                if len(candidates) > 1 and depth_to_sink.get(candidates[0]) == depth_to_sink.get(candidates[1]):
+                if len(candidates) > 1 and depth_to_sink.get(
+                    candidates[0]
+                ) == depth_to_sink.get(candidates[1]):
                     max_depth = depth_to_sink.get(candidates[0], 0)
-                    tied = [n for n in candidates if depth_to_sink.get(n, 0) == max_depth]
+                    tied = [
+                        n for n in candidates if depth_to_sink.get(n, 0) == max_depth
+                    ]
                     best = max(tied, key=lambda n: _count_uncov_downstream(n, in_chain))
                 else:
                     best = candidates[0]
@@ -475,9 +479,7 @@ class ChainManager:
                 cur = start
                 while True:
                     preds = [
-                        p
-                        for p in self._better_than.get(cur, [])
-                        if p not in in_chain
+                        p for p in self._better_than.get(cur, []) if p not in in_chain
                     ]
                     if not preds:
                         break
@@ -588,26 +590,84 @@ class ChainManager:
     # Query / traversal
     # ==================================================================
 
+    def _check_same_chain(self, u: str, v: str) -> tuple[bool, bool]:
+        """Check if two nodes share a chain in the minimum chain cover.
+
+        Returns (same_chain, u_before_v). Only valid when chains are cached.
+        """
+        if self._node_to_chains_cache is None:
+            return (False, False)
+        chains_u = self._node_to_chains_cache.get(u)
+        chains_v = self._node_to_chains_cache.get(v)
+        if not chains_u or not chains_v:
+            return (False, False)
+        # Build a lookup of chain_id -> position for u
+        u_positions: dict[int, int] = {}
+        for chain_id, chain_list in chains_u:
+            try:
+                u_positions[chain_id] = chain_list.index(u)
+            except ValueError:
+                continue
+        for chain_id, chain_list in chains_v:
+            pos = u_positions.get(chain_id)
+            if pos is not None:
+                try:
+                    v_pos = chain_list.index(v)
+                    return (True, pos < v_pos)
+                except ValueError:
+                    continue
+        return (False, False)
+
     def _can_reach(
         self,
         start: str,
         end: str,
         skip_edges: set[tuple[str, str]] | None = None,
+        max_depth: int = 10,
     ) -> bool:
+        _start = time.perf_counter()
         if start not in self._all_filenames or end not in self._all_filenames:
             return False
+        if start == end:
+            return True
+
+        # Quick component-based rejection
+        c_start = self._node_component.get(start)
+        c_end = self._node_component.get(end)
+        if c_start is not None and c_end is not None and c_start != c_end:
+            return False
+
+        # Quick rejection: bottom nodes can't reach anyone
+        if not self._worse_than.get(start):
+            return False
+
+        # Quick rejection: no one can reach a top node
+        if not self._better_than.get(end):
+            return False
+
+        # Fast same-chain check (only safe without edge constraints)
+        if not skip_edges:
+            same_chain, start_before_end = self._check_same_chain(start, end)
+            if same_chain:
+                return start_before_end
+
         visited = set()
-        queue = deque([start])
+        queue = deque([(start, 0)])
+        depth = -1
         while queue:
-            current = queue.popleft()
-            if current == end:
-                return True
-            visited.add(current)
+            current, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
             for w in self._worse_than.get(current, []):
+                if skip_edges and (current, w) in skip_edges:
+                    continue
+                if w == end:
+                    logger.debug(f"can reach at depth {depth}", _start)
+                    return True
                 if w not in visited:
-                    if skip_edges and (current, w) in skip_edges:
-                        continue
-                    queue.append(w)
+                    visited.add(w)
+                    queue.append((w, depth + 1))
+        logger.debug(f"cannot reach up to depth {depth}", _start)
         return False
 
     def is_redundant(
@@ -615,6 +675,7 @@ class ChainManager:
         u: str,
         v: str,
         skip_edges: set[tuple[str, str]] | None = None,
+        max_depth: int | None = None,
     ) -> bool:
         if u not in self._all_filenames or v not in self._all_filenames:
             return False
@@ -625,18 +686,18 @@ class ChainManager:
         for w in self._worse_than.get(u, []):
             if w == v:
                 continue
-            if self._can_reach(w, v, all_skip):
+            if self._can_reach(w, v, all_skip, max_depth=max_depth):
                 return True
         return False
 
-    def are_in_same_path(self, img1: str, img2: str) -> bool:
+    def are_in_same_path(self, img1: str, img2: str, max_depth: int) -> bool:
         if img1 not in self._all_filenames or img2 not in self._all_filenames:
             return False
         if img1 == img2:
             return True
-        if self._can_reach(img1, img2):
+        if self._can_reach(img1, img2, max_depth=max_depth):
             return True
-        if self._can_reach(img2, img1):
+        if self._can_reach(img2, img1, max_depth=max_depth):
             return True
         return False
 
@@ -860,8 +921,8 @@ class CrystalGraph:
         self._rebuilding = False
 
     # -- Lifecycle ------------------------------------------------------
-    def get_node_chain_length(self, filename: str):
-        return self._chain._chain_length[filename]
+    def get_node_chain_length(self, filename: str) -> int:
+        return self._chain._chain_length.get(filename, 0)
 
     def rebuild_from_database(
         self,
@@ -1074,16 +1135,24 @@ class CrystalGraph:
 
     # -- Delegated helpers (used externally) ----------------------------
 
+    @staticmethod
+    def _get_transitive_depth() -> int | None:
+        return config["ranking"]["transitive_depth"]
+
     def is_redundant(
         self,
         u: str,
         v: str,
         skip_edges: set[tuple[str, str]] | None = None,
     ) -> bool:
-        return self._chain.is_redundant(u, v, skip_edges)
+        return self._chain.is_redundant(
+            u, v, skip_edges, max_depth=self._get_transitive_depth()
+        )
 
     def are_in_same_path(self, img1: str, img2: str) -> bool:
-        return self._chain.are_in_same_path(img1, img2)
+        return self._chain.are_in_same_path(
+            img1, img2, max_depth=self._get_transitive_depth()
+        )
 
     def get_collapsable_pairs(self) -> list[tuple[str, str]]:
         return self._chain.get_collapsable_pairs()
@@ -1233,9 +1302,12 @@ class CrystalGraph:
                 redundant_edges.add(edge_to_remove)
 
         # 2. Detect transitively redundant directed edges via chain.is_redundant
+        transitive_depth = self._get_transitive_depth()
         for u, losers in self._chain._worse_than.items():
             for v in losers:
-                if u != v and self._chain.is_redundant(u, v):
+                if u != v and self._chain.is_redundant(
+                    u, v, max_depth=transitive_depth
+                ):
                     redundant_edges.add((u, v))
         logger.info(f"redundant edges found: {len(redundant_edges)}")
         return redundant_edges

@@ -449,7 +449,7 @@ def main() -> int:
     # ── Uncomment to activate module / content filtering ──────────────
     # set_log_filter(exact_names={"shared.graph.crystal_graph"})
     # set_log_filter(prefixes=("shared.",))
-    # set_log_filter(hook=lambda line, mod: "accuracy" in line)
+    set_log_filter(hook=lambda line, mod: "_can_reach" in line)
 
     should_init = True
     if args.debug and (

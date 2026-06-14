@@ -37,7 +37,7 @@ from ..database_structure.images_table import (
 from ..database_structure.comparisons_table import (
     add_historical_comparison,
     get_all_comparisons,
-    normalize_comparisons,
+    clean_comparisons,
 )
 from ..database_structure.path_handler import (
     compute_path_from_filename,
@@ -90,12 +90,13 @@ class ImageProcessor:
         if "positive_prompt" in data:
             prompt = data["positive_prompt"]
             if isinstance(prompt, str) and prompt:
-                result = prompt
-            else:
-                result = None
-        else:
-            result = None
-        return result
+                return prompt
+        for value in data.values():
+            if isinstance(value, dict):
+                result = self._extract_prompt_tags(value)
+                if result:
+                    return result
+        return None
 
     def clean_json_metadata(
         self,
@@ -119,6 +120,10 @@ class ImageProcessor:
         if not isinstance(json_data, dict) or not json_data:
             base: dict[str, Any] = {}
         else:
+            if len(json_data) == 1:
+                only_value = next(iter(json_data.values()))
+                if isinstance(only_value, dict) and "positive_prompt" in only_value:
+                    json_data = only_value
             base = {k: v for k, v in json_data.items() if k not in remove_fields}
             if not base:
                 for _, value in json_data.items():
@@ -451,7 +456,7 @@ class ImageProcessor:
                 stats["history_imported"] += imported
                 pbar.update(1)
 
-        cleanup = normalize_comparisons()
+        cleanup = clean_comparisons()
         stats.update(cleanup)
 
         ratings_recomputed = self._recompute_ratings_from_database_history()

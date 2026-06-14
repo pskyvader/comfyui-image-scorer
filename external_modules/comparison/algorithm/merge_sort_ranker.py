@@ -27,7 +27,6 @@ def select_pair_for_comparison(
     """Select the next pair of images to compare."""
     _start = time.perf_counter()
     started = time.perf_counter()
-    set_last_pair_metadata({})
     all_images: list[dict[str, Any]] = get_cached_all_images()
     if len(all_images) < 2:
         logger.warning(

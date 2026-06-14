@@ -1,21 +1,17 @@
 """Database endpoints - API routes for maintenance and file operations."""
 
-from typing import Literal
-
 from flask import Blueprint, jsonify, request, current_app
-from flask.wrappers import Response
 
 from .images_table import get_all_images, reset_all_image_ratings, get_image_count
 from .comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
-    normalize_comparisons,
+    clean_comparisons,
 )
 from .cleanup_orphans import cleanup_orphans
 from .deduplicate_scored import deduplicate_scored
 from .path_handler import sync_image_metadata_to_json
 
-import sys
 from pathlib import Path
 import time
 
@@ -47,31 +43,12 @@ def get_status():
     return result
 
 
-@database_bp.route("/reset-ratings", methods=["POST"])
-def reset_ratings():
-    _start = time.perf_counter()
-    try:
-        reset_all_image_ratings()
-        crystal_graph.rebuild_from_database()
-        result = jsonify({"status": "success"})
-
-        result = result
-
-        return result
-    except Exception as exc:
-        result = jsonify({"status": "error", "message": str(exc)}), 500
-
-        result = result
-
-        return result
-
-
 @database_bp.route("/normalize-comparisons", methods=["POST"])
 def normalize():
     _start = time.perf_counter()
     _start = time.perf_counter()
     try:
-        stats = normalize_comparisons()
+        stats = clean_comparisons()
         crystal_graph.rebuild_from_database()
         result = jsonify({"status": "success", "stats": stats})
 

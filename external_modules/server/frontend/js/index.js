@@ -123,6 +123,9 @@ const router = {
         if (this._currentInstance && typeof this._currentInstance.destroy === "function") {
             this._currentInstance.destroy();
         }
+        if (this._currentSection === "gallery") {
+            window.galleryView = null;
+        }
         this._currentInstance = null;
         this._currentSection = null;
     },
@@ -140,6 +143,9 @@ const router = {
         const Cls = window.Sections && window.Sections[sectionName];
         if (Cls) {
             const instance = new Cls();
+            if (sectionName === "gallery") {
+                window.galleryView = instance;
+            }
             if (typeof instance.init === "function") {
                 instance.init(params);
             }

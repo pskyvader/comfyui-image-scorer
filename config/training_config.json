@@ -10,8 +10,8 @@
     "num_class": 5,
     "verbosity": 1,
     "top1": {
-        "best_score": 0.44044987837682026,
-        "training_time": 60.372265338897705,
+        "best_score": 0.43406538046410514,
+        "training_time": 62.97409439086914,
         "learning_rate": 0.02090329855641432,
         "n_estimators": 1226,
         "num_leaves": 870,
@@ -22,7 +22,7 @@
         "subsample": 0.6994377242471418,
         "colsample_bytree": 0.7398948676979545,
         "min_split_gain": 0.04474687385955929,
-        "early_stopping_rounds": 168,
+        "early_stopping_rounds": 184,
         "test_size": 0.15694778931905398
     },
     "top2": {
@@ -42,15 +42,15 @@
         "test_size": 0.15694778931905398
     },
     "top3": {
-        "best_score": -1000000.0,
-        "training_time": 0.0,
+        "best_score": 0.43577235842560713,
+        "training_time": 62.26420998573303,
         "learning_rate": 0.02090329855641432,
         "n_estimators": 1226,
         "num_leaves": 870,
         "max_depth": 75,
         "min_child_samples": 96,
         "reg_alpha": 2.786216612681556,
-        "reg_lambda": 10.569810254133984,
+        "reg_lambda": 9.512829228720586,
         "subsample": 0.6994377242471418,
         "colsample_bytree": 0.7398948676979545,
         "min_split_gain": 0.04474687385955929,
@@ -58,8 +58,8 @@
         "test_size": 0.15694778931905398
     },
     "top4": {
-        "best_score": -1000000.0,
-        "training_time": 0.0,
+        "best_score": 0.43407187345243314,
+        "training_time": 61.451271295547485,
         "learning_rate": 0.02090329855641432,
         "n_estimators": 1226,
         "num_leaves": 870,
@@ -67,12 +67,14 @@
         "min_child_samples": 96,
         "reg_alpha": 2.786216612681556,
         "reg_lambda": 10.569810254133984,
-        "subsample": 0.2432593975358442,
+        "subsample": 0.21893345778225978,
         "colsample_bytree": 0.5448316753048574,
         "min_split_gain": 0.04474687385955929,
         "early_stopping_rounds": 168,
         "test_size": 0.15694778931905398
     },
-    "used_keys": [],
+    "used_keys": [
+        "test_size"
+    ],
     "test": 1
 }

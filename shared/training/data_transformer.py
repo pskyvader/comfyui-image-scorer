@@ -137,7 +137,7 @@ class DataTransformer:
         callbacks: list[Any] = [
             lgb.log_evaluation(period=-1)
         ]  # suppress default logger
-
+        pbar = None
         if user_verbosity >= 0:
             # Use tqdm progress bar
             pbar = tqdm(total=steps, desc="Training LightGBM")
@@ -149,6 +149,8 @@ class DataTransformer:
 
         # Train the model
         model.fit(x, y, callbacks=callbacks)
+        if pbar is not None:
+            pbar.close()
 
         # Get feature importances (gain)
         importances: np.ndarray[tuple[Any, ...], np.dtype[Any]] = (
