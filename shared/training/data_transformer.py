@@ -158,11 +158,10 @@ class DataTransformer:
         )
         n_features = len(importances)
 
-        if verbose:
-            n_zeros = np.sum(importances == 0)
-            print(
-                f"Found {n_zeros} features with zero gain out of {n_features} total features."
-            )
+        n_zeros = np.sum(importances == 0)
+        logger.debug(
+            f"Found {n_zeros} features with zero gain out of {n_features} total features."
+        )
 
         # --- Step 1: remove all zero-gain features
         nonzero_mask = importances > 0
@@ -178,7 +177,7 @@ class DataTransformer:
         cumulative /= cumulative[-1]  # normalize to 1
 
         # Keep features until cumulative gain reaches threshold (e.g., 95%)
-        cum_threshold = 0.99
+        cum_threshold = 0.90
         keep_mask = cumulative <= cum_threshold
 
         # Always keep at least one feature
@@ -190,14 +189,12 @@ class DataTransformer:
         # Apply mask to X
         X_filtered = x[:, kept_indices]
 
-        if verbose:
-            n_dropped = x.shape[1] - X_filtered.shape[1]
-            print(f"Dropped {n_dropped} features. New shape: {X_filtered.shape}")
+        n_dropped = x.shape[1] - X_filtered.shape[1]
+        logger.debug(f"Dropped {n_dropped} features. New shape: {X_filtered.shape}")
 
         # Cache filtered data
         filtered_data = training_loader.save_filtered_data(X_filtered, kept_indices)
-        if verbose:
-            print("Saved filtered data to cache")
+        logger.debug("Saved filtered data to cache")
 
         return filtered_data
 
@@ -316,7 +313,7 @@ class DataTransformer:
             "n": 0,
         }
 
-        print(
+        logger.debug(
             f"Scanning {n_interactions} potential interactions in batches of {batch_size}..."
         )
 
@@ -360,7 +357,7 @@ class DataTransformer:
         interaction_data = training_loader.save_interaction_data(
             X_final, top_k_indices_local
         )
-        print(f"Saved interaction data to cache")
+        logger.debug(f"Saved interaction data to cache")
 
         return interaction_data
 

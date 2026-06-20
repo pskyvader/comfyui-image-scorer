@@ -21,7 +21,7 @@ def get_graph_data():
 
         stats = crystal_graph.get_graph_stats()
         node_to_height: dict[str, int] = {}
-        for proxy in crystal_graph.get_all_chains():
+        for proxy, _node_list in crystal_graph.get_all_chains():
             for node_proxy in proxy.nodes:
                 filename = node_proxy.filename
                 if (
@@ -59,7 +59,7 @@ def get_graph_data():
             comp.id: [n.filename for n in comp.nodes] for comp in all_components
         }
         chains = []
-        for chain_proxy in crystal_graph.get_all_chains():
+        for chain_proxy, _ in crystal_graph.get_all_chains():
             comp = chain_proxy.get_component()
             chains.append(
                 {

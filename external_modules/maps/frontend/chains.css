@@ -2,7 +2,7 @@
 
 #graph-container {
     width: 100%;
-    height: 65vh;
+    height: 65dvh;
     background: #0b0b14;
     border-radius: 1rem;
     overflow: hidden;
@@ -12,16 +12,18 @@
 
 .tooltip {
     position: absolute;
-    padding: 10px;
+    padding: 5px 8px;
     background: rgba(0, 0, 0, 0.85);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    border-radius: 8px;
+    border-radius: 6px;
     pointer-events: none;
-    font-size: 12px;
+    font-size: 10px;
+    line-height: 1.2;
     z-index: 1000;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-width: 170px;
 }
 
 /* Range Sliders */
@@ -53,11 +55,6 @@ input[type=range]::-webkit-slider-thumb {
     box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
 }
 
-.accent-cyan-500::-webkit-slider-thumb {
-    background: #06b6d4 !important;
-    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5) !important;
-}
-
 /* Node Highlight */
 .highlight {
     stroke: #f472b6 !important;
@@ -66,8 +63,30 @@ input[type=range]::-webkit-slider-thumb {
 
 @media (max-width: 768px) {
     #graph-container {
-        height: 50vh;
+        height: 50dvh;
     }
+}
+
+/* Accordion (details/summary) Styling */
+.physics-summary::-webkit-details-marker,
+.filter-summary::-webkit-details-marker {
+    display: none;
+}
+
+/* Range Slider with cyan accent for physics */
+input[type=range].accent-cyan-500::-webkit-slider-thumb {
+    background: #06b6d4 !important;
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5) !important;
+}
+
+input[type=range].accent-cyan-500::-moz-range-thumb {
+    background: #06b6d4 !important;
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5) !important;
+}
+
+input[type=range].accent-cyan-500::-ms-thumb {
+    background: #06b6d4 !important;
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5) !important;
 }
 
 /* Dual Slider Styling */

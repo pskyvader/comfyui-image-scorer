@@ -3,25 +3,26 @@
  */
 
 ChainMapUI.prototype.loadFiltersFromStorage = function () {
-    const loadFilter = (el, valEl, key, defaultVal, isMin) => {
+    const loadFilter = (el, valEl, key, cfg, isMin) => {
         if (!el) {
             return;
         }
         const saved = localStorage.getItem(key);
-        const val = saved !== null ? parseInt(saved) : defaultVal;
-        el.value = val;
+        const val = saved !== null ? parseInt(saved) : (isMin ? cfg.min : cfg.max);
+        el.value = valueToSlider(val, cfg);
         if (valEl) {
-            const isMax = val >= parseInt(el.max);
+            const isMax = val >= cfg.max;
             valEl.textContent = (isMax && !isMin) ? "Max" : val;
         }
     };
 
-    loadFilter(this.minCompFilter, this.minCompVal, "chainmap_minComp", 1, true);
-    loadFilter(this.maxCompFilter, this.maxCompVal, "chainmap_maxComp", 30, false);
-    loadFilter(this.minChainFilter, this.minChainVal, "chainmap_minChain", 1, true);
-    loadFilter(this.maxChainFilter, this.maxChainVal, "chainmap_maxChain", 30, false);
-    loadFilter(this.minCompCountFilter, this.minCompCountVal, "chainmap_minCompCount", 0, true);
-    loadFilter(this.maxCompCountFilter, this.maxCompCountVal, "chainmap_maxCompCount", 100, false);
+    loadFilter(this.minCompFilter, this.minCompVal, "chainmap_minComp", SLIDER.comp, true);
+    loadFilter(this.maxCompFilter, this.maxCompVal, "chainmap_maxComp", SLIDER.comp, false);
+    loadFilter(this.minChainFilter, this.minChainVal, "chainmap_minChain", SLIDER.chain, true);
+    loadFilter(this.maxChainFilter, this.maxChainVal, "chainmap_maxChain", SLIDER.chain, false);
+    loadFilter(this.minCompCountFilter, this.minCompCountVal, "chainmap_minCompCount", SLIDER.compCount, true);
+    loadFilter(this.maxCompCountFilter, this.maxCompCountVal, "chainmap_maxCompCount", SLIDER.compCount, false);
+    loadFilter(this.linkLengthFilter, this.linkLengthVal, "chainmap_linkLength", SLIDER.linkLength, true);
 
     if (this.collapsibleFilter) {
         const saved = localStorage.getItem("chainmap_collapsible");
@@ -38,12 +39,15 @@ ChainMapUI.prototype.loadFiltersFromStorage = function () {
 };
 
 ChainMapUI.prototype.saveFilters = function () {
-    localStorage.setItem("chainmap_minComp", this.minCompFilter.value);
-    localStorage.setItem("chainmap_maxComp", this.maxCompFilter.value);
-    localStorage.setItem("chainmap_minChain", this.minChainFilter.value);
-    localStorage.setItem("chainmap_maxChain", this.maxChainFilter.value);
-    localStorage.setItem("chainmap_minCompCount", this.minCompCountFilter.value);
-    localStorage.setItem("chainmap_maxCompCount", this.maxCompCountFilter.value);
+    localStorage.setItem("chainmap_minComp", sliderToValue(parseInt(this.minCompFilter.value), SLIDER.comp));
+    localStorage.setItem("chainmap_maxComp", sliderToValue(parseInt(this.maxCompFilter.value), SLIDER.comp));
+    localStorage.setItem("chainmap_minChain", sliderToValue(parseInt(this.minChainFilter.value), SLIDER.chain));
+    localStorage.setItem("chainmap_maxChain", sliderToValue(parseInt(this.maxChainFilter.value), SLIDER.chain));
+    localStorage.setItem("chainmap_minCompCount", sliderToValue(parseInt(this.minCompCountFilter.value), SLIDER.compCount));
+    localStorage.setItem("chainmap_maxCompCount", sliderToValue(parseInt(this.maxCompCountFilter.value), SLIDER.compCount));
+    if (this.linkLengthFilter) {
+        localStorage.setItem("chainmap_linkLength", sliderToValue(parseInt(this.linkLengthFilter.value), SLIDER.linkLength));
+    }
     if (this.collapsibleFilter) {
         localStorage.setItem("chainmap_collapsible", this.collapsibleFilter.value);
     }
@@ -91,25 +95,24 @@ ChainMapUI.prototype.applyFilters = function () {
         this.loader.classList.remove("hidden");
     }
 
-    const minComp = parseInt(this.minCompFilter.value);
-    const maxComp = parseInt(this.maxCompFilter.value);
-    const minChain = parseInt(this.minChainFilter.value);
-    const maxChain = parseInt(this.maxChainFilter.value);
+    const minComp = sliderToValue(parseInt(this.minCompFilter.value), SLIDER.comp);
+    const maxComp = sliderToValue(parseInt(this.maxCompFilter.value), SLIDER.comp);
+    const minChain = sliderToValue(parseInt(this.minChainFilter.value), SLIDER.chain);
+    const maxChain = sliderToValue(parseInt(this.maxChainFilter.value), SLIDER.chain);
 
-    const minCompCount = this.minCompCountFilter ? parseInt(this.minCompCountFilter.value) : 0;
-    const maxCompCount = this.maxCompCountFilter ? parseInt(this.maxCompCountFilter.value) : 10;
+    const minCompCount = this.minCompCountFilter ? sliderToValue(parseInt(this.minCompCountFilter.value), SLIDER.compCount) : 0;
+    const maxCompCount = this.maxCompCountFilter ? sliderToValue(parseInt(this.maxCompCountFilter.value), SLIDER.compCount) : SLIDER.compCount.max;
     const collapsibleMode = this.collapsibleFilter ? this.collapsibleFilter.value : "all";
     const nodeTypeMode = this.nodeTypeFilter ? this.nodeTypeFilter.value : "all";
 
     this.saveFilters();
 
-    const useMinComp = minComp > 1;
-    const useMinChain = minChain > 1;
-    const useMinCompCount = minCompCount > 0;
-    const useMaxComp = maxComp < parseInt(this.maxCompFilter.max);
-    const useMaxChain = maxChain < parseInt(this.maxChainFilter.max);
-    const maxCompCountMax = parseInt(this.maxCompCountFilter.max);
-    const useMaxCompCount = maxCompCount < maxCompCountMax;
+    const useMinComp = minComp > SLIDER.comp.min;
+    const useMinChain = minChain > SLIDER.chain.min;
+    const useMinCompCount = minCompCount > SLIDER.compCount.min;
+    const useMaxComp = maxComp < SLIDER.comp.max;
+    const useMaxChain = maxChain < SLIDER.chain.max;
+    const useMaxCompCount = maxCompCount < SLIDER.compCount.max;
 
     const validComponents = new Set();
     const nodeMap = new Map(this.rawData.nodes.map(n => [n.id, n]));
@@ -212,55 +215,21 @@ ChainMapUI.prototype.applyFilters = function () {
 };
 
 ChainMapUI.prototype.toggleSimulation = function () {
-    if (this.chainSim.isPaused) {
-        this.chainSim.play();
-    } else {
-        this.chainSim.pause();
-    }
-    this.syncButtonStates();
+    // Simulation removed — no-op
 };
 
 ChainMapUI.prototype.resetView = function () {
-    const w = this.width || this.container.clientWidth || 800;
-    const h = this.height || this.container.clientHeight || 600;
-    const worldW = this.chainSim && this.chainSim.effectiveWidth;
-    const worldH = this.chainSim && this.chainSim.effectiveHeight;
-
-    if (!worldW || !worldH || !w || !h) {
-        const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(CAMERA.fallbackScale);
-        if (isFinite(t.x) && isFinite(t.y) && isFinite(t.k)) {
-            d3.select(this.container).call(this.zoom.transform, t);
-            this.renderer.setTransform(t);
-        }
-        return;
-    }
-
-    const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(worldW / w, worldH / h));
-    const t = d3.zoomIdentity.translate(w / 2, h / 2).scale(scale).translate(-worldW / 2, -worldH / 2);
-    if (isFinite(t.x) && isFinite(t.y) && isFinite(t.k)) {
-        d3.select(this.container).call(this.zoom.transform, t);
-        this.renderer.setTransform(t);
+    if (!this.renderer || !this.renderer.subRenderer) return;
+    const sub = this.renderer.subRenderer;
+    if (sub.worldBounds) {
+        sub._fitToWorld(sub.worldBounds);
     }
 };
 
 ChainMapUI.prototype.zoomToFitNodes = function () {
-    const activeCount = this.chainSim._activeNodeCount;
-    const nodes = this.chainSim.nodes.slice(0, activeCount);
+    const nodes = this._simNodes;
+    if (!nodes || !nodes.length) return;
+    if (!this.renderer || !this.renderer.subRenderer) return;
     const bounds = this.calculateWorldBounds(nodes);
-    const bw = bounds.width || 1;
-    const bh = bounds.height || 1;
-
-    if (!this.width || !this.height) return;
-
-    const scale = Math.min(CAMERA.maxFitScale, CAMERA.fitPadding / Math.max(bw / this.width, bh / this.height));
-    const cx = bounds.x + bw / 2;
-    const cy = bounds.y + bh / 2;
-
-    d3.select(this.container).call(
-        this.zoom.transform,
-        d3.zoomIdentity
-            .translate(this.width / 2, this.height / 2)
-            .scale(scale)
-            .translate(-cx, -cy),
-    );
+    this.renderer.subRenderer._fitToWorld(bounds);
 };

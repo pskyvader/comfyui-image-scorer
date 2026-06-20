@@ -9,7 +9,7 @@ from flask import Flask, send_from_directory, request, send_file, Response
 from urllib.parse import unquote
 import argparse
 import logging
-from typing import Callable, ClassVar
+from typing import Callable
 
 # Set up paths FIRST before any imports
 current_dir = str(Path(__file__).parent)
@@ -27,9 +27,17 @@ if __name__ == "__main__":
         __package__ = "comfyui_image_scorer.external_modules.server"
 
 
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+        # force=True,
+    )
+
+
 # Now import Flask and API modules
 from ..data_transform.endpoints import register_data_transform_routes
-
 from ..comparison.endpoints import register_ranking_routes
 from ..gallery.endpoints import register_gallery_routes
 from ..maps.endpoints import register_maps_routes
@@ -449,7 +457,7 @@ def main() -> int:
     # ── Uncomment to activate module / content filtering ──────────────
     # set_log_filter(exact_names={"shared.graph.crystal_graph"})
     # set_log_filter(prefixes=("shared.",))
-    set_log_filter(hook=lambda line, mod: "_can_reach" in line)
+    # set_log_filter(hook=lambda line, mod: "_can_reach" not in line)
 
     should_init = True
     if args.debug and (

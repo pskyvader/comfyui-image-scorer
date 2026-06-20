@@ -6,21 +6,22 @@ from collections import defaultdict
 from contextlib import contextmanager
 import time
 from typing import Any, Iterator
-import logging
 import random
 
-from ....shared.graph.crystal_graph import NodeProxy, crystal_graph
+from ....shared.graph.chain_proxy import ChainProxy
+
+from ....shared.graph.crystal_graph import NodeProxy, crystal_graph, NodeTuple
+
 from ....shared.config import config
 from ....shared.logger import SharedLogger
 from ...database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
-    comparison_exists_for_pair,
     get_images_with_only_wins,
     get_images_with_only_losses,
 )
 
-from .trueskill_rating import Rating, expected_win_probability, rating_from_row
+from .trueskill_rating import expected_win_probability, rating_from_row
 
 logger = SharedLogger.get_logger(__name__)
 
@@ -31,7 +32,6 @@ _skip_before: int = 0
 def _log_timing(label: str):
     start = time.perf_counter()
     yield
-    elapsed = time.perf_counter() - start
     logger.info(f"TIMING {label} ", start)
 
 
@@ -79,19 +79,6 @@ def _score_gap(a: dict[str, Any], b: dict[str, Any]) -> float:
 def _pair_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
     _start = time.perf_counter()
     result = expected_win_probability(rating_from_row(a), rating_from_row(b))
-
-    return result
-
-
-def _prefer_cross_path(a: str, b: str) -> int:
-    _start = time.perf_counter()
-    result = 0 if crystal_graph.are_in_same_path(a, b) else 1
-    return result
-
-
-def _random_tiebreaker(images: list[dict[str, Any]]) -> dict[str, float]:
-    _start = time.perf_counter()
-    result = {img["filename"]: random.random() for img in images}
 
     return result
 
@@ -232,26 +219,25 @@ def _phase2_anchor_insert(
     pool = _build_low_count_pool(
         [img for img in candidate_images if img["filename"] not in seed_pool]
     )
-    if len(pool) < 2:
-        logger.warning(f"_phase2_anchor_insert: pool too small", _start)
+    reserve_count = config["ranking"]["reserve_count"]
+    if len(pool) < reserve_count:
+        logger.warning(
+            f"_phase2_anchor_insert: pool too small ({len(pool)} < {reserve_count})",
+            _start,
+        )
         return None, {}
 
     pool.sort(key=lambda img: int(img["comparison_count"]))
     source = pool[0]
     source_name = source["filename"]
     source_mu = float(source["rating_mu"])
-    source_comp = _component_id(source_name)
 
     remaining = [img for img in pool if img["filename"] != source_name]
-    remaining.sort(
-        key=lambda opp: (
-            0 if _component_id(opp["filename"]) != source_comp else 1,
-            abs(float(opp["rating_mu"]) - source_mu),
-        )
-    )
+    remaining.sort(key=lambda opp: (abs(float(opp["rating_mu"]) - source_mu),))
     opponents = _find_unseen_candidates(source, remaining, existing_pair_set)
-
+    seen_opponents = 0
     for opponent in opponents:
+        seen_opponents += 1
         opp_name = opponent["filename"]
         if not _are_in_different_paths(source_name, opp_name):
             continue
@@ -269,7 +255,7 @@ def _phase2_anchor_insert(
         )
         # logger.debug(f"returning result: {result}")
         return result
-    # logger.debug(f"no pair found out of {len(opponents)} opponents")
+    logger.debug(f"no pair found out of {seen_opponents} opponents")
     return None, {}
 
 
@@ -285,7 +271,8 @@ def _phase3_collapsible_pairs(
 
     candidate_names = {img["filename"] for img in candidate_images}
 
-    chains = crystal_graph.get_all_chains()
+    chains_list = crystal_graph.get_all_chains()
+    chains: list[ChainProxy] = [c[0] for c in chains_list]
     tops_by_comp: dict[int | None, dict[str, int]] = defaultdict(dict)
     bottoms_by_comp: dict[int | None, dict[str, int]] = defaultdict(dict)
 
@@ -307,9 +294,7 @@ def _phase3_collapsible_pairs(
             comp = _component_id(chain.last.filename)
             if chain.last.filename not in bottoms_by_comp[comp]:
                 bottoms_by_comp[comp][chain.last.filename] = len(chain.last.get_links())
-    # logger.debug("created chains",_start)
     for comp_id, tops in tops_by_comp.items():
-        # tops: list[str] = list(set(tops))
         if len(tops.items()) < 2:
             continue
 
@@ -323,12 +308,6 @@ def _phase3_collapsible_pairs(
             for b in sorted_tops[i + 1 :]:
                 if b not in only_wins:
                     raise RuntimeError(f"top node {b} not present in only wins.")
-                # if _pair_key(a, b) in pair_set:
-                #     continue
-                # if crystal_graph.are_in_same_path(a, b):
-                #     continue
-
-                # logger.debug(f"collapsible pair winner: {a,b}", _start)
 
                 result = (
                     (a, b),
@@ -346,7 +325,6 @@ def _phase3_collapsible_pairs(
                 return result
 
     for comp_id, bottoms in bottoms_by_comp.items():
-        # tops: list[str] = list(set(bottoms))
 
         if len(bottoms) < 2:
             continue
@@ -362,12 +340,6 @@ def _phase3_collapsible_pairs(
             for b in sorted_bottoms[i + 1 :]:
                 if b not in only_loses:
                     raise RuntimeError(f"bottom node {b} not present in only loses.")
-
-                # if _pair_key(a, b) in pair_set:
-                #     continue
-                # if crystal_graph.are_in_same_path(a, b):
-                #     continue
-                # logger.debug(f"collapsible pair loser: {a,b}", _start)
 
                 result = (
                     (a, b),
@@ -387,42 +359,57 @@ def _phase3_collapsible_pairs(
     return None, {}
 
 
+_last_chains_index: list[int] = []
+
+
 def _phase4_chain_merge(
     candidate_images: list[dict[str, Any]],
-    pair_set: set[tuple[str, str]],
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+    global _last_chains_index
+    min_chain_threshold = 20
+    score_threshold = 0.01
+
+    if len(_last_chains_index) > min_chain_threshold:
+        # logger.debug(f"last chains before:{_last_chains_index}")
+        _last_chains_index = _last_chains_index[min_chain_threshold // 2 :]
+        # logger.debug(f"last chains after:{_last_chains_index}")
+
     _start = time.perf_counter()
     candidate_names = {img["filename"] for img in candidate_images}
+    # logger.warning(f"candidate_names", _start)
 
-    chains = [
-        c
-        for c in crystal_graph.get_all_chains(min_length=3, sort_order="asc")
-        if any(n.filename in candidate_names for n in c.nodes)
-    ]
-    if len(chains) < 20:
-        logger.warning(
-            f"_phase4_chain_merge: <20 chains ({time.perf_counter() - _start:.4f}s)"
-        )
+    chains_list: list[tuple[ChainProxy, list[NodeTuple]]] = (
+        crystal_graph.get_all_chains(min_length=3, sort_order="asc")
+    )
+    chains: list[list[NodeTuple]] = [c[1] for c in chains_list]
+
+    if len(chains) < min_chain_threshold:
+        logger.info(f"skipping phase 4: <{min_chain_threshold} chains", _start)
         return None, {}
 
-    chains.sort(key=lambda c: c.length, reverse=False)
-    top_n: int = min(20, len(chains))
+    logger.debug(f"shortest chain: {len(chains[0])}, longest: {len(chains[-1])}")
+    top_n: int = min(min_chain_threshold * 10, len(chains))
 
     for i in range(top_n - 1):
+        if i in _last_chains_index:
+            continue
         a_nodes: list[NodeProxy] = [
-            n for n in chains[i].nodes if n.filename in candidate_names
+            n[0] for n in chains[i] if n[0].filename in candidate_names and n[1]
         ]
-        if len(a_nodes) < 1:
+        if len(a_nodes) == 0:
             continue
         a_mid: NodeProxy = a_nodes[len(a_nodes) // 2]
 
-        for j in range(i + 1, top_n):
+        for j in range(len(chains) - 1, i, -1):
+            if j in _last_chains_index:
+                continue
             if i == j:
                 continue
             b_nodes: list[NodeProxy] = [
-                n for n in chains[j].nodes if n.filename in candidate_names
+                n[0] for n in chains[j] if n[0].filename in candidate_names and n[1]
             ]
-            if len(b_nodes) < 1:
+
+            if len(b_nodes) == 0:
                 continue
 
             b_mid: NodeProxy = b_nodes[len(b_nodes) // 2]
@@ -435,8 +422,9 @@ def _phase4_chain_merge(
             for a, b in set(pair_list):
                 a_name = a.filename
                 b_name = b.filename
-                # if _pair_key(a_name, b_name) in pair_set:
-                #    continue
+                if abs(a.score - b.score) > score_threshold:
+                    continue
+
                 if crystal_graph.are_in_same_path(a_name, b_name):
                     continue
 
@@ -447,13 +435,24 @@ def _phase4_chain_merge(
                         "left_comp_count": 0,
                         "right_comp_count": 0,
                         "refinement_details": {
-                            "source_chain_length": chains[i].length,
-                            "opponent_chain_length": chains[j].length,
+                            "source_chain_length": len(chains[i]),
+                            "opponent_chain_length": len(chains[j]),
                         },
                     },
                 )
+                _last_chains_index.append(i)
+                _last_chains_index.append(j)
                 logger.debug(f"I={i},j={j}", _start)
+                logger.debug(
+                    f"chain i={len(a_nodes)}({len(chains[i])}),chain j={len(b_nodes)}({len(chains[j])})",
+                    _start,
+                )
+
                 return result
+    logger.warning(
+        f"skipping phase 4: no valid pair found in shorter {min_chain_threshold*10} chains",
+        _start,
+    )
 
     return None, {}
 
@@ -521,13 +520,9 @@ def _phase_fallback(
     pair_set: set[tuple[str, str]],
 ) -> tuple[tuple[str, str] | None, dict[str, Any]]:
     _start = time.perf_counter()
-    fb_tiebreaker = _random_tiebreaker(candidate_images)
     ordered = sorted(
         candidate_images,
-        key=lambda img: (
-            int(img["comparison_count"]),
-            fb_tiebreaker[img["filename"]],
-        ),
+        key=lambda img: (int(img["comparison_count"]),),
     )
     for idx, left in enumerate(ordered):
         for right in ordered[idx + 1 :]:
@@ -606,7 +601,7 @@ def select_pair(
 
     if _skip_before <= 3:
         with _log_timing("phase4_chain_merge"):
-            result = _phase4_chain_merge(candidate_images, existing_pairs_set)
+            result = _phase4_chain_merge(candidate_images)
         if result[0]:
             _skip_before = 3
             return result

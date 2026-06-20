@@ -41,7 +41,6 @@ def _mapping_get(mapping: Any, key: str, default: Any = None) -> Any:
 
 
 def _log(msg: str):
-    print(msg, flush=True)
     logger.info(msg)
 
 
@@ -241,6 +240,7 @@ def _run_step_on_config(
     improved = False
 
     for i, combo in enumerate(combos):
+        _log("---" * 10)
         merged = {**cfg, **combo}
         score, t_time, primary_metric = evaluate_hyperparameter_combo(
             merged, temp_model_base, X=X, y=y
@@ -317,13 +317,11 @@ def hpo_cycle(
 
         _log(f"\n{'='*80}")
         _log(f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}")
-        _log(f"{'='*80}")
 
         for i in range(step_start, num_steps):
             idx = i % NUM_CONFIGS
             _log(f"\n{'---' * 25}")
             _log(f"Step {i + 1}/{num_steps}  —  Config {idx + 1}")
-            _log(f"{'---' * 25}")
             cfg = configs[idx]
             _log(
                 f"best_score={cfg['best_score']:.6f}  training_time={cfg.get('training_time'):.2f}s"
