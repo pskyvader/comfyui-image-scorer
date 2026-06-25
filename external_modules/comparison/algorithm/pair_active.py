@@ -368,6 +368,7 @@ def _phase4_chain_merge(
     global _last_chains_index
     min_chain_threshold = 20
     score_threshold = 0.01
+    min_comparisons = int(config["ranking"]["insertion_target_comparisons"])
 
     if len(_last_chains_index) > min_chain_threshold:
         # logger.debug(f"last chains before:{_last_chains_index}")
@@ -394,7 +395,11 @@ def _phase4_chain_merge(
         if i in _last_chains_index:
             continue
         a_nodes: list[NodeProxy] = [
-            n[0] for n in chains[i] if n[0].filename in candidate_names and n[1]
+            n[0]
+            for n in chains[i]
+            if n[0].filename in candidate_names
+            and n[1]
+            and n[0].comparison_count > min_comparisons
         ]
         if len(a_nodes) == 0:
             continue

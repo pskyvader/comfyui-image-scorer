@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import typing as npt
 import os
-from typing import Any
+from typing import Any, Iterator
 from pathlib import Path
 import pickle
 import base64
@@ -65,7 +65,7 @@ class TrainingLoader:
 
         logger.info("loading vectors file...")
 
-        vectors = load_single_jsonl(vectors_file)
+        vectors = list(load_single_jsonl(vectors_file))
         x_vector: npt.NDArray[np.float32] = np.array(vectors, dtype=float)
         self.vectors = x_vector
         return self.vectors
@@ -74,7 +74,7 @@ class TrainingLoader:
         if self.use_cache and self.scores is not None:
             return self.scores
         logger.debug("loading scores file....")
-        scores = load_single_jsonl(scores_file)
+        scores = list(load_single_jsonl(scores_file))
         y_vector: npt.NDArray[np.float32] = np.array(scores, dtype=float)
         self.scores = y_vector
         return self.scores
@@ -84,7 +84,7 @@ class TrainingLoader:
             return self.comparisons
         logger.debug("loading index file....")
         index = load_single_jsonl(index_file)
-        comparisons: list[Any] = load_single_jsonl(comparisons_file)
+        comparisons: Iterator[Any] = load_single_jsonl(comparisons_file)
 
         comparisons_count: dict[str, list[dict[str, str]]] = {}
         for i in index:

@@ -4,9 +4,20 @@
 
 ChainMapUI.prototype.updateHUD = function({ k }) {
     if (this.zoomScaleEl) this.zoomScaleEl.textContent = `${(k || 1).toFixed(2)}x`;
-    if (this.viewCoordsEl && this.renderer && this.renderer.subRenderer && this.renderer.subRenderer.controls) {
-        const t = this.renderer.subRenderer.controls.target;
-        this.viewCoordsEl.textContent = `X: ${Math.round(t.x)}, Y: ${Math.round(t.y)}`;
+    if (this.viewCoordsEl && this.renderer && this.renderer.subRenderer) {
+        const sub = this.renderer.subRenderer;
+        if (sub.controls) {
+            const t = sub.controls.target;
+            this.viewCoordsEl.textContent = `X: ${Math.round(t.x)}, Y: ${Math.round(t.y)}`;
+        } else if (sub._fallback && sub.worldBounds) {
+            const cx = sub.worldBounds.x + sub.worldBounds.width / 2;
+            const cy = sub.worldBounds.y + sub.worldBounds.height / 2;
+            const px = sub._panX || 0;
+            const py = sub._panY || 0;
+            const viewX = cx - px / (sub._tc ? sub._tc.scale : 1);
+            const viewY = cy + py / (sub._tc ? sub._tc.scale : 1);
+            this.viewCoordsEl.textContent = `X: ${Math.round(viewX)}, Y: ${Math.round(viewY)}`;
+        }
     }
 };
 

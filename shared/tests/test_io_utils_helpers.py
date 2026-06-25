@@ -21,7 +21,7 @@ def test_jsonl_round_trip(tmp_path: Path) -> None:
     payload = [{"a": 1}, {"b": "two"}]
 
     io.write_single_jsonl(str(path), payload, mode="w")
-    assert io.load_single_jsonl(str(path)) == payload
+    assert list(io.load_single_jsonl(str(path))) == payload
 
 
 def test_discover_and_collect_valid_files(tmp_path: Path) -> None:

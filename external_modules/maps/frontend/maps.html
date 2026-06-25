@@ -6,7 +6,7 @@
     </div>
 
     <!-- Accordion: Filters -->
-    <details class="group filter-summary border-t border-white/5" open>
+    <details class="group filter-summary border-t border-white/5">
         <summary class="flex items-center justify-between cursor-pointer px-6 md:px-8 py-3 select-none hover:bg-white/[0.02] transition list-none">
             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Filters &amp; Selectors</span>
             <svg class="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -107,8 +107,8 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" /></svg>
                 </button>
                 <button id="play-pause-btn" class="p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10" title="Pause/Resume Simulation">
-                    <svg id="pause-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
-                    <svg id="play-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    <svg id="pause-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                    <svg id="play-icon" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                 </button>
                 <button id="toggle-labels-btn" class="p-2 bg-black/60 hover:bg-black/80 rounded-lg text-white border border-white/10" title="Toggle Filenames">
                     <svg id="tag-icon-off" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
@@ -135,174 +135,61 @@
         </div>
     </div>
 
-    <!-- Accordion: Physics Parameters -->
-    <details class="group physics-summary border-t border-white/5">
+    <!-- Accordion: Layout Controls (deterministic spacing) -->
+    <details class="group layout-summary border-t border-white/5">
         <summary class="flex items-center justify-between cursor-pointer px-6 md:px-8 py-3 select-none hover:bg-white/[0.02] transition list-none">
             <div class="flex items-center gap-3">
-                <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Physics Parameters</span>
-                <span class="text-[10px] text-gray-600">— tune forces in real-time</span>
+                <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Layout Controls</span>
+                <span class="text-[10px] text-gray-600">— tune component spacing &amp; spread</span>
             </div>
-            <div class="flex items-center gap-3">
-                <button id="reset-physics-btn" class="text-[10px] px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition font-medium">Reset to Defaults</button>
-                <svg class="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
-            </div>
+            <svg class="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
         </summary>
         <div class="px-6 md:px-8 pb-8">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full">
-                <!-- Link Stretch by Score (moved from Filters) -->
+                <!-- Component Spacing -->
                 <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
                     <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span title="Multiplier for distance added based on score difference">Link Stretch by Score</span>
-                        <span class="text-cyan-400"><span id="link-length-val">100</span></span>
+                        <span>Component Spacing</span>
+                        <span class="text-cyan-400"><span id="layout-comp-spacing-val">900</span></span>
                     </label>
                     <div class="relative h-6 mt-1">
                         <div class="slider-track"></div>
-                        <input type="range" id="link-length-filter" min="0" max="25" value="12" class="range-slider accent-cyan-500">
+                        <input type="range" id="layout-comp-spacing" min="0" max="50" value="22" class="range-slider accent-cyan-500">
                     </div>
                 </div>
-                <!-- Base Link Length -->
+                <!-- Score Scale -->
                 <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
                     <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Base Link Length</span>
-                        <span class="text-cyan-400"><span id="phys-base-link-length-val">200</span></span>
+                        <span>Score Spread</span>
+                        <span class="text-cyan-400"><span id="layout-score-scale-val">1500</span></span>
                     </label>
                     <div class="relative h-6 mt-1">
                         <div class="slider-track"></div>
-                        <input type="range" id="phys-base-link-length" min="0" max="50" value="25" class="range-slider accent-cyan-500">
+                        <input type="range" id="layout-score-scale" min="0" max="50" value="25" class="range-slider accent-cyan-500">
                     </div>
                 </div>
-                <!-- Link Strength -->
+                <!-- Jitter -->
                 <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
                     <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Link Strength</span>
-                        <span class="text-cyan-400"><span id="phys-link-strength-val">0.6</span></span>
+                        <span>Jitter</span>
+                        <span class="text-cyan-400"><span id="layout-jitter-val">120</span></span>
                     </label>
                     <div class="relative h-6 mt-1">
                         <div class="slider-track"></div>
-                        <input type="range" id="phys-link-strength" min="0" max="50" value="25" class="range-slider accent-cyan-500">
+                        <input type="range" id="layout-jitter" min="0" max="50" value="15" class="range-slider accent-cyan-500">
                     </div>
                 </div>
-                <!-- Buoyancy Strength -->
+                <!-- Global Spread Multiplier -->
                 <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
                     <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Buoyancy Strength</span>
-                        <span class="text-cyan-400"><span id="phys-buoyancy-strength-val">8.0</span></span>
+                        <span>Global Spread</span>
+                        <span class="text-cyan-400"><span id="layout-spread-val">1.5</span></span>
                     </label>
                     <div class="relative h-6 mt-1">
                         <div class="slider-track"></div>
-                        <input type="range" id="phys-buoyancy-strength" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Velocity Decay -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Velocity Decay</span>
-                        <span class="text-cyan-400"><span id="phys-velocity-decay-val">0.15</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-velocity-decay" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Collision Strength -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Collision Strength</span>
-                        <span class="text-cyan-400"><span id="phys-collision-strength-val">0.9</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-collision-strength" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Repulsion Strength -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Repulsion Strength</span>
-                        <span class="text-cyan-400"><span id="phys-repulsion-strength-val">2.0</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-repulsion-strength" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Repulsion Range -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Repulsion Range</span>
-                        <span class="text-cyan-400"><span id="phys-repulsion-range-val">300</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-repulsion-range" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Vertical Scale -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Vertical Scale</span>
-                        <span class="text-cyan-400"><span id="phys-vertical-scale-val">500</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-vertical-scale" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Restitution -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Restitution</span>
-                        <span class="text-cyan-400"><span id="phys-restitution-val">0</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-restitution" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Boundary Padding -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Boundary Padding</span>
-                        <span class="text-cyan-400"><span id="phys-boundary-padding-val">60</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-boundary-padding" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Alpha Decay -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Alpha Decay</span>
-                        <span class="text-cyan-400"><span id="phys-alpha-decay-val">0.003</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-alpha-decay" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Alpha Min -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Alpha Min</span>
-                        <span class="text-cyan-400"><span id="phys-alpha-min-val">0.002</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-alpha-min" min="0" max="50" value="25" class="range-slider accent-cyan-500">
-                    </div>
-                </div>
-                <!-- Min Area Per Node -->
-                <div class="flex flex-col gap-1 bg-dark-800/50 px-4 py-2 rounded-xl border border-white/5 w-full col-span-1">
-                    <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex justify-between">
-                        <span>Min Area/Node</span>
-                        <span class="text-cyan-400"><span id="phys-min-area-per-node-val">40000</span></span>
-                    </label>
-                    <div class="relative h-6 mt-1">
-                        <div class="slider-track"></div>
-                        <input type="range" id="phys-min-area-per-node" min="0" max="50" value="25" class="range-slider accent-cyan-500">
+                        <input type="range" id="layout-spread" min="0" max="50" value="25" class="range-slider accent-cyan-500">
                     </div>
                 </div>
             </div>

@@ -74,7 +74,7 @@ class ThreeGraphRenderer {
         }
 
         if (!webglOk) {
-            console.error("[ThreeGraphRenderer] WebGL not supported, using 2D fallback.");
+            if (typeof showError === 'function') showError("WebGL not available — using Canvas 2D fallback.");
             this.renderer = null;
             this._ctx = canvas.getContext('2d');
             this._fallbackCanvas = canvas;
@@ -98,7 +98,8 @@ class ThreeGraphRenderer {
             this._zoomPending = false;
             this._handleWheel = (ev) => {
                 ev.preventDefault();
-                if (this._chunkTimer) return;
+                // Allow zoom during chunked render — cancel chunks and re-render at new zoom
+                if (this._chunkTimer) this._cancelChunked();
                 const delta = ev.deltaY > 0 ? 1 / 1.2 : 1.2;
                 const newZoom = this._zoomLevel * delta;
                 this._zoomLevel = Math.max(0.05, Math.min(newZoom, 50));
@@ -114,8 +115,8 @@ class ThreeGraphRenderer {
 
             this._handleMouseDown = (ev) => {
                 if (ev.button !== 0) return;
-                // Don't start drag while chunked render is in progress
-                if (this._chunkTimer) return;
+                // Cancel chunked render on drag start so user can pan immediately
+                if (this._chunkTimer) this._cancelChunked();
                 this._isDragging = true;
                 this._didDrag = false;
                 this._dragStartX = ev.clientX;
@@ -185,6 +186,17 @@ class ThreeGraphRenderer {
         this.controls.enableRotate = false;
         this.controls.screenSpacePanning = true;
         this.controls.zoomSpeed = 1.5;
+        // Left-click pans (natural for 2D); right-click also pans; scroll zooms
+        this.controls.mouseButtons = {
+            LEFT: THREE.MOUSE.PAN,
+            MIDDLE: THREE.MOUSE.DOLLY,
+            RIGHT: THREE.MOUSE.PAN,
+        };
+        // Touch: two-finger pan, pinch zoom
+        this.controls.touches = {
+            ONE: THREE.TOUCH.PAN,
+            TWO: THREE.TOUCH.DOLLY_PAN,
+        };
         this.controls.update();
 
         this.nodePoints = null;
@@ -197,14 +209,22 @@ class ThreeGraphRenderer {
         this._tempVec3 = new THREE.Vector3();
 
         this._ready = true;
-        this._animate();
-    }
+        // Render on demand via controls change event (no continuous loop for static graph)
+        this._onControlsChange = () => {
+            if (!this._ready || this._fallback) return;
+            this.renderer.render(this.scene, this.camera);
+            if (typeof this.onViewportChange === 'function') {
+                this.onViewportChange({ k: this.camera.zoom / this._referenceZoom });
+            }
+        };
+        this.controls.addEventListener('change', this._onControlsChange);
 
-    _animate() {
-        requestAnimationFrame(() => this._animate());
-        if (!this._ready || this._fallback) return;
-        this.controls.update();
-        this.renderer.render(this.scene, this.camera);
+        // Initial render
+        requestAnimationFrame(() => {
+            if (this._ready && !this._fallback) {
+                this.renderer.render(this.scene, this.camera);
+            }
+        });
     }
 
     get canvas() {
@@ -321,38 +341,12 @@ class ThreeGraphRenderer {
 
         this._updateTransformCache();
 
-        // Draw nodes synchronously (fast: 29k fillRect)
-        const diag = this.worldBounds ? Math.sqrt(
-            this.worldBounds.width * this.worldBounds.width +
-            this.worldBounds.height * this.worldBounds.height
-        ) : 1;
-        const nodeSize = Math.max(2, diag * 0.004) * Math.min(1, this._zoomLevel);
-        const tc = this._tc;
-        if (nodeSize <= 3) {
-            for (let i = 0; i < this.nodesData.length; i++) {
-                const node = this.nodesData[i];
-                if (!isFinite(node.x) || !isFinite(node.y)) continue;
-                const sx = (node.x - tc.cx) * tc.scale + tc.ox;
-                const sy = -(node.y - tc.cy) * tc.scale + tc.oy;
-                ctx.fillStyle = node._fill || '#888';
-                ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3);
-            }
-        } else {
-            for (let i = 0; i < this.nodesData.length; i++) {
-                const node = this.nodesData[i];
-                if (!isFinite(node.x) || !isFinite(node.y)) continue;
-                const sx = (node.x - tc.cx) * tc.scale + tc.ox;
-                const sy = -(node.y - tc.cy) * tc.scale + tc.oy;
-                ctx.beginPath();
-                ctx.arc(sx, sy, nodeSize, 0, Math.PI * 2);
-                ctx.fillStyle = node._fill || '#888';
-                ctx.fill();
-            }
-        }
+        // Draw nodes synchronously (fast) so user sees them immediately
+        this._drawNodesNow(ctx);
 
         ctx.restore();
 
-        // Start chunked link rendering
+        // Start chunked link rendering (links overlay on top of nodes)
         this._chunkOnComplete = onComplete;
         this._chunkQueue = [];
         for (let i = 0; i < this.linksData.length; i++) {
@@ -367,6 +361,40 @@ class ThreeGraphRenderer {
 
         this._chunkPos = 0;
         this._renderLinkChunk();
+    }
+
+    _drawNodesNow(ctx) {
+        const diag = this.worldBounds ? Math.sqrt(
+            this.worldBounds.width * this.worldBounds.width +
+            this.worldBounds.height * this.worldBounds.height
+        ) : 1;
+        const nodeSize = Math.max(2, diag * 0.004) * Math.min(1, this._zoomLevel);
+        const tc = this._tc;
+        if (!tc) return;
+
+        const useSelectedColor = this.selectedIds && this.selectedIds.size > 0;
+
+        if (nodeSize <= 3) {
+            for (let i = 0; i < this.nodesData.length; i++) {
+                const node = this.nodesData[i];
+                if (!isFinite(node.x) || !isFinite(node.y)) continue;
+                const sx = (node.x - tc.cx) * tc.scale + tc.ox;
+                const sy = -(node.y - tc.cy) * tc.scale + tc.oy;
+                ctx.fillStyle = (useSelectedColor && this.selectedIds.has(node.id)) ? '#f59e0b' : (node._fill || '#888');
+                ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3);
+            }
+        } else {
+            for (let i = 0; i < this.nodesData.length; i++) {
+                const node = this.nodesData[i];
+                if (!isFinite(node.x) || !isFinite(node.y)) continue;
+                const sx = (node.x - tc.cx) * tc.scale + tc.ox;
+                const sy = -(node.y - tc.cy) * tc.scale + tc.oy;
+                ctx.beginPath();
+                ctx.arc(sx, sy, nodeSize, 0, Math.PI * 2);
+                ctx.fillStyle = (useSelectedColor && this.selectedIds.has(node.id)) ? '#f59e0b' : (node._fill || '#888');
+                ctx.fill();
+            }
+        }
     }
 
     _renderLinkChunk() {
@@ -385,8 +413,8 @@ class ThreeGraphRenderer {
         const dpr = this._dpr;
         const tc = this._tc;
         const chunkEnd = Math.min(pos + 60000, q.length); // 30k links per chunk
-        const regColor = 'rgba(107,114,128,0.35)';
-        const mainColor = 'rgba(255,255,255,0.55)';
+        const regColor = 'rgba(107,114,128,0.15)';
+        const mainColor = 'rgba(255,255,255,0.25)';
         const regWidth = Math.max(0.5, 0.5 * Math.min(1, this._zoomLevel));
         const mainWidth = Math.max(0.5, 1.5 * Math.min(1, this._zoomLevel));
 
@@ -567,6 +595,7 @@ class ThreeGraphRenderer {
             this._fallbackCanvas.height = Math.round(h * dpr);
             this._fallbackCanvas.style.width = w + 'px';
             this._fallbackCanvas.style.height = h + 'px';
+            // Draw nodes immediately (synchronous, fast), then link chunks in background
             if (this.nodesData.length) this._renderFallback();
             return;
         }
@@ -582,6 +611,9 @@ class ThreeGraphRenderer {
         this.camera.bottom = -viewH / 2;
         this.camera.aspect = aspect;
         this.camera.updateProjectionMatrix();
+
+        // Re-render immediately (no animation loop for static graph)
+        this.renderer.render(this.scene, this.camera);
     }
 
     hitTest(event) {

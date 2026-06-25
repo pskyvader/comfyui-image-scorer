@@ -457,7 +457,7 @@ def main():
     # Load data
     print("Loading data...")
     try:
-        vectors_data = load_single_jsonl("output/vectors.jsonl")
+        vectors_data = list(load_single_jsonl("output/vectors.jsonl"))
         text_data = load_single_jsonl("output/text_data.jsonl")
 
         if not vectors_data:
@@ -465,7 +465,6 @@ def main():
             return
 
         print(f"✓ Loaded {len(vectors_data)} vector entries")
-        print(f"✓ Loaded {len(text_data)} text entries")
 
         # Run analysis
         analyzer = ParameterAnalyzer(vectors_data, text_data)

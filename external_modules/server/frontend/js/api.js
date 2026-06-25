@@ -23,4 +23,5 @@ class Api {
 }
 
 const api = new Api();
+globalThis.api = api;
 window.Api = Api;

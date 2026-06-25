@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 import logging
 import random
+from typing import Any, Iterator
 
 if __name__ == "__main__":
 
@@ -127,7 +128,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     max_workers = config["prepare"]["max_workers"]
 
     logger.info("loading index...")
-    index_list = load_single_jsonl(index_file)
+    index_list: Iterator[Any] = load_single_jsonl(index_file)
 
     processed_files = {s.split("#", 1)[0] for s in index_list}
 
@@ -145,7 +146,7 @@ def run_prepare(limit: int) -> dict[str, int]:
 
     if len(collected_data) == 0:
         logger.info("No new valid files found. Exiting.")
-        result = {"total": len(index_list), "new": 0}
+        result = {"total": len(processed_files), "new": 0}
 
         return result
 
@@ -158,7 +159,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     logger.info("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
     processed_data = image_analysis.analyze_images_from_paths(batch_size, max_workers)
-    logger.info("Creating vector list object...")
+    logger.info(f"processed data:{len(processed_data)}. Creating vector list object...")
     # print(f"processed data {processed_data}")
     vectors_list_parser = VectorList(
         processed_data,
@@ -201,7 +202,7 @@ def run_rebuild_scores_only() -> dict[str, int]:
     _start = time.perf_counter()
     logger.info("Starting scores rebuild from database...")
 
-    index_list = load_single_jsonl(index_file)
+    index_list = list(load_single_jsonl(index_file))
     if not index_list:
         logger.info("No index file found. Cannot rebuild scores.")
         result = {"total": 0, "updated": 0, "missing": 0}

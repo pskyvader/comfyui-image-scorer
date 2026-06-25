@@ -38,8 +38,8 @@ class GalleryView {
         if (filters.tags) {
             params.set("tags", filters.tags);
         }
-        if (filters.tagsMode) {
-            params.set("tags_mode", filters.tagsMode);
+        if (filters.search_mode) {
+            params.set("search_mode", filters.search_mode);
         }
         if (filters.search) {
             params.set("search", filters.search);

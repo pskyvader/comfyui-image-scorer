@@ -1,11 +1,9 @@
-import logging
-from typing import Any
+from typing import Any, Iterator
 import numpy as np
 import numpy.typing as npt
 from tqdm import tqdm
 import os
-
-logger = logging.getLogger(__name__)
+import time
 
 # print(f"package:{__package__}, name: {__name__}, file: {__file__}", flush=True)
 
@@ -23,6 +21,9 @@ from ...external_modules.comparison.algorithm.trueskill_rating import (
 )
 from ...external_modules.database_structure.comparisons_table import get_all_comparisons
 from ...external_modules.database_structure.images_table import get_image
+from ...shared.logger import get_logger, ModuleLogger
+
+logger: ModuleLogger = get_logger(__name__)
 
 cache_split_data: dict[str, list[dict[str, Any]]] = {}
 
@@ -217,6 +218,7 @@ class VectorList:
             )
 
     def filter_missing_vectors(self) -> None:
+        logger.debug("filtering missing scores...")
         valid_ids: list[str] = self.unique_ids
         scores_list: set[str] = set(self.scores.keys())
         error_ids: dict[str, list[str]] = {}
@@ -426,6 +428,7 @@ class VectorList:
 
         Returns the ordered list of unique IDs found in the splits.
         """
+        _start = time.perf_counter()
 
         global cache_split_data
         invalid_entries: dict[str, list[Any]] = {}
@@ -440,6 +443,7 @@ class VectorList:
                 name = c["name"]
                 v_type = c["type"]
                 current_vector = c["vector"]
+                # logger.debug(f"vector: {v}", _start)
 
                 split_path = os.path.join(split_dir, v_type, f"{name}.jsonl")
                 if not os.path.exists(split_path):
@@ -448,29 +452,22 @@ class VectorList:
 
                 raw_vals: dict[str, Any] = {}
                 vec_vals: dict[str, list[float]] = {}
+                invalid: list[dict[str, Any]] = []
                 if name in cache_split_data:
-                    reader: list[dict[str, Any]] = cache_split_data[name]
+                    reader: Iterator[dict[str, Any]] = iter(cache_split_data[name])
                 else:
-                    # logger.debug(f"cache not found for {name}, trying to load file...")
-                    reader: list[dict[str, Any]] = load_single_jsonl(split_path)
-                # print(f"Loaded {len(reader)} entries from split file: {split_path}")
-                # with jsonlines.open(split_path, mode="r") as reader:
+                    reader: Iterator[dict[str, Any]] = load_single_jsonl(split_path)
 
-                valid_vectors: list[tuple[str, Any, list[float]]] = [
-                    (obj["id"], obj["raw"], obj["vector"])
-                    for obj in reader
-                    if obj["raw"] is not None and len(list(obj["vector"])) > 0
-                ]
+                for obj in reader:
+                    if obj["raw"] is not None and len(list(obj["vector"])) > 0:
+                        self.unique_ids.append(obj["id"])
+                        raw_vals[obj["id"]] = obj["raw"]
+                        vec_vals[obj["id"]] = obj["vector"]
+                    else:
+                        invalid.append(obj)
 
-                ids: list[str] = [id for id, _raw, _vec in valid_vectors]
-                raw_vals = {id: raw for (id, raw, _vec) in valid_vectors}
-                vec_vals = {id: vec for (id, _raw, vec) in valid_vectors}
-
-                invalid = [obj for obj in reader if obj["id"] not in ids]
-                if len(invalid) > 0:
+                if invalid:
                     invalid_entries[name] = invalid
-                id_add: list[str] = [id for id in ids if id not in self.unique_ids]
-                self.unique_ids.extend(id_add)
 
                 current_vector.vector_list = vec_vals
 
@@ -483,6 +480,11 @@ class VectorList:
                 pbar.update(1)
             # return unique_ids
 
+        # replace adding only uniques each step for just transform to set and then list again, once
+        logger.debug(f"before unique:{len(self.unique_ids)}")
+        self.unique_ids = list(set(self.unique_ids))
+        logger.debug(f"after unique:{len(self.unique_ids)}")
+
         if len(invalid_entries.items()) > 0:
 
             logger.debug(
@@ -494,7 +496,7 @@ class VectorList:
             )
 
     def load_split_scores(self):
-        scores_list = load_single_jsonl(scores_file)
+        scores_list = list(load_single_jsonl(scores_file))
         if len(scores_list) == len(self.unique_ids):
             self.scores = {
                 fid: score for fid, score in zip(self.unique_ids, scores_list)

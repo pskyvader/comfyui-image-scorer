@@ -10,6 +10,14 @@ class ChainMapUI {
         this.height = 600;
         this._simLinks = [];
         this._simNodes = [];
+
+        // Layout config, updated by sliders
+        this._layoutConfig = {
+            compSpacing: 900,
+            scoreScale: 1500,
+            jitter: 120,
+            spread: 1.5,
+        };
     }
 
     cacheElements() {
@@ -47,6 +55,15 @@ class ChainMapUI {
 
         this.nodeDetails = document.getElementById("node-details");
         this.compareSelectedBtn = document.getElementById("compare-selected-btn");
+
+        this._layoutCompSpacing = document.getElementById("layout-comp-spacing");
+        this._layoutCompSpacingVal = document.getElementById("layout-comp-spacing-val");
+        this._layoutScoreScale = document.getElementById("layout-score-scale");
+        this._layoutScoreScaleVal = document.getElementById("layout-score-scale-val");
+        this._layoutJitter = document.getElementById("layout-jitter");
+        this._layoutJitterVal = document.getElementById("layout-jitter-val");
+        this._layoutSpread = document.getElementById("layout-spread");
+        this._layoutSpreadVal = document.getElementById("layout-spread-val");
         this.selectedCountEl = document.getElementById("selected-count");
         this.zoomScaleEl = document.getElementById("zoom-scale");
         this.viewCoordsEl = document.getElementById("view-coords");
@@ -59,7 +76,10 @@ class ChainMapUI {
 
     _adjustContainerHeight() {
         if (!this.container) return;
-        this.container.style.height = `${Math.round(window.innerHeight * 0.65)}px`;
+        const newH = `${Math.round(window.innerHeight * 0.65)}px`;
+        if (this.container.style.height !== newH) {
+            this.container.style.height = newH;
+        }
     }
 
     async init() {
@@ -74,7 +94,7 @@ class ChainMapUI {
         const self = this;
         window.addEventListener("resize", () => {
             self._adjustContainerHeight();
-            self.renderer.resize();
+            // ResizeObserver on container handles the actual renderer resize
         });
         this.attachEventListeners();
         await this.loadData();
@@ -218,6 +238,63 @@ class ChainMapUI {
                 }
             };
         }
+
+        // --- Layout sliders ---
+        const applyLayoutChange = () => {
+            if (!this._simNodes.length) return;
+            const pos = (el) => parseInt(el.value);
+            this._layoutConfig.compSpacing = pos(this._layoutCompSpacing) * 40;
+            this._layoutConfig.scoreScale = pos(this._layoutScoreScale) * 60;
+            this._layoutConfig.jitter = pos(this._layoutJitter) * 8;
+            this._layoutConfig.spread = 0.5 + pos(this._layoutSpread) * 0.04;
+            if (this._layoutCompSpacingVal) this._layoutCompSpacingVal.textContent = this._layoutConfig.compSpacing;
+            if (this._layoutScoreScaleVal) this._layoutScoreScaleVal.textContent = this._layoutConfig.scoreScale;
+            if (this._layoutJitterVal) this._layoutJitterVal.textContent = this._layoutConfig.jitter;
+            if (this._layoutSpreadVal) this._layoutSpreadVal.textContent = this._layoutConfig.spread.toFixed(1);
+            // Re-layout existing nodes with new config
+            const comps = new Set(this._simNodes.map(n => String(n.component)));
+            this._applyLayout(this._simNodes, comps);
+            // Recompute world bounds
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const n of this._simNodes) {
+                if (n.x < minX) minX = n.x;
+                if (n.x > maxX) maxX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.y > maxY) maxY = n.y;
+            }
+            const padding = 150;
+            const world = {
+                x: minX - padding, y: minY - padding,
+                width: (maxX - minX) + padding * 2,
+                height: (maxY - minY) + padding * 2,
+            };
+            // Re-render
+            this.renderer.render({
+                nodes: this._simNodes,
+                links: this._simLinks,
+                profile: { drawLinks: true },
+                selectedIds: this.selectedNodes,
+                world,
+            });
+        };
+
+        if (this._layoutCompSpacing) this._layoutCompSpacing.onchange = applyLayoutChange;
+        if (this._layoutScoreScale) this._layoutScoreScale.onchange = applyLayoutChange;
+        if (this._layoutJitter) this._layoutJitter.onchange = applyLayoutChange;
+        if (this._layoutSpread) this._layoutSpread.onchange = applyLayoutChange;
+
+        // --- Pause button ---
+        const pauseBtn = document.getElementById("play-pause-btn");
+        if (pauseBtn) {
+            pauseBtn.onclick = () => {
+                const pauseIcon = document.getElementById("pause-icon");
+                const playIcon = document.getElementById("play-icon");
+                if (!pauseIcon || !playIcon) return;
+                const isPaused = pauseIcon.classList.contains("hidden");
+                pauseIcon.classList.toggle("hidden");
+                playIcon.classList.toggle("hidden");
+            };
+        }
     }
 
     updateDetailsPosition() {
@@ -228,8 +305,17 @@ class ChainMapUI {
             this._activeDetailsNode.x, this._activeDetailsNode.y
         );
 
-        const r = this._activeDetailsNode._radius || 4;
-        const offset = Math.max(r, 20) + 10;
+        // Use visual node size (typically 2-6px at initial zoom) instead of legacy _radius
+        let visualSize = 20;
+        if (this.renderer && this.renderer.subRenderer) {
+            const sub = this.renderer.subRenderer;
+            const diag = sub.worldBounds ? Math.sqrt(
+                sub.worldBounds.width * sub.worldBounds.width +
+                sub.worldBounds.height * sub.worldBounds.height
+            ) : 1;
+            visualSize = Math.max(2, diag * 0.004) * Math.min(1, (sub._zoomLevel || 1));
+        }
+        const offset = visualSize + 10;
 
         this.nodeDetails.style.left = `${Math.round(screenX + offset)}px`;
         this.nodeDetails.style.top = `${Math.round(screenY + offset)}px`;
@@ -239,6 +325,31 @@ class ChainMapUI {
     _applyChainVisibility() {
         if (!this.renderer) return;
         this.renderer.setLinkVisibility(this._showMainChains, this._showRegularLinks);
+    }
+
+    _applyLayout(simNodes, distinctComponents) {
+        const componentIds = [...distinctComponents].sort();
+        const cfg = this._layoutConfig;
+        const spreadMul = cfg.spread * 2;
+
+        // Simple seeded hash for deterministic jitter
+        const seedHash = (id) => {
+            let h = 0;
+            const s = String(id);
+            for (let i = 0; i < s.length; i++) {
+                h = ((h << 5) - h) + s.charCodeAt(i);
+                h |= 0;
+            }
+            return (h & 0x7fffffff) / 0x7fffffff;
+        };
+
+        for (const n of simNodes) {
+            const compIdx = componentIds.indexOf(String(n.component));
+            const compX = (compIdx - (componentIds.length - 1) / 2) * cfg.compSpacing * spreadMul;
+            const scoreY = (parseFloat(n.score) - 0.5) * cfg.scoreScale * spreadMul;
+            n.x = compX + (seedHash(n.id + 'x') - 0.5) * cfg.jitter;
+            n.y = scoreY + (seedHash(n.id + 'y') - 0.5) * cfg.jitter;
+        }
     }
 
     render(nodes, links, stats) {
@@ -460,18 +571,7 @@ class ChainMapUI {
         }
 
         // --- Deterministic layout: arrange by component (X) and score (Y) ---
-        const componentIds = [...distinctComponents].sort();
-        const compSpacing = 300;
-        const scoreScale = 500;
-        const jitter = 25;
-
-        for (const n of simNodes) {
-            const compIdx = componentIds.indexOf(String(n.component));
-            const compX = (compIdx - (componentIds.length - 1) / 2) * compSpacing;
-            const scoreY = (parseFloat(n.score) - 0.5) * scoreScale;
-            n.x = compX + (Math.random() - 0.5) * jitter;
-            n.y = scoreY + (Math.random() - 0.5) * jitter;
-        }
+        this._applyLayout(simNodes, distinctComponents);
 
         // --- World bounds ---
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;

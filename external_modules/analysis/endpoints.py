@@ -201,7 +201,7 @@ def analyze_parameters():
         from shared.paths import vectors_file, text_data_file, scores_file
 
         vectors_raw = load_single_jsonl(vectors_file)
-        scores_raw = load_single_jsonl(scores_file)
+        scores_raw = list(load_single_jsonl(scores_file))
         text_data = load_single_jsonl(text_data_file)
 
         vector_dicts = []
@@ -266,7 +266,7 @@ def analyze_matrix():
         scores = [
             float(s["score"]) if isinstance(s, dict) else float(s) for s in scores_raw
         ]
-        text_data = load_single_jsonl(text_data_file)
+        text_data = list(load_single_jsonl(text_data_file))
 
         analyzer = MatrixAnalyzer(scores, text_data)
         analyzer.build_matrix()

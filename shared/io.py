@@ -16,15 +16,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 logger = logging.getLogger(__name__)
 
 
-def load_single_jsonl(filename: str) -> list[Any]:
-    data: list[Any] = []
-    if os.path.exists(filename):
-        with tqdm() as pbar:
-            with jsonlines.open(filename, mode="r") as reader:
-                for obj in reader:
-                    data.append(obj)
-                    pbar.update(1)
-    return data
+def load_single_jsonl(filename: str, skip_invalid: bool = True) -> Iterator[Any]:
+    if not os.path.exists(filename):
+        return
+
+    with open(filename, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped: str = line.strip()
+            if not stripped:
+                continue
+            if skip_invalid:
+                try:
+                    yield json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+            else:
+                yield json.loads(stripped)
 
 
 def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
@@ -194,6 +201,7 @@ def load_json(
 def atomic_write_json(path: str, data: Any, *, indent: int | None) -> None:
     _start = time.perf_counter()
     p: Path = Path(path)
+    # logger.debug(f"saving: {path}")
     p.parent.mkdir(parents=True, exist_ok=True)
 
     tmp: Path = p.with_suffix(p.suffix + ".tmp")

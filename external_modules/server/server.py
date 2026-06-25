@@ -190,6 +190,7 @@ SECTION_FRONTENDS = {
     "comparison": Path(__file__).parent.parent / "comparison" / "frontend",
     "gallery": Path(__file__).parent.parent / "gallery" / "frontend",
     "maps": Path(__file__).parent.parent / "maps" / "frontend",
+    "maps2": Path(__file__).parent.parent / "maps2" / "frontend",
     "database": Path(__file__).parent.parent / "database_structure" / "frontend",
     "data": Path(__file__).parent.parent / "data_transform" / "frontend",
     "training": Path(__file__).parent.parent / "training_hyperparameters" / "frontend",

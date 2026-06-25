@@ -10,8 +10,8 @@
     "num_class": 5,
     "verbosity": 1,
     "top1": {
-        "best_score": 0.4341920587580823,
-        "training_time": 48.031170129776,
+        "best_score": 0.4243475018593952,
+        "training_time": 48.0000376701355,
         "learning_rate": 0.02090329855641432,
         "n_estimators": 1226,
         "num_leaves": 870,

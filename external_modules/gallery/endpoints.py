@@ -52,7 +52,7 @@ def list_images():
             filtered_and.append(img)
             continue
 
-        img_tags = (img.get("prompt_tags") or "").lower()
+        img_tags = ((img.get("prompt_tags") or "") + " " + img["filename"]).lower()
         if all(tag in img_tags for tag in search_tags):
             filtered_and.append(img)
         elif search_mode != "and" and any(tag in img_tags for tag in search_tags):
