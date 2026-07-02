@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from contextlib import contextmanager
 import time
 from typing import Any, Iterator
 import random
@@ -26,13 +25,6 @@ from .trueskill_rating import expected_win_probability, rating_from_row
 logger = SharedLogger.get_logger(__name__)
 
 _skip_before: int = 0
-
-
-@contextmanager
-def _log_timing(label: str):
-    start = time.perf_counter()
-    yield
-    logger.info(f"TIMING {label} ", start)
 
 
 def _stable_seed_pool(
@@ -100,7 +92,7 @@ def _find_unseen_candidates(
             results += 1
             yield candidate
 
-    logger.debug(f"find unseen candidates length:{results}", _start)
+    logger.debug(f"find unseen candidates length:{results}", start_timer=_start)
 
     # result = [
     #     candidate
@@ -157,17 +149,17 @@ def _phase1_seed_coverage(
         ),
     )
     for source in under_seed_target:
-        logger.debug(f"starting iterator", _start)
+        logger.debug(f"starting iterator", start_timer=_start)
         opponents: Iterator[dict[str, Any]] = _find_unseen_candidates(
             source, seed_candidates, existing_pair_set
         )
-        # logger.debug("finish iterator", _start)
+        # logger.debug("finish iterator", start_timer=_start)
 
         # opp_tiebreaker = _random_tiebreaker(opponents)
         chosen = None
         i = 0
         for opp in opponents:
-            #  logger.debug(f"opponent {i}", _start)
+            #  logger.debug(f"opponent {i}", start_timer=_start)
             i += 1
             if chosen is None:
                 # if i < 3 and not _are_in_different_paths(
@@ -181,7 +173,7 @@ def _phase1_seed_coverage(
                 and _score_gap(source, chosen) < 0.05
                 and int(source["comparison_count"]) <= chosen["comparison_count"] + 1
             ):
-                logger.debug(f"good candidate found st {i} steps", _start)
+                logger.debug(f"good candidate found st {i} steps", start_timer=_start)
                 break
 
             if i > 10:
@@ -205,7 +197,7 @@ def _phase1_seed_coverage(
                 "refinement_details": None,
             },
         )
-        logger.debug(f"return result after {i} steps", _start)
+        logger.debug(f"return result after {i} steps", start_timer=_start)
         return result
     return None, {}
 
@@ -377,7 +369,7 @@ def _phase4_chain_merge(
 
     _start = time.perf_counter()
     candidate_names = {img["filename"] for img in candidate_images}
-    # logger.warning(f"candidate_names", _start)
+    # logger.warning(f"candidate_names", start_timer=_start)
 
     chains_list: list[tuple[ChainProxy, list[NodeTuple]]] = (
         crystal_graph.get_all_chains(min_length=3, sort_order="asc")
@@ -385,7 +377,7 @@ def _phase4_chain_merge(
     chains: list[list[NodeTuple]] = [c[1] for c in chains_list]
 
     if len(chains) < min_chain_threshold:
-        logger.info(f"skipping phase 4: <{min_chain_threshold} chains", _start)
+        logger.info(f"skipping phase 4: <{min_chain_threshold} chains", start_timer=_start)
         return None, {}
 
     logger.debug(f"shortest chain: {len(chains[0])}, longest: {len(chains[-1])}")
@@ -447,7 +439,7 @@ def _phase4_chain_merge(
                 )
                 _last_chains_index.append(i)
                 _last_chains_index.append(j)
-                logger.debug(f"I={i},j={j}", _start)
+                logger.debug(f"I={i},j={j}", start_timer=_start)
                 logger.debug(
                     f"chain i={len(a_nodes)}({len(chains[i])}),chain j={len(b_nodes)}({len(chains[j])})",
                     _start,
@@ -582,45 +574,39 @@ def select_pair(
         reset_skip()
 
     if _skip_before <= 0:
-        with _log_timing("phase1_seed_coverage"):
-            result = _phase1_seed_coverage(seed_candidates, existing_pairs_set)
+        result = _phase1_seed_coverage(seed_candidates, existing_pairs_set)
         if result[0]:
             _skip_before = 0
             return result
 
     if _skip_before <= 1:
-        with _log_timing("phase2_anchor_insert"):
-            result = _phase2_anchor_insert(
-                candidate_images, seed_pool, existing_pairs_set
-            )
+        result = _phase2_anchor_insert(
+            candidate_images, seed_pool, existing_pairs_set
+        )
         if result[0]:
             _skip_before = 1
             return result
 
     if _skip_before <= 2:
-        with _log_timing("phase3_collapsible_pairs"):
-            result = _phase3_collapsible_pairs(candidate_images, existing_pairs_set)
+        result = _phase3_collapsible_pairs(candidate_images, existing_pairs_set)
         if result[0]:
             _skip_before = 2
             return result
 
     if _skip_before <= 3:
-        with _log_timing("phase4_chain_merge"):
-            result = _phase4_chain_merge(candidate_images)
+        result = _phase4_chain_merge(candidate_images)
         if result[0]:
             _skip_before = 3
             return result
 
     if _skip_before <= 4:
-        with _log_timing("phase5_uncertainty_refine"):
-            result = _phase5_uncertainty_refine(candidate_images, existing_pairs_set)
+        result = _phase5_uncertainty_refine(candidate_images, existing_pairs_set)
         if result[0]:
             _skip_before = 4
             return result
 
     if _skip_before <= 5:
-        with _log_timing("phase_fallback"):
-            result = _phase_fallback(candidate_images, existing_pairs_set)
+        result = _phase_fallback(candidate_images, existing_pairs_set)
         if result[0]:
             _skip_before = 5
             return result

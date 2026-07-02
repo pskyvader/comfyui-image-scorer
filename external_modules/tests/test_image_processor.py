@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from .server.image_processor import ImageProcessor
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def test_clean_json_metadata_initializes_neutral_fields(monkeypatch):

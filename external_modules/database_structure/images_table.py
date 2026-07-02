@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any
-import logging
 
 from .schema import get_db_connection
 import time
@@ -11,7 +10,8 @@ import time
 MU0 = 25.0
 SIGMA0 = MU0 / 3.0
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def add_image(

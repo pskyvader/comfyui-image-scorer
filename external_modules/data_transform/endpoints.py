@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os as _os
 import time
-import logging
 import sys
 from pathlib import Path
 
@@ -27,7 +26,8 @@ from shared.paths import vectors_file, scores_file, index_file, text_data_file
 from shared.helpers import remove_vectors
 
 data_bp = Blueprint("data_v2", __name__, url_prefix="/api/v2/data")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def _get_processor():

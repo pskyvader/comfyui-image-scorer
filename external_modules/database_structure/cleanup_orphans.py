@@ -25,9 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from shared.paths import image_root_processed  # noqa: E402
 import time
 
-logger = logging.getLogger(__name__)
-
-logger: logging.Logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 

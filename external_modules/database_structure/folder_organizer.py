@@ -1,10 +1,10 @@
 """Folder organizer - maintain score folder structure."""
 
-import logging
 from .path_handler import get_ranked_root
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def ensure_tier_structure() -> bool:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,7 +34,8 @@ from ...shared.config import config
 from ...shared.graph.crystal_graph import crystal_graph
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def _get_processor():

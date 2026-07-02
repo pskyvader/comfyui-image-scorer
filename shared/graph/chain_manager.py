@@ -512,12 +512,12 @@ class ChainManager:
                 if skip_edges and (current, w) in skip_edges:
                     continue
                 if w == end:
-                    logger.debug(f"can reach at depth {depth}", _start)
+                    logger.debug(f"can reach at depth {depth}", start_timer=_start)
                     return True
                 if w not in visited:
                     visited.add(w)
                     queue.append((w, depth + 1))
-        logger.debug(f"{start[:5]} cannot reach {end[:5]} up to depth {depth}", _start)
+        logger.debug(f"{start[:5]} cannot reach {end[:5]} up to depth {depth}", start_timer=_start)
         return False
 
     def _check_same_chain(self, u: str, v: str) -> tuple[bool, bool]:

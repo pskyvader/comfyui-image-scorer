@@ -16,7 +16,6 @@ from .batch_sizer import BatchSizer
 
 # import logging
 
-# logger = logging.getLogger(__name__)
 
 from ..logger import (
     # SSELogBroadcaster,

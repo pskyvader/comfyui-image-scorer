@@ -1,6 +1,6 @@
 {
     "max_workers": 20,
-    "batch_size": 10,
+    "batch_size": 50,
     "prompt_representation": {
         "name": "all-mpnet-base-v2",
         "output_dim": 768,
@@ -27,6 +27,18 @@
             "output_dim": 768,
             "variable_input": false,
             "global_pool": "token"
+        }
+    },
+    "attribute_models": {
+        "face_attributes": {
+            "name": "syntheticbot/clip-face-attribute-classifier",
+            "device": "cuda",
+            "output_dim": 18
+        },
+        "nsfw": {
+            "name": "Falconsai/nsfw_image_detection",
+            "device": "cuda",
+            "output_dim": 1
         }
     }
 }

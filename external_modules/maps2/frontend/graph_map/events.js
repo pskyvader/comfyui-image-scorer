@@ -146,56 +146,72 @@ globalThis.ChainMapUI.prototype._listen = function () {
         };
         update();
     };
-    accTgl("toggle-main-links-physics", "_mainLinkPhysics", (on) => {
-        if (on) {
-            if (!this._activeForces.includes("_applyLinkSprings")) {
-                this._activeForces.push("_applyLinkSprings");
-            }
-        } else {
-            const idx = this._activeForces.indexOf("_applyLinkSprings");
-            if (idx >= 0) {
-                this._activeForces.splice(idx, 1);
-            }
-        }
+    accTgl("toggle-main-links-physics", "_mainLinkPhysics", () => {
+        this._initActiveForces();
     });
-    accTgl("toggle-secondary-physics-btn", "_secondaryChainPhysics");
-    accTgl("toggle-buoyancy", "_buoyancyEnabled", (on) => {
-        if (on) {
-            if (!this._activeForces.includes("_applyBuoyancy")) {
-                this._activeForces.push("_applyBuoyancy");
-            }
-        } else {
-            const idx = this._activeForces.indexOf("_applyBuoyancy");
-            if (idx >= 0) {
-                this._activeForces.splice(idx, 1);
-            }
-        }
+    accTgl("toggle-secondary-physics-btn", "_secondaryChainPhysics", () => {
+        this._initActiveForces();
     });
-    accTgl("toggle-repulsion", "_repulsionEnabled", (on) => {
-        if (on) {
-            if (!this._activeForces.includes("_applyRepulsion")) {
-                this._activeForces.push("_applyRepulsion");
-            }
-        } else {
-            const idx = this._activeForces.indexOf("_applyRepulsion");
-            if (idx >= 0) {
-                this._activeForces.splice(idx, 1);
-            }
-        }
+    accTgl("toggle-buoyancy", "_buoyancyEnabled", () => {
+        this._initActiveForces();
+    });
+    accTgl("toggle-repulsion", "_repulsionEnabled", () => {
+        this._initActiveForces();
     });
     accTgl("toggle-damping", "_dampingEnabled");
-    accTgl("toggle-collisions", "_collisionsEnabled", (on) => {
-        if (on) {
-            if (!this._activeForces.includes("_applyCollisions")) {
-                this._activeForces.push("_applyCollisions");
-            }
-        } else {
-            const idx = this._activeForces.indexOf("_applyCollisions");
-            if (idx >= 0) {
-                this._activeForces.splice(idx, 1);
-            }
-        }
+    accTgl("toggle-collisions", "_collisionsEnabled", () => {
+        this._initActiveForces();
     });
+
+    if (this.toggleWebglBtn) {
+        const updateWebgl = (on) => {
+            this._useWebGLPhysics = on;
+            this.toggleWebglBtn.textContent = on ? "WebGL" : "CPU";
+            this.toggleWebglBtn.classList.toggle("text-cyan-400", on);
+            this.toggleWebglBtn.classList.toggle("text-gray-500", !on);
+            this.toggleWebglBtn.classList.toggle("border-cyan-500/30", on);
+            this.toggleWebglBtn.classList.toggle("border-white/10", !on);
+            if (!on) {
+                this._webglToastShown = false;
+            }
+            this.saveFilters();
+        };
+        this._updateWebglBtn = updateWebgl;
+        this.toggleWebglBtn.onclick = () => {
+            if (this._useWebGLPhysics) {
+                updateWebgl(false);
+                if (this._webglPhysics) {
+                    this._webglPhysics.destroy();
+                    this._webglPhysics = null;
+                }
+                this._simAlpha = 1;
+                return;
+            }
+            // Test basic WebGL 2.0 + EXT_color_buffer_float availability
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, premultipliedAlpha: false });
+            if (!gl) {
+                globalThis.showError("WebGL 2.0 not available in this browser.");
+                return;
+            }
+            if (!gl.getExtension("EXT_color_buffer_float")) {
+                globalThis.showError("WebGL 2.0 EXT_color_buffer_float not supported on this device.");
+                gl.getExtension("WEBGL_lose_context")?.loseContext();
+                return;
+            }
+            gl.getExtension("WEBGL_lose_context")?.loseContext();
+            if (this._webglPhysics) {
+                this._webglPhysics.destroy();
+                this._webglPhysics = null;
+            }
+            this._webglNeedsReinit = true;
+            this._simAlpha = 1;
+            updateWebgl(true);
+        };
+        updateWebgl(this._useWebGLPhysics);
+    }
 
     tgl("zoom-in-btn", () => {
         const s = this.renderer;
@@ -291,10 +307,51 @@ globalThis.ChainMapUI.prototype._listen = function () {
     physApply(this.physAlphaMin, this.physAlphaMinVal, "alphaMin", globalThis.PHYSICS_SLIDER.alphaMin);
     physApply(this.physAreaPerNode, this.physAreaPerNodeVal, "minAreaPerNode", globalThis.PHYSICS_SLIDER.minAreaPerNode, "px²");
     physApply(this.physMaxVelocity, this.physMaxVelocityVal, "maxVelocity", globalThis.PHYSICS_SLIDER.maxVelocity, "px/tick");
+    const linearSlider = (el, valEl, key, steps, min, max, suffix) => {
+        if (!el) {
+            return;
+        }
+        el.oninput = () => {
+            const pos = parseInt(el.value);
+            const v = pos === 0 ? min : pos >= steps ? max : Math.round(min + (pos / steps) * (max - min));
+            this[key] = v;
+            if (valEl) {
+                valEl.textContent = v + (suffix || "");
+            }
+            this.saveFilters();
+        };
+        el.onchange = () => {
+            this._tickSkipAccum = 0;
+            this.saveFilters();
+            this._restartSim();
+        };
+    };
+    linearSlider(this.physForcesPerTick, this.physForcesPerTickVal, "_forcesPerTick", 4, 1, 5, "");
+    if (this.physTickFreq) {
+        this.physTickFreq.oninput = () => {
+            const pos = parseInt(this.physTickFreq.value);
+            const v = pos === 0 ? 0.1 : pos >= 9 ? 1 : Math.round((0.1 + (pos / 9) * 0.9) * 10) / 10;
+            this._tickFrequency = v;
+            if (this.physTickFreqVal) {
+                this.physTickFreqVal.textContent = Math.round(v * 100) + "%";
+            }
+            this.saveFilters();
+        };
+        this.physTickFreq.onchange = () => {
+            this._tickSkipAccum = 0;
+            this.saveFilters();
+            this._restartSim();
+        };
+    }
     if (this.physAreaPerNodeVal) {
         this.physAreaPerNode.addEventListener("input", () => {
             const p = globalThis.physicsSliderToValue(parseInt(this.physAreaPerNode.value), globalThis.PHYSICS_SLIDER.minAreaPerNode);
             this.physAreaPerNodeVal.textContent = p.toLocaleString() + " px²";
+        });
+    }
+    if (this.physAreaPerNode) {
+        this.physAreaPerNode.addEventListener("change", () => {
+            this._restartSim();
         });
     }
 };

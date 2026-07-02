@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import json
-import logging
 import math
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from shared.config import config

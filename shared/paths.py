@@ -26,6 +26,7 @@ text_data_file: str = os.path.join(vectors_dir, "text_data.jsonl")
 
 
 models_dir: str = os.path.join(output_dir, "models")
+mediapipe_models_dir: str = os.path.join(root, "models", "mediapipe")
 
 training_model: str = os.path.join(models_dir, "model.npz")
 raw_data: str = os.path.join(models_dir, "raw_data.npz")

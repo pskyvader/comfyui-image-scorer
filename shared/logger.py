@@ -9,7 +9,8 @@ import queue
 import threading
 import time
 from contextlib import contextmanager
-from typing import Callable, ClassVar, Iterator, Literal
+from collections.abc import Callable, Iterator
+from typing import ClassVar, Literal, TextIO, overload
 
 # ── Global tqdm tuning ────────────────────────────────────────────────
 try:
@@ -19,7 +20,48 @@ try:
 except ImportError:
     pass
 
+import os
+
 LogLevelName = Literal["debug", "info", "warning", "error", "critical"]
+
+
+def _custom_find_caller(
+    self: object,
+    stack_info: bool = False,
+    stacklevel: int = 1,
+) -> tuple[str, int, str, str | None]:
+    try:
+        f = sys._getframe(1)  # pyright: ignore[reportPrivateUsage]
+    except ValueError:
+        f = None
+    while f is not None and getattr(f, "f_code", None):
+        co = f.f_code
+        filename = os.path.normcase(co.co_filename)
+        if (
+            "logger.py" in filename or filename == logging._srcfile
+        ):  # pyright: ignore[reportPrivateUsage]
+            f = f.f_back
+        else:
+            break
+    if f is None:
+        return "(unknown file)", 0, "(unknown function)", None
+
+    co = f.f_code
+    sinfo = None
+    if stack_info:
+        import traceback
+
+        sio = io.StringIO()
+        sio.write("Stack (most recent call last):\n")
+        traceback.print_stack(f, file=sio)
+        sinfo = sio.getvalue()
+        if sinfo[-1] == "\n":
+            sinfo = sinfo[:-1]
+        sio.close()
+    return co.co_filename, f.f_lineno, co.co_name, sinfo
+
+
+logging.Logger.findCaller = _custom_find_caller
 
 _PROGRESS_INDICATORS = ["%", "|", "img/s", "items/s", "[00:", "it/s"]
 
@@ -131,7 +173,7 @@ class _TaskOutput:
 # ── I/O capture (feeds into _TaskOutput) ─────────────────────────────
 
 
-class _CaptureStream(io.TextIOBase):
+class CaptureStream(io.TextIOBase):
     """Wraps stdout/stderr during a task.
 
     - Passes all data through to the original stream (console).
@@ -147,18 +189,16 @@ class _CaptureStream(io.TextIOBase):
     def __init__(
         self,
         lines: list[str],
-        original_stream: io.TextIOWrapper | None,
+        original_stream: TextIO | None,
         *,
         task_id: str | None = None,
     ) -> None:
-        _start = time.perf_counter()
         self.lines = lines
         self._buf = ""
         self.original_stream = original_stream
         self._task_id = task_id
 
     def write(self, s: str) -> int:
-        _start = time.perf_counter()
         if self.original_stream:
             self.original_stream.write(s)
             self.original_stream.flush()
@@ -183,27 +223,26 @@ class _CaptureStream(io.TextIOBase):
         return result
 
     def _process_line(self, line: str) -> None:
-        _start = time.perf_counter()
         if not line:
             return
 
         is_progress = _is_progress_line(line)
         task_id = self._task_id or _TaskOutput.current_task_id()
-
         if task_id is not None:
-            _TaskOutput.write(task_id, line, is_progress=is_progress)
-        else:
-            if is_progress and self.lines:
-                last = self.lines[-1]
-                if _is_progress_line(last):
-                    self.lines[-1] = line
-                    return
-            self.lines.append(line)
-            if len(self.lines) > _TaskOutput.MAX_LINES:
-                self.lines.pop(0)
+            if SharedLogger.frontend_enabled:
+                _TaskOutput.write(task_id, line, is_progress=is_progress)
+            return
+
+        if is_progress and self.lines:
+            last = self.lines[-1]
+            if _is_progress_line(last):
+                self.lines[-1] = line
+                return
+        self.lines.append(line)
+        if len(self.lines) > _TaskOutput.MAX_LINES:
+            self.lines.pop(0)
 
     def flush(self) -> None:
-        _start = time.perf_counter()
         if self.original_stream:
             self.original_stream.flush()
 
@@ -223,10 +262,10 @@ class SSELogBroadcaster:
     log-producing threads under high throughput.
     """
 
-    _subscribers: ClassVar[dict[int, queue.Queue]] = {}
+    _subscribers: ClassVar[dict[int, queue.Queue[str]]] = {}
     _lock: ClassVar[threading.Lock] = threading.Lock()
     _counter: ClassVar[int] = 0
-    _inbox: ClassVar[queue.Queue] = queue.Queue(maxsize=5000)
+    _inbox: ClassVar[queue.Queue[str]] = queue.Queue(maxsize=5000)
     _dispatch_thread: ClassVar[threading.Thread | None] = None
     _dispatch_started: ClassVar[bool] = False
 
@@ -269,12 +308,12 @@ class SSELogBroadcaster:
                     cls._subscribers.pop(sub_id, None)
 
     @classmethod
-    def subscribe(cls) -> tuple[int, queue.Queue]:
+    def subscribe(cls) -> tuple[int, queue.Queue[str]]:
         cls._ensure_dispatch()
         with cls._lock:
             cls._counter += 1
             sub_id = cls._counter
-            q: queue.Queue = queue.Queue(maxsize=1000)
+            q: queue.Queue[str] = queue.Queue(maxsize=1000)
             cls._subscribers[sub_id] = q
         return sub_id, q
 
@@ -323,16 +362,14 @@ class TaskLogHandler(logging.Handler):
         if record.levelno < SharedLogger.frontend_level:
             return
 
+        if not SharedLogger.frontend_enabled:
+            return
         task_line = SharedLogger.format_task_line(
             module_name=record.name,
             level_name=record.levelname,
             message=record.getMessage(),
         )
-        task_id = (
-            hasattr(record, "task_id")
-            and record.task_id
-            or _TaskOutput.current_task_id()
-        )
+        task_id = getattr(record, "task_id", None) or _TaskOutput.current_task_id()
         _TaskOutput.write(task_id, task_line, module_name=record.name)
 
 
@@ -340,12 +377,38 @@ class ModuleLogger:
     def __init__(self, module_name: str) -> None:
         self.module_name = module_name
 
+    @property
+    def _underlying(self) -> logging.Logger:
+        return logging.getLogger(self.module_name)
+
+    @property
+    def level(self) -> int:
+        return self._underlying.level
+
+    @level.setter
+    def level(self, value: int) -> None:
+        self._underlying.level = value
+
+    def setLevel(self, level: int) -> None:
+        self._underlying.setLevel(level)
+
+    def addHandler(self, hdlr: logging.Handler) -> None:
+        self._underlying.addHandler(hdlr)
+
+    def removeHandler(self, hdlr: logging.Handler) -> None:
+        self._underlying.removeHandler(hdlr)
+
     def log(
         self,
         level_name: LogLevelName,
         message: str,
+        *args: object,
         start_timer: float | None = None,
     ) -> None:
+        # print(f"DEBUG_ML: level_name={level_name!r} message={message!r} args={args!r} start_timer={start_timer!r}")
+        if args:
+            message = message % args
+        # print(f"DEBUG_ML: calling SharedLogger.log(module_name={self.module_name!r}, level_name={level_name!r}, message={message!r})")
         SharedLogger.log(
             module_name=self.module_name,
             level_name=level_name,
@@ -353,20 +416,35 @@ class ModuleLogger:
             start_timer=start_timer,
         )
 
-    def debug(self, message: str, start_timer: float | None = None) -> None:
-        self.log("debug", message, start_timer)
+    def debug(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("debug", message, *args, start_timer=start_timer)
 
-    def info(self, message: str, start_timer: float | None = None) -> None:
-        self.log("info", message, start_timer)
+    def info(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("info", message, *args, start_timer=start_timer)
 
-    def warning(self, message: str, start_timer: float | None = None) -> None:
-        self.log("warning", message, start_timer)
+    def warning(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("warning", message, *args, start_timer=start_timer)
 
-    def error(self, message: str, start_timer: float | None = None) -> None:
-        self.log("error", message, start_timer)
+    def error(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("error", message, *args, start_timer=start_timer)
 
-    def critical(self, message: str, start_timer: float | None = None) -> None:
-        self.log("critical", message, start_timer)
+    def exception(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("error", message, *args, start_timer=start_timer)
+
+    def critical(
+        self, message: str, *args: object, start_timer: float | None = None
+    ) -> None:
+        self.log("critical", message, *args, start_timer=start_timer)
 
 
 class SharedLogger:
@@ -377,18 +455,17 @@ class SharedLogger:
     the single output manager.
     """
 
+    frontend_enabled: ClassVar[bool] = False
     frontend_level: ClassVar[int] = logging.INFO
     allowed_exact_names: ClassVar[frozenset[str]] = frozenset()
     allowed_prefixes: ClassVar[tuple[str, ...]] = ()
     _name_filter: ClassVar[_DynamicModuleFilter] = _DynamicModuleFilter()
-    _filter_installed: ClassVar[bool] = False
 
     @classmethod
     def install_root_filter(cls) -> None:
         root_logger = logging.getLogger()
         if cls._name_filter not in root_logger.filters:
             root_logger.addFilter(cls._name_filter)
-        cls._filter_installed = True
 
     @classmethod
     def set_name_filters(
@@ -403,6 +480,10 @@ class SharedLogger:
     def clear_name_filters(cls) -> None:
         cls.allowed_exact_names = frozenset()
         cls.allowed_prefixes = ()
+
+    @classmethod
+    def set_frontend_enabled(cls, enabled: bool) -> None:
+        cls.frontend_enabled = enabled
 
     @classmethod
     def set_frontend_level(cls, level_name: LogLevelName) -> None:
@@ -451,7 +532,9 @@ class SharedLogger:
     def format_message(cls, message: str, start_timer: float | None) -> str:
         result = message
 
-        caller_name = sys._getframe(4).f_code.co_name
+        caller_name = sys._getframe(
+            4
+        ).f_code.co_name  # pyright: ignore[reportPrivateUsage]
 
         if start_timer is not None:
             result = (
@@ -482,29 +565,26 @@ class SharedLogger:
     ) -> None:
         cls.install_root_filter()
         if not cls.should_emit(module_name):
+            print(f"should not emit: {message[:10]}")
             return
 
         rendered_message = cls.format_message(message, start_timer)
         level = cls._normalize_level(level_name)
-
-        # Console output via Python logging (includes timestamped format)
-        logging.getLogger(module_name).log(
+        _logger = logging.getLogger(module_name)
+        _p = _logger.parent
+        _pname = _p.name if _p else None
+        _plevel = _p.level if _p else None
+        print(f"LOGGER module={module_name} lvl={_logger.level} eff={_logger.getEffectiveLevel()} parent={_pname} parent_lvl={_plevel} cache={_logger._cache} isEnabled={_logger.isEnabledFor(level)}", flush=True)
+        _logger.log(
             level,
             rendered_message,
             extra={"_shared_logger_managed": True},
         )
 
-        # Task buffer + SSE via the single output manager
-        active_task_id = task_id if task_id is not None else cls.current_task_id()
-        if active_task_id is None or level < cls.frontend_level:
-            return
-
-        task_line = cls.format_task_line(
-            module_name=module_name,
-            level_name=level_name,
-            message=rendered_message,
-        )
-        _TaskOutput.write(active_task_id, task_line, module_name=module_name)
+        if cls.frontend_enabled:
+            tid = task_id or cls.current_task_id()
+            if tid:
+                _TaskOutput.write(tid, rendered_message, module_name=module_name)
 
     @staticmethod
     def _normalize_level(level_name: LogLevelName) -> int:
@@ -519,9 +599,148 @@ class SharedLogger:
         return result
 
 
-def get_logger(module_name: str) -> ModuleLogger:
-    result = SharedLogger.get_logger(module_name)
+class CustomFormatter(logging.Formatter):
+    """Custom formatter to trim level names, module names, function names, and messages."""
+
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        trim_level_len: int | None = 3,
+        trim_module_len: int | None = 15,
+        trim_func_len: int | None = 15,
+        trim_msg_len: int | None = None,
+    ) -> None:
+        super().__init__(fmt, datefmt)
+        self.trim_level_len = trim_level_len
+        self.trim_module_len = trim_module_len
+        self.trim_func_len = trim_func_len
+        self.trim_msg_len = trim_msg_len
+
+    def format(self, record: logging.LogRecord) -> str:
+        orig_levelname = record.levelname
+        orig_name = record.name
+        orig_funcName = record.funcName
+        orig_msg = record.msg
+        orig_args = record.args
+
+        # Trim levelname
+        if self.trim_level_len is not None:
+            level_map = {
+                "DEBUG": "DBG",
+                "INFO": "INF",
+                "WARNING": "WRN",
+                "ERROR": "ERR",
+                "CRITICAL": "CRT",
+            }
+            if self.trim_level_len == 3:
+                record.levelname = level_map.get(orig_levelname, orig_levelname[:3])
+            else:
+                record.levelname = orig_levelname[: self.trim_level_len]
+
+        # Trim module name to keep the last N characters (from the end)
+        if self.trim_module_len is not None and orig_name:
+            if len(orig_name) > self.trim_module_len:
+                if self.trim_module_len > 3:
+                    record.name = "..." + orig_name[-(self.trim_module_len - 3) :]
+                else:
+                    record.name = orig_name[-self.trim_module_len :]
+
+        # Trim function name to keep the last N characters (from the end)
+        if self.trim_func_len is not None and orig_funcName:
+            if len(orig_funcName) > self.trim_func_len:
+                if self.trim_func_len > 3:
+                    record.funcName = "..." + orig_funcName[-(self.trim_func_len - 3) :]
+                else:
+                    record.funcName = orig_funcName[-self.trim_func_len :]
+
+        # Trim message length
+        if self.trim_msg_len is not None:
+            msg = record.getMessage()
+            if len(msg) > self.trim_msg_len:
+                if self.trim_msg_len > 3:
+                    record.msg = msg[: self.trim_msg_len - 3] + "..."
+                else:
+                    record.msg = msg[: self.trim_msg_len]
+                record.args = ()
+
+        try:
+            result = super().format(record)
+        finally:
+            # Restore original values so other handlers/formatters are unaffected
+            record.levelname = orig_levelname
+            record.name = orig_name
+            record.funcName = orig_funcName
+            record.msg = orig_msg
+            record.args = orig_args
+
+        return result
+
+
+@overload
+def get_logger(module_name: None = None) -> logging.Logger: ...
+
+
+@overload
+def get_logger(module_name: str) -> ModuleLogger: ...
+
+
+def get_logger(module_name: str | None = None) -> logging.Logger | ModuleLogger:
+    if module_name is None:
+        return logging.getLogger()
+    result: ModuleLogger = SharedLogger.get_logger(module_name)
     return result
+
+
+def configure_package_logging(
+    level: int = logging.INFO,
+    fmt: str | None = None,
+    *,
+    datefmt: str | None = "%H:%M:%S",
+    trim_level_len: int | None = 3,
+    trim_module_len: int | None = 15,
+    trim_func_len: int | None = 15,
+    trim_msg_len: int | None = None,
+) -> None:
+    if fmt is None:
+        fmt = "[%(levelname)s] [%(name)s] [%(funcName)s] %(asctime)s %(message)s"
+
+    logging.basicConfig(
+        # level=level,
+        format=fmt,
+        datefmt=datefmt,
+    )
+
+    # Apply CustomFormatter to all root handlers to handle the trimming
+    formatter = CustomFormatter(
+        fmt,
+        datefmt=datefmt,
+        trim_level_len=trim_level_len,
+        trim_module_len=trim_module_len,
+        trim_func_len=trim_func_len,
+        trim_msg_len=trim_msg_len,
+    )
+    for handler in logging.root.handlers:
+        handler.setFormatter(formatter)
+
+    logging.getLogger("comfyui_image_scorer").setLevel(level)
+    _cleared = 0
+    for _log_name, _log in list(logging.root.manager.loggerDict.items()):
+        if isinstance(_log, logging.Logger) and _log_name.startswith("comfyui_image_scorer"):
+            _log._cache.clear()
+            _cleared += 1
+    print(f"[DIAG] configure_package_logging: set comfyui_image_scorer to {level}, cleared {_cleared} child caches", flush=True)
+    for _log_name, _log in list(logging.root.manager.loggerDict.items()):
+        if isinstance(_log, logging.Logger) and _log_name.startswith("comfyui_image_scorer"):
+            print(f"[DIAG]   {_log_name}: level={_log.level} eff={_log.getEffectiveLevel()} cache={_log._cache}", flush=True)
+
+    # Suppress verbose logging from noisy external libraries
+    # for logger_name in ["mediapipe", "PIL", "matplotlib", "urllib3", "onnxruntime"]:
+    #     logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    # Frontend logging (task buffer + SSE) disabled by default.
+    # Set to True to also route logs to frontend clients.
+    SharedLogger.set_frontend_enabled(False)
 
 
 def log_message(

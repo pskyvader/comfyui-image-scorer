@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from .database_structure import comparisons_table, images_table, schema
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def test_normalize_comparisons_keeps_latest_pair_result(temp_db):

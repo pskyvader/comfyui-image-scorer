@@ -10,12 +10,12 @@ from collections import defaultdict
 import math
 import random
 import time
-import logging
 
 from ....shared.graph.crystal_graph import crystal_graph
 from .constants import MAX_PAIR_CANDIDATES
 
-logger = logging.getLogger(__name__)
+from ....shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------

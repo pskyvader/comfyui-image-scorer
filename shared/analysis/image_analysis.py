@@ -1,5 +1,4 @@
 import time
-import logging
 import os
 import numpy as np
 import numpy.typing as npt
@@ -10,11 +9,14 @@ from collections.abc import Callable
 from typing import Any
 from skimage.feature import local_binary_pattern
 
-from .config import config
-from .io import atomic_write_json
-from .vectors.image_vector import ImageVector
+from .mediapipe_analysis import MediaPipeAnalyzer
+from .attribute_analysis import FaceAttributeAnalyzer, NSFWAnalyzer
+from ..config import config
+from ..io import atomic_write_json
+from ..vectors.image_vector import ImageVector
 
-logger = logging.getLogger(__name__)
+from ..logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 # Type Alias for the shared data structure
 ImageEntry = tuple[str, dict[str, Any], str, str]
@@ -35,6 +37,12 @@ REQUIRED_ANALYSIS_FIELDS: set[str] = {
     "artifact_score",
     "edge_density",
     "texture_lbp",
+    "face_bbox",
+    "body_pose",
+    "left_hand",
+    "right_hand",
+    "face_logits",
+    "nsfw_score",
 }
 
 
@@ -64,6 +72,9 @@ class ImageAnalysis(ImageVector):
         super().__init__("tmp_image", model_key=model_key)
         self.raw_data: list[ImageEntry] = raw_data
         self.processed_data: list[ImageEntry] = []
+        self._mediapipe = MediaPipeAnalyzer()
+        self._face_attr = FaceAttributeAnalyzer()
+        self._nsfw = NSFWAnalyzer()
 
         for data in self.raw_data:
             image_path = data[0]
@@ -239,6 +250,55 @@ class ImageAnalysis(ImageVector):
 
         return entry
 
+    def _mediapipe_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
+        mp_fields = {"face_bbox", "body_pose", "left_hand", "right_hand"}
+        if mp_fields.issubset(entry.keys()):
+            return entry
+        result = self._mediapipe.analyze(img)
+        entry.update(result)
+        return entry
+
+    def _attribute_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
+        if "face_logits" in entry:
+            return entry
+        result = self._face_attr.predict(img)
+        entry["face_logits"] = result
+        return entry
+
+    def _nsfw_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
+        if "nsfw_score" in entry:
+            return entry
+        entry["nsfw_score"] = self._nsfw.predict(img)
+        return entry
+
+    def _run_face_pass(self, entries: list[ImageEntry]) -> list[ImageEntry]:
+        indices = [i for i, (_, e, _, _) in enumerate(entries) if "face_logits" not in e]
+        if not indices:
+            return entries
+        paths = [entries[i][0] for i in indices]
+        imgs = self.prepare_image_batch(paths)
+        results = self._face_attr.predict_batch(imgs)
+        for idx, r in zip(indices, results):
+            path, entry, cat, extra = entries[idx]
+            entry["face_logits"] = r
+            entries[idx] = (path, entry, cat, extra)
+            self._save_entry_sidecar(entries[idx])
+        return entries
+
+    def _run_nsfw_pass(self, entries: list[ImageEntry]) -> list[ImageEntry]:
+        indices = [i for i, (_, e, _, _) in enumerate(entries) if "nsfw_score" not in e]
+        if not indices:
+            return entries
+        paths = [entries[i][0] for i in indices]
+        imgs = self.prepare_image_batch(paths)
+        results = self._nsfw.predict_batch(imgs)
+        for idx, r in zip(indices, results):
+            path, entry, cat, extra = entries[idx]
+            entry["nsfw_score"] = r
+            entries[idx] = (path, entry, cat, extra)
+            self._save_entry_sidecar(entries[idx])
+        return entries
+
     def analyze_image_batch(
         self,
         image_batch: list[Image.Image],
@@ -257,6 +317,7 @@ class ImageAnalysis(ImageVector):
             entry = self._sharpness(img, entry)
             entry = self._edge_density(img, entry)
             entry = self._texture_lbp(img, entry)
+            entry = self._mediapipe_analysis(img, entry)
             data_batch[i] = (path, entry, cat, extra)
 
         return data_batch
@@ -304,6 +365,30 @@ class ImageAnalysis(ImageVector):
                         res: list[ImageEntry] = f.result()
                         result.extend(res)
                         pbar.update(len(res))
+
+            attr_batch_size = max(self.get_batch_size(224, 224), 4)
+
+            logger.info("Running face attribute analysis...")
+            _face_start = time.perf_counter()
+            with tqdm(total=total, desc="Face", unit="img") as pbar:
+                for idx in range(0, len(result), attr_batch_size):
+                    batch = result[idx : idx + attr_batch_size]
+                    batch = self._run_face_pass(batch)
+                    result[idx : idx + attr_batch_size] = batch
+                    pbar.update(len(batch))
+            _face_end = time.perf_counter()
+            logger.info("Face done: %d images in %.1fs", total, _face_end - _face_start)
+
+            logger.info("Running NSFW analysis...")
+            _nsfw_start = time.perf_counter()
+            with tqdm(total=total, desc="NSFW", unit="img") as pbar:
+                for idx in range(0, len(result), attr_batch_size):
+                    batch = result[idx : idx + attr_batch_size]
+                    batch = self._run_nsfw_pass(batch)
+                    result[idx : idx + attr_batch_size] = batch
+                    pbar.update(len(batch))
+            _nsfw_end = time.perf_counter()
+            logger.info("NSFW done: %d images in %.1fs", total, _nsfw_end - _nsfw_start)
 
         for entry in result:
             processed_cache[entry[3]] = entry

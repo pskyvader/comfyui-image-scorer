@@ -7,14 +7,14 @@ every sub-module operates on the same shared state without circular imports.
 from typing import Any
 from collections import deque
 import time
-import logging
 
 from ...database_structure.images_table import get_all_images
 from .constants import IMAGES_CACHE_TTL
 from ....shared.config import config
 from ....shared.graph.crystal_graph import crystal_graph
 
-logger: logging.Logger = logging.getLogger(__name__)
+from ....shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Images cache

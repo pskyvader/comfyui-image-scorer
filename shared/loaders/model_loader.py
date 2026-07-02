@@ -1,10 +1,38 @@
+import os
+import threading
 from typing import Any
 import torch
 from torch import nn
+from safetensors.torch import load_file as load_safetensors
 from torchvision import transforms
 import timm
 from ..config import config
 from sentence_transformers import SentenceTransformer
+from transformers import AutoModel
+from transformers import CLIPImageProcessor, AutoImageProcessor, AutoModelForImageClassification
+
+
+class MultiTaskClipVisionModel(nn.Module):
+    def __init__(self, num_labels: dict[str, int]) -> None:
+        super().__init__()
+        self.vision_model = AutoModel.from_pretrained(
+            "openai/clip-vit-large-patch14"
+        ).vision_model
+        hidden_size = self.vision_model.config.hidden_size
+        self.age_head = nn.Linear(hidden_size, num_labels["age"])
+        self.gender_head = nn.Linear(hidden_size, num_labels["gender"])
+        self.race_head = nn.Linear(hidden_size, num_labels["race"])
+
+    def forward(
+        self, pixel_values: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        outputs = self.vision_model(pixel_values=pixel_values)
+        pooled = outputs.pooler_output
+        return {
+            "age": self.age_head(pooled),
+            "gender": self.gender_head(pooled),
+            "race": self.race_head(pooled),
+        }
 
 
 class ModelLoader:
@@ -27,6 +55,8 @@ class ModelLoader:
             str, tuple[nn.Module, int, int, transforms.Compose]
         ] = {}
         self._model_info_cache: dict[str, dict[str, Any]] = {}
+        self._hf_model_cache: dict[str, tuple[nn.Module, int, Any]] = {}
+        self._hf_model_lock = threading.Lock()
         self.cnn_model: Any | None = None
         self.prepare_config = config["prepare"]
 
@@ -69,17 +99,17 @@ class ModelLoader:
             global_pool=global_pool,
         )
 
-        model = model.eval()  # type: ignore[union-attr]
-        model.to(device)  # type: ignore[union-attr]
+        model = model.eval()
+        model.to(device)
 
         print(f"Vision model '{model_key}' loaded on device: {device} ")
 
-        props = torch.cuda.get_device_properties(device)  # type: ignore[union-attr]
+        props = torch.cuda.get_device_properties(device)
         total_memory = int(props.total_memory)
 
         data_config = timm.data.resolve_model_data_config(model)
-        input_size = data_config["input_size"]  # (3, H, W)
-        model_input_size = (input_size[2], input_size[1])  # (W, H)
+        input_size = data_config["input_size"]
+        model_input_size = (input_size[2], input_size[1])
 
         transform = self._select_transform(name)
         if not variable_input:
@@ -111,7 +141,6 @@ class ModelLoader:
         name: str = embedding_config["name"]
         output_dim: int = embedding_config["output_dim"]
         device: str = embedding_config["device"]
-        # mode: str = embedding_config["mode"]
 
         if device != "cuda":
             raise RuntimeError("`clip_device` not set to 'cuda'")
@@ -124,6 +153,65 @@ class ModelLoader:
         self.embedding_model = (model, output_dim)
         return self.embedding_model
 
+    def load_hf_vision_model(self, model_key: str) -> tuple[nn.Module, int, Any]:
+        cached = self._hf_model_cache.get(model_key)
+        if cached is not None:
+            return cached
 
-# Global singleton
+        with self._hf_model_lock:
+            cached = self._hf_model_cache.get(model_key)
+            if cached is not None:
+                return cached
+            result = self._load_hf_vision_model_impl(model_key)
+
+        self._hf_model_cache[model_key] = result
+        return result
+
+    def _load_hf_vision_model_impl(self, model_key: str) -> tuple[nn.Module, int, Any]:
+        attribute_models: dict = self.prepare_config["attribute_models"]
+        if model_key not in attribute_models:
+            raise KeyError(
+                f"Attribute model key '{model_key}' not found in prepare_config. "
+                f"Available: {list(attribute_models.keys())}"
+            )
+
+        model_config = attribute_models[model_key]
+        name: str = model_config["name"]
+        output_dim: int = model_config["output_dim"]
+        device: str = model_config["device"]
+
+        print(f"Loading Attribute Model ({model_key}): {name}...")
+
+        if model_key == "face_attributes":
+            processor = CLIPImageProcessor.from_pretrained(name)
+            num_labels = {"age": 9, "gender": 2, "race": 7}
+            model = MultiTaskClipVisionModel(num_labels=num_labels)
+            cache_dir = os.path.join(torch.hub.get_dir(), "checkpoints")
+            os.makedirs(cache_dir, exist_ok=True)
+            safe_name = name.replace("/", "_")
+            cache_path = os.path.join(cache_dir, f"{safe_name}.safetensors")
+            if not os.path.exists(cache_path):
+                torch.hub.download_url_to_file(
+                    f"https://huggingface.co/{name}/resolve/main/model.safetensors",
+                    cache_path,
+                )
+            state_dict = load_safetensors(cache_path)
+            model.load_state_dict(state_dict, strict=False)
+            model = model.eval()
+            model.to(device)
+            print(f"Attribute model '{model_key}' loaded on device: {device}")
+            result = (model, output_dim, processor)
+        elif model_key == "nsfw":
+            processor = AutoImageProcessor.from_pretrained(name)
+            model = AutoModelForImageClassification.from_pretrained(name)
+            model = model.eval()
+            model.to(device)
+            print(f"NSFW model '{model_key}' loaded on device: {device}")
+            result = (model, output_dim, processor)
+        else:
+            raise KeyError(f"Unknown attribute model key: {model_key}")
+
+        return result
+
+
 model_loader = ModelLoader()

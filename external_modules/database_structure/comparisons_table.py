@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
-import logging
 import time
 
 from .schema import get_db_connection
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def _canonicalize_pair(filename_a: str, filename_b: str) -> tuple[str, str]:

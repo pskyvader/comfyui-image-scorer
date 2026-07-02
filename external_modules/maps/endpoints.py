@@ -4,11 +4,11 @@ from flask import Blueprint, jsonify, request
 
 from ..database_structure.images_table import get_all_images
 from ...shared.graph.crystal_graph import crystal_graph
-import logging
 import time
 
 maps_bp = Blueprint("maps_v2", __name__, url_prefix="/api/v2/maps")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 @maps_bp.route("/graph-data", methods=["GET"])

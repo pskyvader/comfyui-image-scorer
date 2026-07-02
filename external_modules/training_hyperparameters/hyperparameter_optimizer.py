@@ -25,8 +25,8 @@ from ...shared.logger import get_logger
 
 logger = get_logger(__name__)
 
-STATE_FILE = os.path.join(models_dir, "hyperparameter_state.json")
-NUM_CONFIGS = 4
+# STATE_FILE = os.path.join(models_dir, "hyperparameter_state.json")
+NUM_CONFIGS = 5
 
 # Guard to prevent re-entrant or concurrent HPO loop runs from within the
 # notebook or other callers. The HPO loop must be started explicitly and
@@ -40,8 +40,7 @@ def _mapping_get(mapping: Any, key: str, default: Any = None) -> Any:
     return default
 
 
-def _log(msg: str):
-    logger.info(msg)
+
 
 
 def _load_state() -> dict[str, Any]:
@@ -51,6 +50,8 @@ def _load_state() -> dict[str, Any]:
     data.append(training_config["top2"])
     data.append(training_config["top3"])
     data.append(training_config["top4"])
+    data.append(training_config["top5"])
+
     result = {
         "configs": data,
         "step": 0,
@@ -71,6 +72,8 @@ def _save_state(state: dict[str, Any]):
     config["training"]["top2"] = configs[1]
     config["training"]["top3"] = configs[2]
     config["training"]["top4"] = configs[3]
+    config["training"]["top5"] = configs[4]
+
     config["training"]["used_keys"] = state["used_keys"]
 
     # atomic_write_json(STATE_FILE, state, indent=4)
@@ -97,8 +100,8 @@ def list_filtered_features(kept_indices: npt.NDArray[np.float32]):
         slot_size = data_transformer.vector_ranges[name]["slot_size"]
         logger.debug(
             f" {name}: \n"
-            f"kept: {len(kept)}/{slot_size} ({100*len(kept)/slot_size}%)\n"
-            f"removed: {len(removed)}/{slot_size} ({100*len(removed)/slot_size}%)"
+            f"kept: {len(kept)}/{slot_size} ({(100*len(kept)/slot_size):.1f}%)"
+            # f"removed: {len(removed)}/{slot_size} ({(100*len(removed)/slot_size):.1f}%)"
         )
 
 
@@ -106,13 +109,13 @@ def load_training_data(
     retrain: bool = False, filter_comparisons: bool = True
 ) -> tuple[np.ndarray, np.ndarray]:
     if retrain:
-        _log("Retrain mode: removing cached models and data...")
+        logger.info("Retrain mode: removing cached models and data...")
         training_loader.remove_training_models()
     logger.info("loading raw data ...")
     x, y = data_transformer.get_raw_data()
     logger.info(f"raw data loaded, shape: {x.shape}, {y.shape}")
 
-    filter_steps = 500
+    filter_steps = 1000
     logger.info(f"filtering unused features after {filter_steps} steps...")
     x, kept_indices = data_transformer.filter_unused_features(x, y, steps=filter_steps)
     list_filtered_features(kept_indices)
@@ -124,7 +127,7 @@ def load_training_data(
             f"filtered data by count (>={threshold}), shape: {x.shape}, {y.shape}"
         )
 
-    _log(f"Feature filtering complete: X={x.shape}")
+    logger.info(f"Feature filtering complete: X={x.shape}")
     result = (x, y)
     return result
 
@@ -150,7 +153,8 @@ def reset_hyperparameters():
     top2 = generate_random_config()
     top3 = generate_slowest_setup()
     top4 = generate_fastest_setup()
-    configs = [top1, top2, top3, top4]
+    top5 = generate_random_config()
+    configs = [top1, top2, top3, top4, top5]
     state = {"configs": configs, "step": 0, "cycle": 0, "used_keys": []}
 
     _save_state(state)
@@ -168,15 +172,15 @@ def evaluate_base_scores(x: np.ndarray, y: np.ndarray):
         raise RuntimeError(
             "HPO state missing or invalid. To create base configs, call reset_hyperparameters(force=True) directly."
         )
-    _log("Evaluating base scores for current configs...")
+    logger.info("Evaluating base scores for current configs...")
     for i in range(NUM_CONFIGS):
-        _log(f"  Config {i + 1}: evaluating...")
+        logger.info(f"  Config {i + 1}: evaluating...")
         state["configs"][i] = _evaluate_config(state["configs"][i], X, y)
-        _log(
+        logger.info(
             f"    score={_mapping_get(state['configs'][i], 'best_score', -1):.6f}  time={_mapping_get(state['configs'][i], 'training_time', 0):.2f}s"
         )
     _save_state(state)
-    _log("Base scores updated.")
+    logger.info("Base scores updated.")
     result = state
     return result
 
@@ -217,10 +221,10 @@ def _run_step_on_config(
         used_keys = []
 
     varied_vals = around(chosen_key, cfg[chosen_key])
-    _log(
+    logger.info(
         f"    Varying: {chosen_key} (current={cfg[chosen_key]:.6g}) -> {[round(v, 6) for v in varied_vals]}"
     )
-    _log(f"    Recently used params: {used_keys}")
+    logger.info(f"    Recently used params: {used_keys}")
 
     param_grid = {k: [cfg[k]] for k in all_keys}
     param_grid[chosen_key] = varied_vals
@@ -240,7 +244,7 @@ def _run_step_on_config(
     improved = False
 
     for i, combo in enumerate(combos):
-        _log("---" * 10)
+        logger.info("---" * 10)
         merged = {**cfg, **combo}
         score, t_time, primary_metric = evaluate_hyperparameter_combo(
             merged, temp_model_base, X=X, y=y
@@ -258,14 +262,14 @@ def _run_step_on_config(
             arrow = "  <-- NEW BEST"
             improved = True
 
-        _log(
+        logger.info(
             f"      Combo {i+1}/{len(combos)}: {chosen_key}={combo[chosen_key]:.6g}  score={score:.6f}  time={t_time:.2f}s{arrow}"
         )
 
     if improved:
-        _log(f"    Config improved: score={best_score:.6f}, time={best_time:.2f}s")
+        logger.info(f"    Config improved: score={best_score:.6f}, time={best_time:.2f}s")
     else:
-        _log(f"    Config unchanged: best score remains {best_score:.6f}")
+        logger.info(f"    Config unchanged: best score remains {best_score:.6f}")
         used_keys.append(chosen_key)
 
     if len(used_keys) > len(all_keys):
@@ -306,29 +310,29 @@ def hpo_cycle(
                 "Missing training configuration (training_config.json). Initialize base configs with reset_hyperparameters(force=True)."
             )
 
-        if any(k not in training_sub for k in ("top1", "top2", "top3", "top4")):
+        if any(k not in training_sub for k in ("top1", "top2", "top3", "top4", "top5")):
             raise RuntimeError(
-                "training_config.json missing base entries ('top1'..'top4'). The HPO loop will not create them; call reset_hyperparameters(force=True) to initialize."
+                "training_config.json missing base entries ('top1'..'top4','top5'). The HPO loop will not create them; call reset_hyperparameters(force=True) to initialize."
             )
 
         configs = state["configs"]
         used_keys = state.get("used_keys", [])
         step_start = state.get("step", 0)
 
-        _log(f"\n{'='*80}")
-        _log(f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}")
 
         for i in range(step_start, num_steps):
             idx = i % NUM_CONFIGS
-            _log(f"\n{'---' * 25}")
-            _log(f"Step {i + 1}/{num_steps}  —  Config {idx + 1}")
+            logger.info(f"\n{'---' * 25}")
+            logger.info(f"Step {i + 1}/{num_steps}  —  Config {idx + 1}")
             cfg = configs[idx]
-            _log(
+            logger.info(
                 f"best_score={cfg['best_score']:.6f}  training_time={cfg.get('training_time'):.2f}s"
             )
-            _log(f" {cfg}")
+            logger.info(f" {cfg}")
             # for key in grid_base.keys():
-            #     _log(f"  {key}={cfg.get(key):.6g}")
+            #     logger.info(f"  {key}={cfg.get(key):.6g}")
 
             configs[idx], used_keys = _run_step_on_config(
                 configs[idx], used_keys, X, y, max_combos
@@ -338,8 +342,8 @@ def hpo_cycle(
             state["used_keys"] = used_keys
             _save_state(state)
 
-        _log(f"\n{'='*80}")
-        _log(f"Cycle complete — Sorting configs by score")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"Cycle complete — Sorting configs by score")
         # Determine sort direction from model_trainer metric preferences so that
         # 'best' is consistent with the training objective (higher_is_better).
         try:
@@ -357,7 +361,7 @@ def hpo_cycle(
         else:
             higher_is_better = True
 
-        _log(
+        logger.info(
             f"Sorting configs with higher_is_better={higher_is_better} (objective={training_objective})"
         )
         configs.sort(
@@ -365,22 +369,24 @@ def hpo_cycle(
             reverse=higher_is_better,
         )
         for i, c in enumerate(configs):
-            _log(
+            logger.info(
                 f"  Rank {i + 1}: score={_mapping_get(c, 'best_score', -1):.6f}  time={_mapping_get(c, 'training_time', 0):.2f}s"
             )
 
-        _log(
+        logger.info(
             f"\nBreeding next generation — keeping top 2, creating 2 children via crossover"
         )
         parents = [configs[0], configs[1]]
         child1 = crossover_config(dict(parents[0]), dict(parents[1]))
         child2 = crossover_config(dict(parents[0]), dict(parents[1]))
-        _log(f"  Parent 1:  score={_mapping_get(parents[0], 'best_score', -1):.6f}")
-        _log(f"  Parent 2:  score={_mapping_get(parents[1], 'best_score', -1):.6f}")
-        _log(f"  Child 1:   score=NEW (to be evaluated next cycle)")
-        _log(f"  Child 2:   score=NEW (to be evaluated next cycle)")
+        random_child = generate_random_config()
+        logger.info(f"  Parent 1:  score={_mapping_get(parents[0], 'best_score', -1):.6f}")
+        logger.info(f"  Parent 2:  score={_mapping_get(parents[1], 'best_score', -1):.6f}")
+        logger.info(f"  Child 1:   score=NEW (to be evaluated next cycle)")
+        logger.info(f"  Child 2:   score=NEW (to be evaluated next cycle)")
+        logger.info(f"  random child:   score=NEW (to be evaluated next cycle)")
 
-        new_configs = [parents[0], parents[1], child1, child2]
+        new_configs = [parents[0], parents[1], child1, child2, random_child]
         new_state = {
             "configs": new_configs,
             "step": 0,
@@ -389,8 +395,8 @@ def hpo_cycle(
         }
         _save_state(new_state)
 
-        _log(f"\nCycle {cycle + 1} complete. Trigger again to start next cycle.")
-        _log(f"{'='*80}\n")
+        logger.info(f"\nCycle {cycle + 1} complete. Trigger again to start next cycle.")
+        logger.info(f"{'='*80}\n")
         return new_state
     finally:
         _hpo_running = False
@@ -414,7 +420,7 @@ def run_hpo_cycles(
 
     results = []
     for i in range(cycles):
-        _log(f"[run_hpo_cycles] Starting cycle {i+1}/{cycles}")
+        logger.info(f"[run_hpo_cycles] Starting cycle {i+1}/{cycles}")
         res = hpo_cycle(X, y, num_steps=num_steps, max_combos=max_combos)
         results.append(res)
     return results

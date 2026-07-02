@@ -1,4 +1,3 @@
-import logging
 import numpy as np
 import shutil
 import time
@@ -6,6 +5,7 @@ from pathlib import Path
 from PIL import Image
 import torch
 from torch import Tensor
+from .logger import get_logger, ModuleLogger
 from .paths import (
     models_dir,
     vectors_dir,
@@ -15,7 +15,7 @@ from .paths import (
     text_data_file,
 )
 
-logger = logging.getLogger(__name__)
+logger: ModuleLogger = get_logger(__name__)
 
 
 def remove_directory(directory_path: Path) -> None:

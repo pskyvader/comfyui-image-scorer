@@ -6,10 +6,10 @@ import sqlite3
 from pathlib import Path
 
 from ...shared.paths import cache_file
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 MU0 = 25.0
 SIGMA0 = MU0 / 3.0

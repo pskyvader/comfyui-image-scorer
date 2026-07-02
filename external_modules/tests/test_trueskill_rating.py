@@ -29,7 +29,7 @@ def test_default_ratings_are_balanced() -> None:
     right = Rating()
     probability = expected_win_probability(left, right)
     assert 0.49 <= probability <= 0.51
-    assert public_score_from_rating(left) == probability
+    assert public_score_from_rating(left) == 0.0
 
 
 def test_winner_rating_moves_up_and_loser_moves_down() -> None:
@@ -42,8 +42,8 @@ def test_winner_rating_moves_up_and_loser_moves_down() -> None:
     assert new_loser.mu < INITIAL_MEAN
     assert new_winner.sigma < winner.sigma
     assert new_loser.sigma < loser.sigma
-    assert public_score_from_rating(new_winner) > 0.5
-    assert public_score_from_rating(new_loser) < 0.5
+    assert public_score_from_rating(new_winner) > public_score_from_rating(new_loser)
+    assert public_score_from_rating(new_winner) > 0.0
 
 
 def test_math_helpers_and_row_conversion() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 import time
 from pathlib import Path
@@ -32,7 +31,8 @@ from shared.training.data_transformer import data_transformer
 from shared.training.model_trainer import model_trainer
 
 training_bp = Blueprint("training_v2", __name__, url_prefix="/api/v2/training")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 @training_bp.route("/reset", methods=["POST"])

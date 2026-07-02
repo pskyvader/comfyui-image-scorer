@@ -1,10 +1,10 @@
 """Analysis helpers - utility functions for analysis endpoints."""
 
 from typing import Any
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def distribute(values: list[float], buckets: list[tuple[str, float]]) -> dict[str, int]:

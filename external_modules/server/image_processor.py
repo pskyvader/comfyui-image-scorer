@@ -3,26 +3,25 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import shutil
-import sys
 import time
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
 from tqdm import tqdm
 
-_root = Path(__file__).parent.parent.parent
-if str(_root) not in sys.path:
-    sys.path.insert(0, str(_root))
+# _root = Path(__file__).parent.parent.parent
+# if str(_root) not in sys.path:
+#     sys.path.insert(0, str(_root))
 
-logger = logging.getLogger(__name__)
 
 from ...shared.config import config
+from ...shared.io import parallel_for
 from ...shared.paths import image_root_processed, output_dir
 
 from ..database_structure.images_table import (
@@ -61,6 +60,9 @@ from ..comparison.algorithm.trueskill_rating import (
 from ..comparison.algorithm.pair_active import reset_skip
 
 from ...shared.graph.crystal_graph import crystal_graph
+from ...shared.logger import get_logger, ModuleLogger
+
+logger: ModuleLogger = get_logger(__name__)
 
 
 class ImageProcessor:
@@ -408,9 +410,9 @@ class ImageProcessor:
         self.reorganize_folder_structure()
 
         ranked_root = get_ranked_root()
-        logger.info("[DATABASE] Deduplicating scored images...")
+        logger.info("Deduplicating scored images...", start_timer=_start)
         deduplicate_scored(root=ranked_root)
-        logger.info("[DATABASE] Cleaning up orphan files...")
+        logger.info("Cleaning up orphan files...", start_timer=_start)
         cleanup_orphans(root=ranked_root)
 
         image_files = [
@@ -432,22 +434,23 @@ class ImageProcessor:
             "json_synced": 0,
         }
 
-        with tqdm(
-            total=len(image_files),
-            desc="[DATABASE] Recovering images",
+        prepare_conf = config["prepare"]
+        recovery_results = parallel_for(
+            self._recover_ranked_image,
+            [(p,) for p in image_files],
+            max_workers=int(prepare_conf["max_workers"]),
+            batch_size=int(prepare_conf["batch_size"]),
+            desc="Recovering images",
             unit="img",
-            leave=False,
-        ) as pbar:
-            for image_path in image_files:
-                result = self._recover_ranked_image(image_path)
-                stats[result] += 1
-                pbar.update(1)
+        )
+        for result in recovery_results:
+            stats[result] += 1
 
         valid_filenames = {img["filename"] for img in get_all_images()}
 
         with tqdm(
             total=len(image_files),
-            desc="[DATABASE] Importing history",
+            desc="Importing history",
             unit="img",
             leave=False,
         ) as pbar:
@@ -479,28 +482,36 @@ class ImageProcessor:
             filename_to_image_data[img["filename"]] = img
 
         logger.info(
-            "[DATABASE] Syncing %d images (pre-built indexes ready)...",
+            "Syncing %d images (pre-built indexes ready)...",
             len(all_images),
         )
-        with tqdm(
-            total=len(all_images),
-            desc="[DATABASE] Syncing JSON metadata",
+
+        sync_worker = partial(
+            sync_image_metadata_to_json,
+            filename_to_path=filename_to_path,
+            filename_to_comparisons=filename_to_comparisons,
+            filename_to_image_data=filename_to_image_data,
+        )
+        sync_args = [
+            (
+                img["filename"],
+                float(img["score"]),
+                float(img["rating_mu"]),
+                float(img["rating_sigma"]),
+                int(img["comparison_count"]),
+            )
+            for img in all_images
+        ]
+        prepare_conf = config["prepare"]
+        sync_results = parallel_for(
+            sync_worker,
+            sync_args,
+            max_workers=int(prepare_conf["max_workers"]),
+            batch_size=int(prepare_conf["batch_size"]),
+            desc="Syncing JSON metadata",
             unit="img",
-            leave=False,
-        ) as pbar:
-            for img in all_images:
-                if sync_image_metadata_to_json(
-                    filename=img["filename"],
-                    score=float(img["score"]),
-                    rating_mu=float(img["rating_mu"]),
-                    rating_sigma=float(img["rating_sigma"]),
-                    comparison_count=int(img["comparison_count"]),
-                    filename_to_path=filename_to_path,
-                    filename_to_comparisons=filename_to_comparisons,
-                    filename_to_image_data=filename_to_image_data,
-                ):
-                    stats["json_synced"] += 1
-                pbar.update(1)
+        )
+        stats["json_synced"] = sum(1 for r in sync_results if r)
 
         self.sync_processed_images_from_db()
         logger.info("Database rebuild complete: %s", stats)
@@ -597,7 +608,7 @@ class ImageProcessor:
         all_comparisons = get_all_comparisons()
         with tqdm(
             total=len(all_comparisons),
-            desc="[DATABASE] Recomputing ratings",
+            desc="Recomputing ratings",
             unit="cmp",
             leave=False,
         ) as pbar:
@@ -628,7 +639,7 @@ class ImageProcessor:
         updated = 0
         with tqdm(
             total=len(ratings),
-            desc="[DATABASE] Updating scores",
+            desc="Updating scores",
             unit="img",
             leave=False,
         ) as pbar:

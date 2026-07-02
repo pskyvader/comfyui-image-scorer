@@ -4,16 +4,18 @@ import os
 from pathlib import Path
 from typing import (
     Any,
+    Callable,
     TypeVar,
     Iterator,
 )
 from tqdm import tqdm
 import time
-import logging
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from .logger import get_logger, ModuleLogger
 
-logger = logging.getLogger(__name__)
+R = TypeVar("R")
+logger: ModuleLogger = get_logger(__name__)
 
 
 def load_single_jsonl(filename: str, skip_invalid: bool = True) -> Iterator[Any]:
@@ -44,6 +46,48 @@ def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
                 for item in data:
                     writer.write(item)
                     pbar.update(1)
+
+
+def parallel_for(
+    fn: Callable[..., R],
+    items: list[tuple[Any, ...]],
+    *,
+    max_workers: int = 1,
+    batch_size: int = 0,
+    desc: str = "Processing",
+    unit: str = "items",
+) -> list[R]:
+    """Execute fn(*item) for each item across a thread pool.
+
+    Args:
+        fn: The callable to invoke for each item.
+        items: Argument tuples, each unpacked as ``fn(*item)``.
+        max_workers: Maximum number of concurrent threads.
+        batch_size: If > 0, submit items in batches of this size.
+        desc: tqdm description prefix.
+        unit: tqdm unit label.
+
+    Returns:
+        List of results in arbitrary (completion) order.
+    """
+    logger.info(f"starting parallel workers for {fn}...")
+    results: list[R] = []
+    n = len(items)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with tqdm(total=n, desc=desc, unit=unit, leave=False) as pbar:
+            if batch_size > 0:
+                for start in range(0, n, batch_size):
+                    batch = items[start : start + batch_size]
+                    futures = [executor.submit(fn, *item) for item in batch]
+                    for future in as_completed(futures):
+                        results.append(future.result())
+                        pbar.update(1)
+            else:
+                futures = [executor.submit(fn, *item) for item in items]
+                for future in as_completed(futures):
+                    results.append(future.result())
+                    pbar.update(1)
+    return results
 
 
 def discover_files(root: str) -> Iterator[tuple[str, str]]:

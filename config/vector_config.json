@@ -181,6 +181,42 @@
             "type": "embedding",
             "max_normalization": null,
             "slot_size": 768
+        },
+        {
+            "name": "face_logits",
+            "type": "struct",
+            "slot_size": 324,
+            "per_unit_size": 18
+        },
+        {
+            "name": "face_bbox",
+            "type": "struct",
+            "slot_size": 25,
+            "per_unit_size": 5
+        },
+        {
+            "name": "body_pose",
+            "type": "struct",
+            "slot_size": 132,
+            "per_unit_size": 132
+        },
+        {
+            "name": "left_hand",
+            "type": "struct",
+            "slot_size": 189,
+            "per_unit_size": 63
+        },
+        {
+            "name": "right_hand",
+            "type": "struct",
+            "slot_size": 189,
+            "per_unit_size": 63
+        },
+        {
+            "name": "nsfw_score",
+            "type": "float",
+            "max_normalization": null,
+            "slot_size": 1
         }
     ]
 }

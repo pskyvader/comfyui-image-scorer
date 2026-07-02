@@ -7,6 +7,9 @@ if TYPE_CHECKING:
     from .chain_proxy import ChainProxy
     from .component_proxy import ComponentProxy
 
+from . import chain_proxy as _chain_proxy
+from . import component_proxy as _component_proxy
+
 
 class NodeProxy:
     """Represents one image/node in the graph. Created on demand, zero overhead."""
@@ -95,15 +98,14 @@ class NodeProxy:
         return unique
 
     def get_chain(self, only_main: bool = True) -> list[ChainProxy]:
-        from .chain_proxy import ChainProxy
         if only_main:
             main: tuple[int, list[str]] | None = self._chain.get_node_main_chain(self._node_id)
             if main is None:
                 return []
-            return [ChainProxy(self._chain, main[0], main[1])]
+            return [_chain_proxy.ChainProxy(self._chain, main[0], main[1])]
         else:
             chains: list[tuple[int, list[str]]] = self._chain.get_node_chains(self._node_id)
-            return [ChainProxy(self._chain, i, c) for i, c in chains]
+            return [_chain_proxy.ChainProxy(self._chain, i, c) for i, c in chains]
 
     def get_position_in_chain(self) -> int:
         main: tuple[int, list[str]] | None = self._chain.get_node_main_chain(self._node_id)
@@ -118,11 +120,10 @@ class NodeProxy:
             raise ValueError(f"Node {self._node_id} not found in its own chain")
 
     def get_component(self) -> ComponentProxy | None:
-        from .component_proxy import ComponentProxy
         comp_id: int | None = self._chain.get_component_id(self._node_id)
         if comp_id is None:
             return None
-        return ComponentProxy(self._chain, comp_id)
+        return _component_proxy.ComponentProxy(self._chain, comp_id)
 
     def __repr__(self) -> str:
         return f"NodeProxy({self._node_id})"

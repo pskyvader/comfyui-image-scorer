@@ -39,7 +39,7 @@ class EmbeddingVector:
     ) -> dict[str, list[float]]:
         model, vector_length = model_loader.load_embedding_model()
         batch_id, batch_values = zip(*current_batch)
-        encoded_values = model.encode(batch_values)
+        encoded_values = model.encode(list(batch_values))
         processed: npt.NDArray[np.float32] = np.asarray(
             encoded_values, dtype=np.float32
         )

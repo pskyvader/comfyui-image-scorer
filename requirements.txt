@@ -21,3 +21,4 @@ timm>=1.0.24
 jsonlines>=4.0.0
 joblib>=1.5.3
 scikit-image>=0.26.0
+mediapipe>=0.10.21

@@ -6,7 +6,7 @@ import warnings
 from ...shared.config import config
 from ...shared.helpers import export_image_batch
 from ...shared.vectors.vectors import VectorList
-from ...shared.image_analysis import ImageAnalysis
+from ...shared.analysis.image_analysis import ImageAnalysis
 from ...shared.vectors.image_vector import ImageVector
 from ...shared.training.data_transformer import data_transformer
 from ...shared.loaders.training_loader import training_loader

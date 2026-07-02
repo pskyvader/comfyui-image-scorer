@@ -36,10 +36,10 @@ class TrainingLoader:
             tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
         ) = None
         self.filtered_data: (
-            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None
         ) = None
         self.interaction_data: (
-            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
+            tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None
         ) = None
         self.vectors: npt.NDArray[np.float32] | None = None
         self.scores: npt.NDArray[np.float32] | None = None
@@ -160,7 +160,7 @@ class TrainingLoader:
 
     def load_filtered_data(
         self,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None:
         if self.use_cache and self.filtered_data is not None:
             return self.filtered_data
 
@@ -176,8 +176,8 @@ class TrainingLoader:
         return None
 
     def save_filtered_data(
-        self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[Any]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
+        self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[np.intp]
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
         logger.debug("saving filtered data...")
         os.makedirs(models_dir, exist_ok=True)
         np.savez_compressed(filtered_data, X=x, kept_indices=kept_indices)
@@ -188,7 +188,7 @@ class TrainingLoader:
 
     def load_interaction_data(
         self,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None:
         if self.use_cache and self.interaction_data is not None:
             return self.interaction_data
 
@@ -204,8 +204,8 @@ class TrainingLoader:
         return None
 
     def save_interaction_data(
-        self, x: npt.NDArray[np.float32], top_k_indices_local: npt.NDArray[np.float32]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        self, x: npt.NDArray[np.float32], top_k_indices_local: npt.NDArray[np.intp]
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
         os.makedirs(models_dir, exist_ok=True)
         np.savez_compressed(
             interaction_data, X=x, interaction_indices=top_k_indices_local

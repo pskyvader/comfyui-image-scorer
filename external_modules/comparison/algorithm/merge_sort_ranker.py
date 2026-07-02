@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 import time
-import logging
 
 from ....shared.graph.crystal_graph import crystal_graph
 
@@ -18,7 +17,8 @@ from .graph_helpers import (
 )
 from .pair_active import select_pair
 
-logger = logging.getLogger(__name__)
+from ....shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def select_pair_for_comparison(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,8 @@ from ..database_structure.images_table import get_all_images, get_image
 import time
 
 gallery_bp = Blueprint("gallery_v2", __name__, url_prefix="/api/v2/gallery")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 @gallery_bp.route("/images", methods=["GET"])

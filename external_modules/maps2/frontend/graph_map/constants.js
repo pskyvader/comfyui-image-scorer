@@ -55,6 +55,8 @@ globalThis.PHYSICS_SLIDER = {
     alphaMin: { steps: 50, min: 0, max: 1, precision: 3 },
     minAreaPerNode: { steps: 50, min: 1000, max: 1000000, precision: 0 },
     maxVelocity: { steps: 50, min: 1, max: 500, precision: 0 },
+    forcesPerTick: { steps: 4, min: 1, max: 5, precision: 0 },
+    tickFrequency: { steps: 9, min: 0.1, max: 1, precision: 1 },
 };
 
 globalThis.SLIDER = {

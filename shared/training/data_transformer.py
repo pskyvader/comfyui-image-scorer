@@ -1,3 +1,5 @@
+import os
+import json
 import numpy as np
 from numpy import typing as npt
 import lightgbm as lgb
@@ -27,12 +29,15 @@ def get_feature_mapping_from_config() -> dict[str, Any]:
     for vector_config in config_vectors:
         vec_name = vector_config["name"]
         slot_size = vector_config["slot_size"]
-        vector_ranges[vec_name] = {
+        entry: dict[str, Any] = {
             "start_idx": current_idx,
             "end_idx": current_idx + slot_size,
             "slot_size": slot_size,
             "type": vector_config["type"],
         }
+        if "per_unit_size" in vector_config:
+            entry["per_unit_size"] = vector_config["per_unit_size"]
+        vector_ranges[vec_name] = entry
 
         for i in range(slot_size):
             feature_to_vector[current_idx + i] = {
@@ -107,7 +112,7 @@ class DataTransformer:
         y: npt.NDArray[np.float32],
         steps: int,
         verbose: bool = True,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
         """
         Trains a fast LightGBM model to identify and remove features with zero importance
         and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
@@ -129,9 +134,8 @@ class DataTransformer:
             # the final training objective is pairwise ranking.
             config_dict["objective"] = "regression"
         model_trainer.create_training_model(config_dict)
-        model: None | lgb.LGBMRanker | lgb.LGBMClassifier | lgb.LGBMRegressor = (
-            model_trainer.training_model
-        )
+        model = model_trainer.training_model
+        assert model is not None
 
         # Setup callbacks for logging
         callbacks: list[Any] = [
@@ -177,7 +181,7 @@ class DataTransformer:
         cumulative /= cumulative[-1]  # normalize to 1
 
         # Keep features until cumulative gain reaches threshold (e.g., 95%)
-        cum_threshold = 0.90
+        cum_threshold = 0.95
         keep_mask = cumulative <= cum_threshold
 
         # Always keep at least one feature
@@ -226,7 +230,7 @@ class DataTransformer:
 
     def compute_correlations(
         self, k: int, accumulators: dict[str, Any], n_samples: int, dtype: np.dtype[Any]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
         n = accumulators["n"]
         # Compute Correlations (Pearson)
         numerator = (n * accumulators["sum_xy"]) - (
@@ -252,7 +256,7 @@ class DataTransformer:
     def build_interaction_batch(
         self,
         X_batch: npt.NDArray[np.float32],
-        top_k_indices_local: npt.NDArray[np.float32],
+        top_k_indices_local: npt.NDArray[np.intp],
         n_features_in: int,
     ) -> npt.NDArray[np.float32]:
         X_poly_full = self.poly.fit_transform(X_batch)
@@ -266,7 +270,7 @@ class DataTransformer:
         x: npt.NDArray[np.float32],
         y: npt.NDArray[np.float32],
         target_k: int = 500,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
         """
         Generates and selects top K interaction features (x*y) using batched processing
         to avoid OOM. Concatenates them to X.
@@ -403,6 +407,168 @@ class DataTransformer:
         # Concatenate original features and selected interaction features
         X_final = np.hstack([vecs_np, inter_feats])
         return X_final
+
+
+def _label_face_slot(pos_in_unit: int) -> str:
+    """Map a position within a face_logits unit to a human-readable label."""
+    AGE_LABELS = ["0-2", "3-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70+"]
+    GENDER_LABELS = ["Female", "Male"]
+    RACE_LABELS = ["Black", "East Asian", "Indian", "Latino_Hispanic", "Middle Eastern", "SE Asian", "White"]
+    if pos_in_unit < 9:
+        return f"age_{AGE_LABELS[pos_in_unit]}"
+    elif pos_in_unit < 11:
+        return f"gender_{GENDER_LABELS[pos_in_unit - 9]}"
+    elif pos_in_unit < 18:
+        return f"race_{RACE_LABELS[pos_in_unit - 11]}"
+    return f"slot_{pos_in_unit}"
+
+
+def _label_bbox_slot(pos_in_unit: int) -> str:
+    return ["x", "y", "w", "h", "conf"][pos_in_unit] if pos_in_unit < 5 else f"slot_{pos_in_unit}"
+
+
+def _label_pose_slot(pos_in_unit: int) -> str:
+    POSE_NAMES = {
+        0: "nose", 1: "left_eye_inner", 2: "left_eye", 3: "left_eye_outer",
+        4: "right_eye_inner", 5: "right_eye", 6: "right_eye_outer",
+        7: "left_ear", 8: "right_ear", 9: "mouth_left", 10: "mouth_right",
+        11: "left_shoulder", 12: "right_shoulder", 13: "left_elbow", 14: "right_elbow",
+        15: "left_wrist", 16: "right_wrist", 17: "left_pinky", 18: "right_pinky",
+        19: "left_index", 20: "right_index", 21: "left_thumb", 22: "right_thumb",
+        23: "left_hip", 24: "right_hip", 25: "left_knee", 26: "right_knee",
+        27: "left_ankle", 28: "right_ankle", 29: "left_heel", 30: "right_heel",
+        31: "left_foot_index", 32: "right_foot_index",
+    }
+    lm_idx = pos_in_unit // 4
+    coord = ["x", "y", "z", "vis"][pos_in_unit % 4]
+    name = POSE_NAMES.get(lm_idx, f"lm{lm_idx}")
+    return f"{name}_{coord}"
+
+
+def _label_hand_slot(pos_in_unit: int) -> str:
+    NAMES = [
+        "wrist", "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip",
+        "index_mcp", "index_pip", "index_dip", "index_tip",
+        "middle_mcp", "middle_pip", "middle_dip", "middle_tip",
+        "ring_mcp", "ring_pip", "ring_dip", "ring_tip",
+        "pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip",
+    ]
+    lm_idx = pos_in_unit // 3
+    coord = ["x", "y", "z"][pos_in_unit % 3]
+    name = NAMES[lm_idx] if lm_idx < len(NAMES) else f"lm{lm_idx}"
+    return f"{name}_{coord}"
+
+
+def _load_map_slots(vec_name: str) -> list[str] | None:
+    """Load the saved map JSON for a map-type vector, returning slot labels by index."""
+    from ..paths import maps_dir
+    path = os.path.join(maps_dir, f"{vec_name}_map.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def _print_vector_summary(
+    vec_name: str,
+    vec_type: str,
+    kept_in_vec: list[int],
+    total_in_vec: int,
+    slot_size: int,
+    per_unit_size: int | None,
+    start_idx: int = 0,
+) -> None:
+    """Print one vector line (or expanded lines for known struct / map vectors)."""
+    kept_count = len(kept_in_vec)
+    pct = 100.0 * kept_count / total_in_vec if total_in_vec else 0
+
+    if per_unit_size and per_unit_size > 1:
+        # Known struct vector — break down by sub-feature
+        n_units = slot_size // per_unit_size
+        local_kept = [i - start_idx for i in kept_in_vec]
+        unit_labels_fn = None
+        if vec_name == "face_logits":
+            unit_labels_fn = lambda upos: _label_face_slot(upos)
+        elif vec_name == "face_bbox":
+            unit_labels_fn = lambda upos: _label_bbox_slot(upos)
+        elif vec_name == "body_pose":
+            unit_labels_fn = lambda upos: _label_pose_slot(upos)
+        elif vec_name in ("left_hand", "right_hand"):
+            unit_labels_fn = lambda upos: _label_hand_slot(upos)
+
+        print(f"  {vec_name}  ({kept_count}/{total_in_vec} = {pct:.1f}%)")
+        if unit_labels_fn:
+            for ui in range(n_units):
+                offset = ui * per_unit_size
+                kept_in_unit = [i for i in local_kept if offset <= i < offset + per_unit_size]
+                if kept_in_unit:
+                    kept_positions = [i - offset for i in kept_in_unit]
+                    labels = [unit_labels_fn(p) for p in kept_positions]
+                    print(f"    unit {ui}: kept({', '.join(labels)})")
+                elif n_units > 1:
+                    pass  # skip units with nothing kept
+            if kept_count == 0 and n_units == 1 and unit_labels_fn:
+                all_labels = [unit_labels_fn(p) for p in range(per_unit_size)]
+                print(f"    Sub-features: {', '.join(all_labels)}")
+        return
+
+    # Map vector — convert absolute indices to local slots and look up labels
+    if vec_type == "map" and kept_count > 0:
+        slot_labels = _load_map_slots(vec_name)
+        print(f"  {vec_name}  ({kept_count}/{total_in_vec} = {pct:.1f}%)")
+        for i in kept_in_vec:
+            local_slot = i - start_idx
+            label = slot_labels[local_slot] if slot_labels and local_slot < len(slot_labels) else f"slot_{local_slot}"
+            print(f"    [{local_slot}] {label}")
+        return
+
+    # Simple line per vector
+    print(f"  {vec_name:28s}  {kept_count:4d}/{total_in_vec:4d}  ({pct:5.1f}%)")
+
+
+def list_filtered_features() -> None:
+    """
+    Loads the cached filtered features and prints a compact summary of which
+    features survived the gain-based pruning. Known struct vectors (face,
+    pose, hand) are broken down by named sub-feature.
+    """
+    cached = training_loader.load_filtered_data()
+    if cached is None:
+        print("No filtered data cache found. Run data_transformer.filter_unused_features() first.")
+        return
+
+    _, kept_indices = cached
+    mapping = get_feature_mapping_from_config()
+    total = mapping["total_features"]
+    kept_set = set(kept_indices.tolist())
+
+    print(f"Total features: {total}")
+    print(f"Kept: {len(kept_indices)}, Dropped: {total - len(kept_indices)}")
+    print()
+
+    # Group kept indices by vector
+    vec_kept: dict[str, list[int]] = {vn: [] for vn in mapping["vector_ranges"]}
+    for i in sorted(kept_set):
+        info = mapping["feature_to_vector"].get(i)
+        if info:
+            vec_kept[info["vector_name"]].append(i)
+
+    print("--- Feature survival summary ---")
+    for vec_name in sorted(mapping["vector_ranges"].keys()):
+        rng = mapping["vector_ranges"][vec_name]
+        slot_size = rng["slot_size"]
+        total_in_vec = rng["end_idx"] - rng["start_idx"]
+        kept_in_vec = vec_kept.get(vec_name, [])
+
+        _print_vector_summary(
+            vec_name, rng.get("type", ""),
+            kept_in_vec, total_in_vec, slot_size,
+            rng.get("per_unit_size"),
+            start_idx=rng["start_idx"],
+        )
 
 
 data_transformer = DataTransformer()

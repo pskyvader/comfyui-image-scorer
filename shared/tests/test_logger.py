@@ -57,10 +57,9 @@ def test_task_log_handler_captures_managed_and_legacy_records_once() -> None:
     lines: list[str] = []
     task_id = "logger_test_task"
     handler = TaskLogHandler(lines=lines, owner_thread_id=threading.get_ident())
-    root_logger = logging.getLogger()
-    original_level = root_logger.level
-    root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(handler)
+    original_level = get_logger().level
+    get_logger().setLevel(logging.INFO)
+    get_logger().addHandler(handler)
 
     try:
         SharedLogger.register_task_buffer(task_id, lines)
@@ -68,8 +67,8 @@ def test_task_log_handler_captures_managed_and_legacy_records_once() -> None:
             log_message("shared.tests.logger.managed", "info", "managed", None)
             logging.getLogger("shared.tests.logger.legacy").info("legacy")
     finally:
-        root_logger.removeHandler(handler)
-        root_logger.setLevel(original_level)
+        get_logger().removeHandler(handler)
+        get_logger().setLevel(original_level)
         SharedLogger.unregister_task_buffer(task_id)
 
     assert lines == [
@@ -79,9 +78,8 @@ def test_task_log_handler_captures_managed_and_legacy_records_once() -> None:
 
 
 def test_start_task_exposes_shared_logger_lines() -> None:
-    root_logger = logging.getLogger()
-    original_level = root_logger.level
-    root_logger.setLevel(logging.INFO)
+    original_level = get_logger().level
+    get_logger().setLevel(logging.INFO)
     task_logger = get_logger("shared.tests.logger.task")
 
     def run_task(task_id: str) -> None:
@@ -99,7 +97,7 @@ def test_start_task_exposes_shared_logger_lines() -> None:
                 break
             time.sleep(0.02)
     finally:
-        root_logger.setLevel(original_level)
+        get_logger().setLevel(original_level)
 
     assert status["status"] == "done"
     log_lines = status["_log_new"]

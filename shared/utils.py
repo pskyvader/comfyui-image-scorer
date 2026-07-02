@@ -7,10 +7,10 @@ possible.
 
 from typing import Any
 import ast
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from .logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def parse_custom_text(val: Any) -> dict[str, Any]:

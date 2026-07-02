@@ -1,9 +1,9 @@
 import argparse
 import sys
 import os
+
 from pathlib import Path
 import time
-import logging
 import random
 from typing import Any, Iterator
 
@@ -39,7 +39,7 @@ from ...shared.paths import (
     text_data_file,
 )
 from ...shared.helpers import remove_models, remove_vectors
-from ...shared.image_analysis import ImageAnalysis
+from ...shared.analysis.image_analysis import ImageAnalysis
 from .data.processing import check_for_leakage
 from ..comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
@@ -50,6 +50,7 @@ from ..database_structure.images_table import get_image
 
 
 from ...shared.logger import (
+    configure_package_logging,
     get_logger,
 )
 
@@ -262,16 +263,7 @@ def main(
     rebuild_missing: bool,
     debug: bool,
 ) -> None:
-    log_level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
-        # force=True,
-    )
-
-    logging.getLogger("PIL").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    configure_package_logging(10 if debug else 20)
 
     logger.info("Starting data prepare...")
     if test_run:

@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import erf, exp, pi, sqrt
 import time
-import logging
 
-logger = logging.getLogger(__name__)
+from ....shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +128,7 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
     mean_difference = winner.mu - loser.mu
     normalised_difference = mean_difference / combined_deviation
 
-    cumulative_probability = max(
-        normal_cumulative_distribution(normalised_difference), EPSILON
-    )
+    cumulative_probability = normal_cumulative_distribution(normalised_difference)
     skill_adjustment_weight = (
         normal_probability_density(normalised_difference) / cumulative_probability
     )
@@ -183,36 +181,28 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
         + (_clamp_uncertainty(first_rating.sigma) ** 2)
         + (_clamp_uncertainty(second_rating.sigma) ** 2)
     )
-    result = min(
-        1.0,
-        max(
-            0.0,
-            normal_cumulative_distribution(
-                (first_rating.mu - second_rating.mu) / max(denominator, EPSILON)
-            ),
-        ),
+    result = normal_cumulative_distribution(
+        (first_rating.mu - second_rating.mu) / max(denominator, EPSILON)
     )
 
     return result
 
 
 def public_score_from_rating(rating: Rating) -> float:
-    """Convert a (mu, sigma) rating into a single scalar in [0, 1].
+    """Convert a (mu, sigma) rating into a single scalar.
 
-    The result is the win probability against a fresh player with the default
-    initial rating (INITIAL_MEAN, INITIAL_UNCERTAINTY).
-    Higher values indicate stronger skill.
+    Uses the standard TrueSkill conservative skill estimate:  mu - 3*sigma.
+    This represents the lower bound of the player's skill with ~99%
+    confidence.  The initial value is 0; higher is stronger.
 
     Args:
         rating: The Rating to convert.
 
     Returns:
-        A float between 0 and 1 representing the public-facing score.
+        The conservative skill estimate (mu - 3*sigma).
     """
 
-    result = expected_win_probability(
-        rating, Rating(mu=INITIAL_MEAN, sigma=INITIAL_UNCERTAINTY)
-    )
+    result = rating.mu - 3.0 * rating.sigma
 
     return result
 

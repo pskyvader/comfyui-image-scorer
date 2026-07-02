@@ -1,10 +1,10 @@
 from typing import Any
 import random
 from shared.training.model_trainer import grid_base
-import logging
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def generate_random_config() -> dict[str, Any]:

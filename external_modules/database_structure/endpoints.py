@@ -15,12 +15,14 @@ from .path_handler import sync_image_metadata_to_json
 from pathlib import Path
 import time
 
+from shared.paths import image_root_processed
 
 from ...shared.graph.crystal_graph import crystal_graph
 from ...shared.tasks import start_task, get_task_status, set_task_output
-import logging
 
-logger: logging.Logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+
+logger: ModuleLogger = get_logger(__name__)
 database_bp = Blueprint("database", __name__, url_prefix="/api/v2/database")
 
 
@@ -84,6 +86,7 @@ def rebuild_database():
                 },
             )
         except Exception as exc:
+            logger.exception("rebuild_database failed")
             set_task_output(
                 tid,
                 {
@@ -165,12 +168,11 @@ def run_cleanup_orphans():
 def run_deduplicate():
     _start = time.perf_counter()
     _start = time.perf_counter()
+
     data = request.json or {}
     dry_run = data.get("dry_run", True)
     limit = data.get("limit", 0)
     try:
-        from shared.paths import image_root_processed
-
         result = deduplicate_scored(
             root=Path(image_root_processed), dry_run=dry_run, limit=limit
         )

@@ -19,14 +19,14 @@ from typing import Any
 
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from shared.io import atomic_write_json, discover_files, load_json  # noqa: E402
-from shared.paths import image_root_processed  # noqa: E402
+from ...shared.io import atomic_write_json, discover_files, load_json  # noqa: E402
 import time
+from ...shared.logger import get_logger, ModuleLogger
 
-logger: logging.Logger = logging.getLogger(__name__)
 
+logger: ModuleLogger = get_logger(__name__)
 JsonDict = dict[str, Any]
 EntryTriple = tuple[Path, Path, JsonDict]
 _EXAMPLE_COUNT = 3

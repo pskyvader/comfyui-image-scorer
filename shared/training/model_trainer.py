@@ -122,7 +122,7 @@ grid_base: dict[str, Any] = {
         # Speed: Can improve speed by pruning the tree early (similar to max_depth).
         # Starting at zero: A good first non-zero step is around 0.1 or 0.01.
         "type": "float",
-        "min": 0.0,
+        "min": 0.05,
         "max": 0.5,
         "step": 0.1,
         "random": 0.01,

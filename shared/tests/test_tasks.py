@@ -30,7 +30,7 @@ def reset_task_state() -> Iterator[None]:
 
 def test_capture_stream_replaces_progress_lines_and_flushes() -> None:
     lines: list[str] = []
-    stream = tasks._CaptureStream(lines, None)
+    stream = tasks.CaptureStream(lines, None)
 
     stream.write("starting\n10%\n20%\npartial")
     assert lines == ["starting", "20%"]
@@ -63,9 +63,8 @@ def test_start_task_registers_running_task_and_invokes_thread_factory(monkeypatc
 
 
 def test_run_captured_marks_done_and_preserves_logs() -> None:
-    root_logger = logging.getLogger()
-    original_level = root_logger.level
-    root_logger.setLevel(logging.INFO)
+    original_level = get_logger().level
+    get_logger().setLevel(logging.INFO)
     task_logger = get_logger("shared.tests.tasks.runner")
     task_id = "task_runner"
     tasks.set_task_output(task_id, {"status": "running", "ts": 1.0})

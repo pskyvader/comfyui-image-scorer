@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json as python_json
-import logging
 import os
 import sys
 import time as time_module
@@ -29,12 +28,17 @@ from ...shared.tasks import (
     set_task_output,
     cancel_task as _cancel_task,
 )
+from ...shared.io import load_single_jsonl
+from ...shared.paths import vectors_file, text_data_file, scores_file
+from ...shared.training.matrix_analysis import MatrixAnalyzer
+from ...shared.training.parameter_analysis import ParameterAnalyzer
 
 
 import time
 
 analysis_bp = Blueprint("analysis_v2", __name__, url_prefix="/api/v2/analysis")
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 @analysis_bp.route("/stats", methods=["GET"])
@@ -197,8 +201,6 @@ def analyze_parameters():
     def _run(tid):
         _start = time.perf_counter()
         _start = time.perf_counter()
-        from shared.io import load_single_jsonl
-        from shared.paths import vectors_file, text_data_file, scores_file
 
         vectors_raw = load_single_jsonl(vectors_file)
         scores_raw = list(load_single_jsonl(scores_file))
@@ -215,9 +217,6 @@ def analyze_parameters():
             else:
                 entry["score"] = float(score)
             vector_dicts.append(entry)
-
-        from shared.training.parameter_analysis import ParameterAnalyzer
-        from shared.paths import vectors_file
 
         report_dir = os.path.dirname(vectors_file)
         analyzer = ParameterAnalyzer(vector_dicts, text_data, output_dir=report_dir)
@@ -258,9 +257,6 @@ def analyze_matrix():
     def _run(tid):
         _start = time.perf_counter()
         _start = time.perf_counter()
-        from shared.training.matrix_analysis import MatrixAnalyzer
-        from shared.io import load_single_jsonl
-        from shared.paths import vectors_file, scores_file, text_data_file
 
         scores_raw = load_single_jsonl(scores_file)
         scores = [

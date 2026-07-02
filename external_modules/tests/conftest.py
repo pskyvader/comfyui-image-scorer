@@ -17,6 +17,11 @@ if str(STEP01) not in sys.path:
     sys.path.insert(0, str(STEP01))
 
 from ..shared.logger import get_logger
+from external_modules.database_structure import (
+    comparisons_table,
+    images_table,
+    schema,
+)
 
 logger = get_logger(__name__)
 
@@ -24,11 +29,6 @@ logger = get_logger(__name__)
 @pytest.fixture()
 def temp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
     _start = time.perf_counter()
-    from external_modules.database_structure import (
-        comparisons_table,
-        images_table,
-        schema,
-    )
 
     db_path = tmp_path / "step01_test.db"
 

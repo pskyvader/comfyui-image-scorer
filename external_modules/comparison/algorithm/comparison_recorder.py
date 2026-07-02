@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 import time
-import logging
 
 from ...database_structure.comparisons_table import (
     add_comparison,
@@ -26,7 +25,8 @@ from .trueskill_rating import (
     update_ratings,
 )
 
-logger = logging.getLogger(__name__)
+from ....shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 
 def update_scores_after_comparison(

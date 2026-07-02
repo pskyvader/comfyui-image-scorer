@@ -12,6 +12,7 @@ from .image_vector import ImageVector
 from .map_vector import MapVector
 from .number_vector import IntVector, FloatVector
 from .embedding_vector import EmbeddingVector
+from .struct_vector import StructVector
 
 from ..paths import split_dir, scores_file
 from ..io import load_single_jsonl, write_single_jsonl
@@ -34,6 +35,7 @@ class VectorList:
     _FLOAT = "float"
     _MAP = "map"
     _EMBEDDING = "embedding"
+    _STRUCT = "struct"
 
     def __init__(
         self,
@@ -118,6 +120,8 @@ class VectorList:
             elif v_type == self._IMAGE:
                 model_key = current_type["model_key"]
                 vec = ImageVector(name, model_key=model_key)
+            elif v_type == self._STRUCT:
+                vec = StructVector(name)
             else:
                 raise ValueError(f"Unknown vector type: {v_type}")
 
@@ -200,6 +204,12 @@ class VectorList:
                         rebuild_height=result[1],
                     )
                 self.sorted_vectors[v]["vector"] = image_vector
+            elif c["type"] == self._STRUCT:
+                struct_vector: StructVector = c["vector"]
+                new_entries = self._exclude_present_entry(struct_vector)
+                struct_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
+                struct_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = struct_vector
 
     def validate_and_convert(
         self, data: list[list[float]], name: str, target_size: int
@@ -324,7 +334,7 @@ class VectorList:
                 c = self.sorted_vectors[v]
                 current_vector = c["vector"]
                 valid_texts: dict[str, str] = {}
-                if c["type"] in [self._MAP, self._INT, self._FLOAT]:
+                if c["type"] in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
                     current_list: dict[str, str] = current_vector.value_list
                 elif c["type"] == self._EMBEDDING:
                     current_list: dict[str, str] = current_vector.text_list
@@ -471,7 +481,7 @@ class VectorList:
 
                 current_vector.vector_list = vec_vals
 
-                if v_type in [self._MAP, self._INT, self._FLOAT]:
+                if v_type in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
                     current_vector.value_list = raw_vals
                 elif v_type == self._EMBEDDING:
                     current_vector.text_list = raw_vals
@@ -534,7 +544,7 @@ class VectorList:
                 current_vector = c["vector"]
                 raw_values: dict[str, Any] = {}
 
-                if v_type in [self._MAP, self._INT, self._FLOAT]:
+                if v_type in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
                     raw_values = current_vector.value_list
                 elif v_type == self._EMBEDDING:
                     raw_values = current_vector.text_list

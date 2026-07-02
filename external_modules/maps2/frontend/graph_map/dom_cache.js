@@ -57,4 +57,11 @@ globalThis.ChainMapUI.prototype.ce = function () {
     this.physAreaPerNodeVal = document.getElementById("phys-area-per-node-val");
     this.physMaxVelocity = document.getElementById("phys-max-velocity");
     this.physMaxVelocityVal = document.getElementById("phys-max-velocity-val");
+    this.physForcesPerTick = document.getElementById("phys-forces-per-tick");
+    this.physForcesPerTickVal = document.getElementById("phys-forces-per-tick-val");
+    this.physTickFreq = document.getElementById("phys-tick-freq");
+    this.physTickFreqVal = document.getElementById("phys-tick-freq-val");
+    this.toggleWebglBtn = document.getElementById("toggle-webgl-physics");
+    this.perfStatsBody = document.getElementById("perf-stats-body");
+    this.perfChart = document.getElementById("perf-chart");
 };

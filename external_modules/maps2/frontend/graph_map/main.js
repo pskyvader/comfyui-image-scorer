@@ -14,11 +14,21 @@ globalThis.ChainMapUI = class {
         this._dampingEnabled = true;
         this._collisionsEnabled = true;
         this._activeForces = [];
+        this._forceIndex = 0;
+        this._tickSkipAccum = 0;
+        this._forcesPerTick = 5;
+        this._tickFrequency = 1.0;
+        this._useWebGLPhysics = false;
+        this._webglToastShown = false;
+        this._webglPhysics = null;
+        this._webglNeedsReinit = false;
         this._simNodes = [];
         this._simLinks = [];
         this._paused = true;
         this._simAlpha = 1;
         this._tickCount = 0;
+        this._forceStats = {};
+        this._statsCursor = 0;
         this._maxNodes = 0;
         this._nodePower = 0.5;
         this._physicsCfg = {
@@ -36,7 +46,6 @@ globalThis.ChainMapUI = class {
             minAreaPerNode: 40000,
             maxVelocity: 100,
         };
-        this._initActiveForces();
     }
 
     async init() {
@@ -104,24 +113,31 @@ globalThis.ChainMapUI = class {
     }
 
     _tick() {
+        const _tickT0 = performance.now();
         try {
             const nodes = this._simNodes;
+            if (this._useWebGLPhysics) {
+                return this._tickWebGL(nodes, _tickT0);
+            }
             if (!nodes.length) {
+                this._recordStat("_tick", performance.now() - _tickT0);
                 return false;
             }
 
-            for (const n of nodes) {
-                n.fx = 0;
-                n.fy = 0;
-            }
+            const totalForces = this._activeForces.length;
 
-            for (const fnName of this._activeForces) {
-                this[fnName]();
-            }
+            let forcesToRun = 0;
+            let skipTick = false;
 
-            this._simAlpha *= (1 - this._physicsCfg.alphaDecay);
-            if (this._simAlpha < this._physicsCfg.alphaMin) {
-                this._simAlpha = this._physicsCfg.alphaMin;
+            if (totalForces > 0) {
+                forcesToRun = Math.min(this._forcesPerTick, totalForces);
+                if (this._tickFrequency < 1) {
+                    this._tickSkipAccum += (1 - this._tickFrequency);
+                    if (this._tickSkipAccum >= 1) {
+                        this._tickSkipAccum -= 1;
+                        skipTick = true;
+                    }
+                }
             }
 
             this._tickCount++;
@@ -129,6 +145,89 @@ globalThis.ChainMapUI = class {
                 this.statPhysics.textContent = this._tickCount;
             }
 
+            if (skipTick || forcesToRun === 0) {
+                this._recordStat("_tick", performance.now() - _tickT0);
+                for (const fn of this._activeForces) {
+                    const ch = this._chartHistory[fn];
+                    if (ch) {
+                        ch.push(0);
+                        if (ch.length > 100) {
+                            ch.splice(0, ch.length - 100);
+                        }
+                    }
+                }
+                return true;
+            }
+
+            for (const n of nodes) {
+                n.fx = 0;
+                n.fy = 0;
+            }
+
+            for (let i = 0; i < forcesToRun; i++) {
+                const fnName = this._activeForces[this._forceIndex % totalForces];
+                this._forceIndex++;
+                if (fnName && typeof this[fnName] === "function") {
+                    const t0 = performance.now();
+                    this[fnName]();
+                    this._recordStat(fnName, performance.now() - t0);
+                }
+            }
+            this._updateStats();
+
+            const cfg = this._physicsCfg;
+            const half = this._mapHalf || 0;
+            const decayFactor = this._dampingEnabled ? (1 - cfg.velocityDecay) : 1;
+            const maxV = this._dampingEnabled ? cfg.maxVelocity : Infinity;
+            for (const n of nodes) {
+                n.vx = (n.vx || 0) * decayFactor + n.fx;
+                n.vy = (n.vy || 0) * decayFactor + n.fy;
+                if (this._dampingEnabled) {
+                    if (n.vx > maxV) {
+                        n.vx = maxV;
+                    } else if (n.vx < -maxV) {
+                        n.vx = -maxV;
+                    }
+                    if (n.vy > maxV) {
+                        n.vy = maxV;
+                    } else if (n.vy < -maxV) {
+                        n.vy = -maxV;
+                    }
+                }
+                n.x += n.vx;
+                n.y += n.vy;
+                if (half > 0) {
+                    if (n.x > half) {
+                        n.x = half;
+                        if (n.vx > 0) {
+                            n.vx = 0;
+                        }
+                    } else if (n.x < -half) {
+                        n.x = -half;
+                        if (n.vx < 0) {
+                            n.vx = 0;
+                        }
+                    }
+                    if (n.y > half) {
+                        n.y = half;
+                        if (n.vy > 0) {
+                            n.vy = 0;
+                        }
+                    } else if (n.y < -half) {
+                        n.y = -half;
+                        if (n.vy < 0) {
+                            n.vy = 0;
+                        }
+                    }
+                }
+            }
+
+            this._simAlpha *= (1 - this._physicsCfg.alphaDecay);
+            if (this._simAlpha < this._physicsCfg.alphaMin) {
+                this._simAlpha = this._physicsCfg.alphaMin;
+            }
+
+            this._recordStat("_tick", performance.now() - _tickT0);
             return true;
         } catch (e) {
             globalThis.showError("Physics tick error: " + e.message);
@@ -157,6 +256,7 @@ globalThis.ChainMapUI = class {
     }
 
     render(filteredNodes, filteredEdges, stats) {
+        this._webglNeedsReinit = true;
         if (!filteredNodes.length) {
             this._setStats(0, 0, 0, 0);
             if (this.renderer) {
@@ -331,6 +431,8 @@ globalThis.ChainMapUI = class {
         this._paused = true;
         this._simAlpha = 1;
         this._tickCount = 0;
+        this._forceIndex = 0;
+        this._tickSkipAccum = 0;
         this._sync();
 
         const pi = document.getElementById("pause-icon");
@@ -341,6 +443,101 @@ globalThis.ChainMapUI = class {
         if (pl) {
             pl.classList.remove("hidden");
         }
+    }
+
+    _tickWebGL(nodes, tickT0) {
+        if (!nodes.length) {
+            this._recordStat("_tick", performance.now() - tickT0);
+            return false;
+        }
+
+        const totalForces = this._activeForces.length;
+        let skipTick = false;
+        let forcesToUse = 0;
+
+        if (totalForces > 0) {
+            forcesToUse = Math.min(this._forcesPerTick, totalForces);
+            if (this._tickFrequency < 1) {
+                this._tickSkipAccum += (1 - this._tickFrequency);
+                if (this._tickSkipAccum >= 1) {
+                    this._tickSkipAccum -= 1;
+                    skipTick = true;
+                }
+            }
+        }
+
+        this._tickCount++;
+        if (this.statPhysics) {
+            this.statPhysics.textContent = this._tickCount;
+        }
+
+        if (skipTick || forcesToUse === 0) {
+            this._recordStat("_tick", performance.now() - tickT0);
+            for (const fn of this._activeForces) {
+                const ch = this._chartHistory[fn];
+                if (ch) {
+                    ch.push(0);
+                    if (ch.length > 100) {
+                        ch.splice(0, ch.length - 100);
+                    }
+                }
+            }
+            this._updateStats();
+            return true;
+        }
+
+        if (!this._webglPhysics || this._webglNeedsReinit) {
+            if (this._webglPhysics) {
+                this._webglPhysics.destroy();
+                this._webglPhysics = null;
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = 1;
+            canvas.height = 1;
+            const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, premultipliedAlpha: false });
+            if (!gl) {
+                if (!this._webglToastShown) {
+                    this._webglToastShown = true;
+                    globalThis.showError("WebGL 2.0 not available");
+                }
+                this._useWebGLPhysics = false;
+                if (this._updateWebglBtn) this._updateWebglBtn(false);
+                this._tickSkipAccum = 0;
+                return false;
+            }
+            this._webglPhysics = new globalThis.WebGLPhysics();
+            if (!this._webglPhysics.init(gl, nodes, this._simLinks)) {
+                if (!this._webglToastShown) {
+                    this._webglToastShown = true;
+                    globalThis.showError("WebGL: " + (this._webglPhysics._lastError || "init failed"));
+                }
+                this._webglPhysics = null;
+                this._useWebGLPhysics = false;
+                if (this._updateWebglBtn) this._updateWebglBtn(false);
+                this._tickSkipAccum = 0;
+                return false;
+            }
+            this._webglNeedsReinit = false;
+        }
+
+        const enabledForces = this._activeForces.slice(0, forcesToUse);
+        const _tickT1 = performance.now();
+        this._webglPhysics.tick(this._simAlpha, this._physicsCfg, enabledForces, this._mapHalf, this._dampingEnabled);
+        const _tickDur = performance.now() - _tickT1;
+
+        this._simAlpha *= (1 - this._physicsCfg.alphaDecay);
+        if (this._simAlpha < this._physicsCfg.alphaMin) {
+            this._simAlpha = this._physicsCfg.alphaMin;
+        }
+
+        this._webglPhysics.readback(nodes);
+
+        this._recordStat("_tick", performance.now() - tickT0);
+        for (const fn of enabledForces) {
+            this._recordStat(fn, _tickDur / enabledForces.length);
+        }
+        this._updateStats();
+        return true;
     }
 
     _setStats(n, e, c, ch) {
@@ -363,6 +560,10 @@ globalThis.ChainMapUI = class {
             this._stopSim();
             this.renderer.destroy();
             this.renderer = null;
+        }
+        if (this._webglPhysics) {
+            this._webglPhysics.destroy();
+            this._webglPhysics = null;
         }
         this.rawData = null;
         this.selectedNodes = [];

@@ -5,34 +5,23 @@ Generates correlation statistics and visualizations.
 """
 
 import json
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from typing import Any
-from ...shared.io import load_single_jsonl
 import traceback
 
-try:
-    from sklearn.preprocessing import MinMaxScaler
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.colors import Normalize
+from pathlib import Path
+from sklearn.preprocessing import MinMaxScaler
+from typing import Any
 
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    print("Warning: scikit-learn not available - normalization will be basic")
-    SKLEARN_AVAILABLE = False
-    MinMaxScaler = None  # type: ignore[misc]
+from ...shared.io import load_single_jsonl
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib
+matplotlib.use("Agg")
 
-    matplotlib.use("Agg")  # Use non-interactive backend
-    from matplotlib.colors import Normalize
-
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    print("Warning: matplotlib not available - analysis will be limited")
-    MATPLOTLIB_AVAILABLE = False
-    plt = None  # type: ignore[misc]
+SKLEARN_AVAILABLE = True
+MATPLOTLIB_AVAILABLE = True
 
 
 class ParameterAnalyzer:
@@ -458,7 +447,7 @@ def main():
     print("Loading data...")
     try:
         vectors_data = list(load_single_jsonl("output/vectors.jsonl"))
-        text_data = load_single_jsonl("output/text_data.jsonl")
+        text_data = list(load_single_jsonl("output/text_data.jsonl"))
 
         if not vectors_data:
             print("✗ No vectors data found. Run data preparation first.")

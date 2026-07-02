@@ -1,4 +1,3 @@
-import logging
 from typing import Any
 import os
 import random
@@ -11,7 +10,8 @@ from shared.config import config
 from shared.io import load_json, atomic_write_json
 import time
 
-logger = logging.getLogger(__name__)
+from ...shared.logger import get_logger, ModuleLogger
+logger: ModuleLogger = get_logger(__name__)
 
 _last_used_keys: dict[str, list[str]] = {}
 

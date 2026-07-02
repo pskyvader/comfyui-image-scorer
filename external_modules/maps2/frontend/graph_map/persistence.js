@@ -87,6 +87,29 @@ globalThis.ChainMapUI.prototype.loadFiltersFromStorage = function () {
     loadBool("cm2_repulsionEnabled", "_repulsionEnabled");
     loadBool("cm2_dampingEnabled", "_dampingEnabled");
     loadBool("cm2_collisionsEnabled", "_collisionsEnabled");
+    loadBool("cm2_useWebGLPhysics", "_useWebGLPhysics");
+    if (this.physForcesPerTick) {
+        const storedFpt = localStorage.getItem("cm2_forcesPerTick");
+        if (storedFpt !== null) {
+            this._forcesPerTick = parseInt(storedFpt);
+        }
+        const pos = Math.round(((this._forcesPerTick - 1) / 4) * 4);
+        this.physForcesPerTick.value = Math.max(0, Math.min(4, pos));
+        if (this.physForcesPerTickVal) {
+            this.physForcesPerTickVal.textContent = String(this._forcesPerTick);
+        }
+    }
+    if (this.physTickFreq) {
+        const storedFreq = localStorage.getItem("cm2_tickFrequency");
+        if (storedFreq !== null) {
+            this._tickFrequency = parseFloat(storedFreq);
+        }
+        const pos = Math.round(((this._tickFrequency - 0.1) / 0.9) * 9);
+        this.physTickFreq.value = Math.max(0, Math.min(9, pos));
+        if (this.physTickFreqVal) {
+            this.physTickFreqVal.textContent = Math.round(this._tickFrequency * 100) + "%";
+        }
+    }
 };
 
 globalThis.ChainMapUI.prototype.saveFilters = function () {
@@ -123,4 +146,7 @@ globalThis.ChainMapUI.prototype.saveFilters = function () {
     sv("cm2_repulsionEnabled", this._repulsionEnabled);
     sv("cm2_dampingEnabled", this._dampingEnabled);
     sv("cm2_collisionsEnabled", this._collisionsEnabled);
+    sv("cm2_useWebGLPhysics", this._useWebGLPhysics);
+    sv("cm2_forcesPerTick", this._forcesPerTick);
+    sv("cm2_tickFrequency", this._tickFrequency);
 };

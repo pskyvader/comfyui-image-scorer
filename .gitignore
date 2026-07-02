@@ -215,3 +215,6 @@ done.md
 todo.md
 AI_jobs/
 *cache.db
+
+# Downloaded MediaPipe task models
+models/mediapipe/

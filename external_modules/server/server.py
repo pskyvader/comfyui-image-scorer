@@ -4,6 +4,9 @@ import sys
 import threading
 import time
 import os
+
+os.environ["GLOG_minloglevel"] = "3"
+
 from pathlib import Path
 from flask import Flask, send_from_directory, request, send_file, Response
 from urllib.parse import unquote
@@ -25,15 +28,6 @@ if current_dir not in sys.path:
 if __name__ == "__main__":
     if __package__ is None:
         __package__ = "comfyui_image_scorer.external_modules.server"
-
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
-        # force=True,
-    )
 
 
 # Now import Flask and API modules
@@ -58,6 +52,7 @@ from ...shared.paths import image_root
 from ...shared.logger import (
     SSELogBroadcaster,
     SharedLogger,
+    configure_package_logging,
     get_logger,
     set_log_filter_hook,
 )
@@ -76,8 +71,6 @@ setattr(
 # logger: logging.Logger = app.logger
 
 
-# werkzeug_logger = logging.getLogger("werkzeug")
-# werkzeug_logger.setLevel(logging.WARNING)
 
 
 # Set up Flask configuration
@@ -443,17 +436,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    log_level = logging.DEBUG if args.debug else logging.INFO
-
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
-        # force=True,
-    )
-
-    # Suppress verbose third‑party loggers that have zero user value.
-    logging.getLogger("PIL").setLevel(logging.WARNING)
+    configure_package_logging(10 if args.debug else 20)
 
     # ── Uncomment to activate module / content filtering ──────────────
     # set_log_filter(exact_names={"shared.graph.crystal_graph"})
