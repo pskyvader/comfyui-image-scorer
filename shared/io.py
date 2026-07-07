@@ -1,17 +1,18 @@
 import json
 import jsonlines
 import os
+from collections import deque
 from pathlib import Path
 from typing import (
     Any,
     Callable,
-    TypeVar,
     Iterator,
+    TypeVar,
 )
 from tqdm import tqdm
 import time
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from .logger import get_logger, ModuleLogger
 
 R = TypeVar("R")
@@ -48,6 +49,13 @@ def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
                     pbar.update(1)
 
 
+def parallel_batch(fn: Callable[..., R], items: list[tuple[Any, ...]]) -> list[R]:
+    results: list[R] = []
+    for item in items:
+        results.append(fn(*item))
+    return results
+
+
 def parallel_for(
     fn: Callable[..., R],
     items: list[tuple[Any, ...]],
@@ -56,6 +64,7 @@ def parallel_for(
     batch_size: int = 0,
     desc: str = "Processing",
     unit: str = "items",
+    on_progress: Callable[[], None] | None = None,
 ) -> list[R]:
     """Execute fn(*item) for each item across a thread pool.
 
@@ -66,27 +75,46 @@ def parallel_for(
         batch_size: If > 0, submit items in batches of this size.
         desc: tqdm description prefix.
         unit: tqdm unit label.
+        on_progress: Optional callable invoked after each completed item.
 
     Returns:
         List of results in arbitrary (completion) order.
     """
-    logger.info(f"starting parallel workers for {fn}...")
+    logger.info(f"starting parallel workers for {str(fn)[:10]}...")
     results: list[R] = []
-    n = len(items)
+    n: int = len(items)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        with tqdm(total=n, desc=desc, unit=unit, leave=False) as pbar:
-            if batch_size > 0:
-                for start in range(0, n, batch_size):
-                    batch = items[start : start + batch_size]
-                    futures = [executor.submit(fn, *item) for item in batch]
-                    for future in as_completed(futures):
+        with tqdm(total=n, desc=desc, unit=unit, leave=False, position=0) as pbar:
+            try:
+                if batch_size > 0:
+                    batches = [items[i : i + batch_size] for i in range(0, n, batch_size)]
+                    futures_list: list[Future[list[R]]] = [
+                        executor.submit(parallel_batch, fn, batch) for batch in batches
+                    ]
+                    for f in as_completed(futures_list):
+                        res: list[R] = f.result()
+                        results.extend(res)
+                        pbar.update(len(res))
+                        if on_progress:
+                            on_progress()
+                else:
+                    started: dict[Future[R], float] = {
+                        executor.submit(fn, *item): time.perf_counter() for item in items
+                    }
+                    recent: deque[float] = deque(maxlen=100)
+                    for future in as_completed(started):
+                        elapsed = time.perf_counter() - started[future]
+                        recent.append(elapsed)
                         results.append(future.result())
                         pbar.update(1)
-            else:
-                futures = [executor.submit(fn, *item) for item in items]
-                for future in as_completed(futures):
-                    results.append(future.result())
-                    pbar.update(1)
+                        pbar.set_postfix(avg=f"{sum(recent)/len(recent):.4f}s")
+                        if on_progress:
+                            on_progress()
+            except KeyboardInterrupt:
+                executor.shutdown(wait=False, cancel_futures=True)
+                logger.warning(
+                    "Interrupted after %d/%d %s", len(results), n, unit
+                )
     return results
 
 

@@ -80,7 +80,7 @@ def start_task(
     else:
         threading.Thread(
             target=fn,
-            args=args,
+            args=(task_id, *args),
             daemon=True,
         ).start()
 

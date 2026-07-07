@@ -22,6 +22,13 @@ except ImportError:
 
 import os
 
+# Create the package-level logger immediately so that all child loggers
+# created during module import have the correct parent chain instead of
+# falling back to root.  Set to DEBUG so early import-time log calls pass
+# isEnabledFor(); configure_package_logging() will pin the final level later.
+logging.getLogger("comfyui_image_scorer").setLevel(logging.DEBUG)
+
+
 LogLevelName = Literal["debug", "info", "warning", "error", "critical"]
 
 
@@ -565,16 +572,20 @@ class SharedLogger:
     ) -> None:
         cls.install_root_filter()
         if not cls.should_emit(module_name):
-            print(f"should not emit: {message[:10]}")
+            # print(f"mesage should not emit:{message[:10]}...", flush=True)
             return
 
         rendered_message = cls.format_message(message, start_timer)
         level = cls._normalize_level(level_name)
         _logger = logging.getLogger(module_name)
-        _p = _logger.parent
-        _pname = _p.name if _p else None
-        _plevel = _p.level if _p else None
-        print(f"LOGGER module={module_name} lvl={_logger.level} eff={_logger.getEffectiveLevel()} parent={_pname} parent_lvl={_plevel} cache={_logger._cache} isEnabled={_logger.isEnabledFor(level)}", flush=True)
+        # print(
+        #     f"Message emit: {module_name} {level} {rendered_message[:10]}...",
+        #     flush=True,
+        # )
+        # print(
+        #     f"Message logger: {_logger}, enabled: {_logger.isEnabledFor(level)}",
+        #     flush=True,
+        # )
         _logger.log(
             level,
             rendered_message,
@@ -706,7 +717,7 @@ def configure_package_logging(
         fmt = "[%(levelname)s] [%(name)s] [%(funcName)s] %(asctime)s %(message)s"
 
     logging.basicConfig(
-        # level=level,
+        # level=level,  # intentionally not set — avoids changing external library log levels
         format=fmt,
         datefmt=datefmt,
     )
@@ -723,16 +734,21 @@ def configure_package_logging(
     for handler in logging.root.handlers:
         handler.setFormatter(formatter)
 
-    logging.getLogger("comfyui_image_scorer").setLevel(level)
+    logging.getLogger("__main__").setLevel(level)
+
+    pkg_logger = logging.getLogger("comfyui_image_scorer")
+    pkg_logger.setLevel(level)
+    # Rewire parent links in case any child loggers were created before
+    # the package logger existed, then clear level caches.
+    logging.root.manager._fixupParents(pkg_logger)
     _cleared = 0
     for _log_name, _log in list(logging.root.manager.loggerDict.items()):
-        if isinstance(_log, logging.Logger) and _log_name.startswith("comfyui_image_scorer"):
+        if isinstance(_log, logging.Logger) and _log_name.startswith(
+            "comfyui_image_scorer"
+        ):
             _log._cache.clear()
             _cleared += 1
-    print(f"[DIAG] configure_package_logging: set comfyui_image_scorer to {level}, cleared {_cleared} child caches", flush=True)
-    for _log_name, _log in list(logging.root.manager.loggerDict.items()):
-        if isinstance(_log, logging.Logger) and _log_name.startswith("comfyui_image_scorer"):
-            print(f"[DIAG]   {_log_name}: level={_log.level} eff={_log.getEffectiveLevel()} cache={_log._cache}", flush=True)
+    print(f"cleared:{_cleared}")
 
     # Suppress verbose logging from noisy external libraries
     # for logger_name in ["mediapipe", "PIL", "matplotlib", "urllib3", "onnxruntime"]:

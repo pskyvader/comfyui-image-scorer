@@ -181,7 +181,7 @@ class DataTransformer:
         cumulative /= cumulative[-1]  # normalize to 1
 
         # Keep features until cumulative gain reaches threshold (e.g., 95%)
-        cum_threshold = 0.95
+        cum_threshold = 0.99
         keep_mask = cumulative <= cum_threshold
 
         # Always keep at least one feature
@@ -411,9 +411,27 @@ class DataTransformer:
 
 def _label_face_slot(pos_in_unit: int) -> str:
     """Map a position within a face_logits unit to a human-readable label."""
-    AGE_LABELS = ["0-2", "3-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70+"]
+    AGE_LABELS = [
+        "0-2",
+        "3-9",
+        "10-19",
+        "20-29",
+        "30-39",
+        "40-49",
+        "50-59",
+        "60-69",
+        "70+",
+    ]
     GENDER_LABELS = ["Female", "Male"]
-    RACE_LABELS = ["Black", "East Asian", "Indian", "Latino_Hispanic", "Middle Eastern", "SE Asian", "White"]
+    RACE_LABELS = [
+        "Black",
+        "East Asian",
+        "Indian",
+        "Latino_Hispanic",
+        "Middle Eastern",
+        "SE Asian",
+        "White",
+    ]
     if pos_in_unit < 9:
         return f"age_{AGE_LABELS[pos_in_unit]}"
     elif pos_in_unit < 11:
@@ -424,20 +442,48 @@ def _label_face_slot(pos_in_unit: int) -> str:
 
 
 def _label_bbox_slot(pos_in_unit: int) -> str:
-    return ["x", "y", "w", "h", "conf"][pos_in_unit] if pos_in_unit < 5 else f"slot_{pos_in_unit}"
+    return (
+        ["x", "y", "w", "h", "conf"][pos_in_unit]
+        if pos_in_unit < 5
+        else f"slot_{pos_in_unit}"
+    )
 
 
 def _label_pose_slot(pos_in_unit: int) -> str:
     POSE_NAMES = {
-        0: "nose", 1: "left_eye_inner", 2: "left_eye", 3: "left_eye_outer",
-        4: "right_eye_inner", 5: "right_eye", 6: "right_eye_outer",
-        7: "left_ear", 8: "right_ear", 9: "mouth_left", 10: "mouth_right",
-        11: "left_shoulder", 12: "right_shoulder", 13: "left_elbow", 14: "right_elbow",
-        15: "left_wrist", 16: "right_wrist", 17: "left_pinky", 18: "right_pinky",
-        19: "left_index", 20: "right_index", 21: "left_thumb", 22: "right_thumb",
-        23: "left_hip", 24: "right_hip", 25: "left_knee", 26: "right_knee",
-        27: "left_ankle", 28: "right_ankle", 29: "left_heel", 30: "right_heel",
-        31: "left_foot_index", 32: "right_foot_index",
+        0: "nose",
+        1: "left_eye_inner",
+        2: "left_eye",
+        3: "left_eye_outer",
+        4: "right_eye_inner",
+        5: "right_eye",
+        6: "right_eye_outer",
+        7: "left_ear",
+        8: "right_ear",
+        9: "mouth_left",
+        10: "mouth_right",
+        11: "left_shoulder",
+        12: "right_shoulder",
+        13: "left_elbow",
+        14: "right_elbow",
+        15: "left_wrist",
+        16: "right_wrist",
+        17: "left_pinky",
+        18: "right_pinky",
+        19: "left_index",
+        20: "right_index",
+        21: "left_thumb",
+        22: "right_thumb",
+        23: "left_hip",
+        24: "right_hip",
+        25: "left_knee",
+        26: "right_knee",
+        27: "left_ankle",
+        28: "right_ankle",
+        29: "left_heel",
+        30: "right_heel",
+        31: "left_foot_index",
+        32: "right_foot_index",
     }
     lm_idx = pos_in_unit // 4
     coord = ["x", "y", "z", "vis"][pos_in_unit % 4]
@@ -447,11 +493,27 @@ def _label_pose_slot(pos_in_unit: int) -> str:
 
 def _label_hand_slot(pos_in_unit: int) -> str:
     NAMES = [
-        "wrist", "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip",
-        "index_mcp", "index_pip", "index_dip", "index_tip",
-        "middle_mcp", "middle_pip", "middle_dip", "middle_tip",
-        "ring_mcp", "ring_pip", "ring_dip", "ring_tip",
-        "pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip",
+        "wrist",
+        "thumb_cmc",
+        "thumb_mcp",
+        "thumb_ip",
+        "thumb_tip",
+        "index_mcp",
+        "index_pip",
+        "index_dip",
+        "index_tip",
+        "middle_mcp",
+        "middle_pip",
+        "middle_dip",
+        "middle_tip",
+        "ring_mcp",
+        "ring_pip",
+        "ring_dip",
+        "ring_tip",
+        "pinky_mcp",
+        "pinky_pip",
+        "pinky_dip",
+        "pinky_tip",
     ]
     lm_idx = pos_in_unit // 3
     coord = ["x", "y", "z"][pos_in_unit % 3]
@@ -462,6 +524,7 @@ def _label_hand_slot(pos_in_unit: int) -> str:
 def _load_map_slots(vec_name: str) -> list[str] | None:
     """Load the saved map JSON for a map-type vector, returning slot labels by index."""
     from ..paths import maps_dir
+
     path = os.path.join(maps_dir, f"{vec_name}_map.json")
     if os.path.exists(path):
         try:
@@ -503,7 +566,9 @@ def _print_vector_summary(
         if unit_labels_fn:
             for ui in range(n_units):
                 offset = ui * per_unit_size
-                kept_in_unit = [i for i in local_kept if offset <= i < offset + per_unit_size]
+                kept_in_unit = [
+                    i for i in local_kept if offset <= i < offset + per_unit_size
+                ]
                 if kept_in_unit:
                     kept_positions = [i - offset for i in kept_in_unit]
                     labels = [unit_labels_fn(p) for p in kept_positions]
@@ -521,7 +586,11 @@ def _print_vector_summary(
         print(f"  {vec_name}  ({kept_count}/{total_in_vec} = {pct:.1f}%)")
         for i in kept_in_vec:
             local_slot = i - start_idx
-            label = slot_labels[local_slot] if slot_labels and local_slot < len(slot_labels) else f"slot_{local_slot}"
+            label = (
+                slot_labels[local_slot]
+                if slot_labels and local_slot < len(slot_labels)
+                else f"slot_{local_slot}"
+            )
             print(f"    [{local_slot}] {label}")
         return
 
@@ -537,7 +606,9 @@ def list_filtered_features() -> None:
     """
     cached = training_loader.load_filtered_data()
     if cached is None:
-        print("No filtered data cache found. Run data_transformer.filter_unused_features() first.")
+        print(
+            "No filtered data cache found. Run data_transformer.filter_unused_features() first."
+        )
         return
 
     _, kept_indices = cached
@@ -564,8 +635,11 @@ def list_filtered_features() -> None:
         kept_in_vec = vec_kept.get(vec_name, [])
 
         _print_vector_summary(
-            vec_name, rng.get("type", ""),
-            kept_in_vec, total_in_vec, slot_size,
+            vec_name,
+            rng.get("type", ""),
+            kept_in_vec,
+            total_in_vec,
+            slot_size,
             rng.get("per_unit_size"),
             start_idx=rng["start_idx"],
         )

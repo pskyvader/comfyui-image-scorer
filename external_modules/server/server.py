@@ -68,8 +68,6 @@ setattr(
     app, "image_processor", image_processor
 )  # Also set as attribute for easy access
 
-# logger: logging.Logger = app.logger
-
 
 
 

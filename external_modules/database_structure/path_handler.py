@@ -10,17 +10,40 @@ from pathlib import Path
 from typing import Any
 
 from ...shared.logger import get_logger, ModuleLogger
+
 logger: ModuleLogger = get_logger(__name__)
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-from shared.config import config
-from shared.io import atomic_write_json
-from shared.paths import image_root_processed
+from ...shared.config import config
+from ...shared.io import atomic_write_json, load_json
+from ...shared.paths import image_root_processed
 from .comparisons_table import (
     get_all_comparisons,
 )
 from .images_table import get_image as get_image_data
 import time
+
+_folder_listdir_cache: dict[str, tuple[int, bool]] = {}
+
+
+def prewarm_folder_cache(ranked_root: Path) -> None:
+    """Eagerly populate tier folder cache for all scored_X.X directories."""
+    for i in range(11):
+        base = ranked_root / f"scored_{i / 10:.1f}"
+        if not base.exists():
+            continue
+        try:
+            items = os.listdir(base)
+            has_subfolders = any(
+                item.startswith("scored_") and (base / item).is_dir() for item in items
+            )
+            _folder_listdir_cache[str(base)] = (len(items), has_subfolders)
+        except Exception:
+            pass
+
+
+def clear_folder_cache() -> None:
+    _folder_listdir_cache.clear()
 
 
 def find_workspace_root() -> Path:
@@ -63,9 +86,11 @@ def compute_path_from_filename(filename: str, score: float) -> Path:
     base_folder = ranked_root / f"scored_{score_truncated:.1f}"
     threshold = int(config["ranking"]["subfolder_threshold"])
 
-    has_subfolders = False
-    file_count = 0
-    if base_folder.exists():
+    cache_key = str(base_folder)
+    cached = _folder_listdir_cache.get(cache_key)
+    if cached is not None:
+        file_count, has_subfolders = cached
+    elif base_folder.exists():
         try:
             items = os.listdir(base_folder)
             file_count = len(items)
@@ -73,8 +98,13 @@ def compute_path_from_filename(filename: str, score: float) -> Path:
                 item.startswith("scored_") and (base_folder / item).is_dir()
                 for item in items
             )
+            _folder_listdir_cache[cache_key] = (file_count, has_subfolders)
         except Exception:
             file_count = 0
+            has_subfolders = False
+    else:
+        file_count = 0
+        has_subfolders = False
 
     if (file_count < threshold and not has_subfolders) or score_truncated >= 1.0:
         result = base_folder / filename
@@ -148,7 +178,6 @@ def _move_image_and_json(current_image: Path, current_json: Path, score: float) 
     _start = time.perf_counter()
     target_path = compute_path_from_filename(current_image.name, score)
     if target_path.parent == current_image.parent:
-
         return
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_json = target_path.with_suffix(".json")
@@ -166,6 +195,7 @@ def sync_image_metadata_to_json(
     filename_to_path: dict[str, Path] | None = None,
     filename_to_comparisons: dict[str, list[dict[str, Any]]] | None = None,
     filename_to_image_data: dict[str, dict[str, Any]] | None = None,
+    filename_to_entry: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     """Rewrite one JSON companion file from DB-backed state."""
 
@@ -176,17 +206,19 @@ def sync_image_metadata_to_json(
     if not img_path:
         return False
     json_path = img_path.with_suffix(".json")
-    if not json_path.exists():
-        return False
 
-    try:
-        with open(json_path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except Exception:
-        return False
+    if filename_to_entry is not None:
+        data = filename_to_entry.get(filename)
+        if data is None:
+            return False
+    else:
+        if not json_path.exists():
+            return False
+        data, err = load_json(str(json_path), expect=dict, default=None)
+        if err is not None or data is None:
+            return False
 
     if filename_to_comparisons is None and all_comparisons is None:
-
         all_comparisons = get_all_comparisons()
 
     history = _build_history_for_filename(
@@ -195,12 +227,26 @@ def sync_image_metadata_to_json(
         filename_to_comparisons=filename_to_comparisons,
         filename_to_image_data=filename_to_image_data,
     )
+
+    old_score = data.get("score")
+    old_mu = data.get("rating_mu")
+    old_sigma = data.get("rating_sigma")
+    old_count = data.get("comparison_count")
+    old_history = data.get("comparison_history") or []
+
     data["score"] = float(score)
     data["rating_mu"] = float(rating_mu)
     data["rating_sigma"] = float(rating_sigma)
     data["comparison_count"] = int(comparison_count)
     data["comparison_history"] = history
     data.pop("confidence", None)
+
+    if (old_score == data["score"]
+        and old_mu == data["rating_mu"]
+        and old_sigma == data["rating_sigma"]
+        and old_count == data["comparison_count"]
+        and old_history == data["comparison_history"]):
+        return True
 
     try:
         atomic_write_json(str(json_path), data, indent=2)

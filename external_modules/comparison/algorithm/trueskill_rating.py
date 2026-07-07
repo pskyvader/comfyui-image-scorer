@@ -13,6 +13,7 @@ from math import erf, exp, pi, sqrt
 import time
 
 from ....shared.logger import get_logger, ModuleLogger
+
 logger: ModuleLogger = get_logger(__name__)
 
 
@@ -34,6 +35,15 @@ DYNAMICS_NOISE = INITIAL_MEAN / 300.0
 
 EPSILON = 1e-9
 """Small numerical guard used to avoid division by zero / log-of-zero."""
+
+SCORE_STEEPNESS = 2.0
+"""Multiplier on mu difference when computing public_score_from_rating.
+
+Higher values spread typical mid-range scores farther apart in [0, 1]
+at the cost of saturating extremes more quickly.  1.0 gives a calibrated
+win-probability interpretation; 2.0 is a good practical default for
+regression training.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +72,7 @@ class Rating:
 def normal_probability_density(x: float) -> float:
     """Probability density function of the standard normal distribution."""
 
-    result = exp(-(x * x) / 2.0) / sqrt(2.0 * pi)
+    result: float = exp(-(x * x) / 2.0) / sqrt(2.0 * pi)
 
     return result
 
@@ -70,7 +80,7 @@ def normal_probability_density(x: float) -> float:
 def normal_cumulative_distribution(x: float) -> float:
     """Cumulative distribution function of the standard normal distribution."""
 
-    result = 0.5 * (1.0 + erf(x / sqrt(2.0)))
+    result: float = 0.5 * (1.0 + erf(x / sqrt(2.0)))
 
     return result
 
@@ -189,20 +199,29 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
 
 
 def public_score_from_rating(rating: Rating) -> float:
-    """Convert a (mu, sigma) rating into a single scalar.
+    """Convert a (mu, sigma) rating into a [0, 1] score.
 
-    Uses the standard TrueSkill conservative skill estimate:  mu - 3*sigma.
-    This represents the lower bound of the player's skill with ~99%
-    confidence.  The initial value is 0; higher is stronger.
+    Uses a sigmoid-normalised version of the rating offset at steepness
+    SCORE_STEEPNESS (default 2.0) so that typical mu spreads from
+    comparisons map across a wider band of [0, 1] than the raw win
+    probability would give.  A new rating scores 0.5.
 
     Args:
         rating: The Rating to convert.
 
     Returns:
-        The conservative skill estimate (mu - 3*sigma).
+        A float in [0, 1].
     """
 
-    result = rating.mu - 3.0 * rating.sigma
+    mu_diff = rating.mu - INITIAL_MEAN
+    combined = sqrt(
+        (2.0 * (PERFORMANCE_VARIATION**2))
+        + (_clamp_uncertainty(rating.sigma) ** 2)
+        + (_clamp_uncertainty(INITIAL_UNCERTAINTY) ** 2)
+    )
+    result: float = normal_cumulative_distribution(
+        SCORE_STEEPNESS * mu_diff / max(combined, EPSILON)
+    )
 
     return result
 

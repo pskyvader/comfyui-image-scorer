@@ -29,7 +29,7 @@ def test_default_ratings_are_balanced() -> None:
     right = Rating()
     probability = expected_win_probability(left, right)
     assert 0.49 <= probability <= 0.51
-    assert public_score_from_rating(left) == 0.0
+    assert public_score_from_rating(left) == pytest.approx(0.5, rel=1e-9)
 
 
 def test_winner_rating_moves_up_and_loser_moves_down() -> None:

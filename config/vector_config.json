@@ -136,7 +136,7 @@
             ],
             "type": "map",
             "max_normalization": null,
-            "slot_size": 40
+            "slot_size": 45
         },
         {
             "name": "sampler",

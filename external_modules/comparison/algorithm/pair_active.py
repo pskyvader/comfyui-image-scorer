@@ -215,7 +215,7 @@ def _phase2_anchor_insert(
     if len(pool) < reserve_count:
         logger.warning(
             f"_phase2_anchor_insert: pool too small ({len(pool)} < {reserve_count})",
-            _start,
+            start_timer=_start,
         )
         return None, {}
 
@@ -377,7 +377,9 @@ def _phase4_chain_merge(
     chains: list[list[NodeTuple]] = [c[1] for c in chains_list]
 
     if len(chains) < min_chain_threshold:
-        logger.info(f"skipping phase 4: <{min_chain_threshold} chains", start_timer=_start)
+        logger.info(
+            f"skipping phase 4: <{min_chain_threshold} chains", start_timer=_start
+        )
         return None, {}
 
     logger.debug(f"shortest chain: {len(chains[0])}, longest: {len(chains[-1])}")
@@ -442,13 +444,13 @@ def _phase4_chain_merge(
                 logger.debug(f"I={i},j={j}", start_timer=_start)
                 logger.debug(
                     f"chain i={len(a_nodes)}({len(chains[i])}),chain j={len(b_nodes)}({len(chains[j])})",
-                    _start,
+                    start_timer=_start,
                 )
 
                 return result
     logger.warning(
         f"skipping phase 4: no valid pair found in shorter {min_chain_threshold*10} chains",
-        _start,
+        start_timer=_start,
     )
 
     return None, {}
@@ -580,9 +582,7 @@ def select_pair(
             return result
 
     if _skip_before <= 1:
-        result = _phase2_anchor_insert(
-            candidate_images, seed_pool, existing_pairs_set
-        )
+        result = _phase2_anchor_insert(candidate_images, seed_pool, existing_pairs_set)
         if result[0]:
             _skip_before = 1
             return result

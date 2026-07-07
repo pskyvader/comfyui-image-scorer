@@ -21,10 +21,15 @@ from tqdm import tqdm
 
 # sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from ...shared.io import atomic_write_json, discover_files, load_json  # noqa: E402
+from ...shared.io import (
+    atomic_write_json,
+    discover_files,
+    load_json,
+    parallel_for,
+)  # noqa: E402
 import time
 from ...shared.logger import get_logger, ModuleLogger
-
+from ...shared.config import config
 
 logger: ModuleLogger = get_logger(__name__)
 JsonDict = dict[str, Any]
@@ -32,7 +37,7 @@ EntryTriple = tuple[Path, Path, JsonDict]
 _EXAMPLE_COUNT = 3
 
 
-def _md5(Path) -> str:
+def _md5(path: Path) -> str:
     result = hashlib.md5(path.read_bytes()).hexdigest()
     return result
 
@@ -82,14 +87,33 @@ def deduplicate_scored(
         logger.warning("Scored root does not exist: %s", root)
         result = 0
         return result
+    logger.debug("deduplicating entries...")
+    file_pairs: list[tuple[str, str]] = list(discover_files(str(root)))
 
-    groups: dict[str, list[EntryTriple]] = defaultdict(list)
-    for image_path, json_path in discover_files(str(root)):
-        img = Path(image_path)
+    def _scan_worker(
+        image_path: str, json_path: str
+    ) -> tuple[str, Path, Path, JsonDict] | None:
         data, err = load_json(json_path, expect=dict, default=None)
         if err is not None or data is None:
-            continue
-        groups[img.stem].append((img, Path(json_path), data))
+            return None
+        img = Path(image_path)
+        return (img.stem, img, Path(json_path), data)
+
+    prepare_conf = config["prepare"]
+    results = parallel_for(
+        _scan_worker,
+        file_pairs,
+        max_workers=int(prepare_conf["max_workers"]),
+        batch_size=int(prepare_conf["batch_size"]),
+        desc="Scanning for duplicates",
+        unit="files",
+    )
+
+    groups: dict[str, list[EntryTriple]] = defaultdict(list)
+    for r in results:
+        if r is not None:
+            stem, img, jf, data = r
+            groups[stem].append((img, jf, data))
 
     duplicates: dict[str, list[EntryTriple]] = {
         k: v for k, v in groups.items() if len(v) > 1

@@ -217,7 +217,7 @@ def run_rebuild_scores_only() -> dict[str, int]:
         row = get_image(index_entry)
         if row is None:
             logger.warning("No DB record for: %s", index_entry)
-            new_scores_list.append(0.0)
+            new_scores_list.append(0.5)
             missing_count += 1
         else:
             mu = float(row["rating_mu"])

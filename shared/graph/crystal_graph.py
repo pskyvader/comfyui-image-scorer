@@ -156,7 +156,7 @@ class CrystalGraph:
         if min_length > 0:
             result = [c for c in result if min_length <= c[0].length]
         result.sort(key=lambda c: c[0].length, reverse=(sort_order != "asc"))
-        logger.debug(f"all chains: {len(result)}", _start)
+        logger.debug(f"all chains: {len(result)}", start_timer=_start)
         return result
 
     def get_component(

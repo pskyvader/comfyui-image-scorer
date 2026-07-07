@@ -76,13 +76,12 @@ def rebuild_database():
         _start = time.perf_counter()
         _start = time.perf_counter()
         try:
-            result = processor.rebuild_database_from_ranked()
+            processor.rebuild_database_from_ranked()
             crystal_graph.rebuild_from_database()
             set_task_output(
                 tid,
                 {
                     "status": "done",
-                    "result": result,
                 },
             )
         except Exception as exc:

@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 
 from ...shared.config import config
-from ...shared.io import parallel_for
+from ...shared.io import collect_valid_files, discover_files, parallel_for
 from ...shared.paths import image_root_processed, output_dir
 
 from ..database_structure.images_table import (
@@ -39,8 +39,10 @@ from ..database_structure.comparisons_table import (
     clean_comparisons,
 )
 from ..database_structure.path_handler import (
+    clear_folder_cache,
     compute_path_from_filename,
     get_ranked_root,
+    prewarm_folder_cache,
     sync_image_metadata_to_json,
 )
 from ..database_structure.deduplicate_scored import (
@@ -264,27 +266,6 @@ class ImageProcessor:
             len(self.processed_images),
         )
 
-    def add_to_database(
-        self,
-        filename: str,
-        score: float,
-        comparison_count: int,
-        prompt_tags: str | None,
-        rating_mu: float,
-        rating_sigma: float,
-    ) -> bool:
-        _start = time.perf_counter()
-        result = add_image(
-            filename=filename,
-            score=score,
-            comparison_count=comparison_count,
-            prompt_tags=prompt_tags,
-            rating_mu=rating_mu,
-            rating_sigma=rating_sigma,
-        )
-
-        return result
-
     def get_fast_total_count(self, source_dir: str) -> int:
         _start = time.perf_counter()
         source_path = Path(source_dir).resolve()
@@ -377,13 +358,13 @@ class ImageProcessor:
                         stats["processed"] += 1
                         db_name = dest_name or filename
                         if score is not None and not db_exists:
-                            if self.add_to_database(
-                                db_name,
-                                score,
-                                0,
-                                prompt_tags,
-                                INITIAL_MEAN,
-                                INITIAL_UNCERTAINTY,
+                            if add_image(
+                                filename=db_name,
+                                score=score,
+                                comparison_count=0,
+                                prompt_tags=prompt_tags,
+                                rating_mu=INITIAL_MEAN,
+                                rating_sigma=INITIAL_UNCERTAINTY,
                             ):
                                 stats["added"] += 1
                                 current_global += 1
@@ -400,77 +381,86 @@ class ImageProcessor:
 
         return stats
 
-    def rebuild_database_from_ranked(self) -> dict[str, Any]:
+    def rebuild_database_from_ranked(self) -> None:
         """Rebuild or repair the ranking database from ranked files and companion JSON."""
         _start = time.perf_counter()
         ranked_root = get_ranked_root()
         if not ranked_root.exists():
-            return {"recovered": 0, "skipped": 0, "history_imported": 0, "errors": 0}
+            return
 
         self.reorganize_folder_structure()
 
         ranked_root = get_ranked_root()
-        logger.info("Deduplicating scored images...", start_timer=_start)
         deduplicate_scored(root=ranked_root)
-        logger.info("Cleaning up orphan files...", start_timer=_start)
         cleanup_orphans(root=ranked_root)
 
-        image_files = [
-            path
-            for path in ranked_root.rglob("*")
-            if path.is_file() and path.suffix.lower() in self.image_extensions
-        ]
-
-        stats = {
-            "recovered": 0,
-            "skipped": 0,
-            "history_imported": 0,
-            "errors": 0,
-            "missing_nodes_removed": 0,
-            "self_links_removed": 0,
-            "same_direction_duplicates_removed": 0,
-            "contradictions_removed": 0,
-            "ratings_recomputed": 0,
-            "json_synced": 0,
-        }
+        dir_file_pairs = list(discover_files(str(ranked_root)))
 
         prepare_conf = config["prepare"]
-        recovery_results = parallel_for(
-            self._recover_ranked_image,
-            [(p,) for p in image_files],
+        all_entries = collect_valid_files(
+            dir_file_pairs,
+            set(),
+            str(ranked_root),
+            limit=0,
             max_workers=int(prepare_conf["max_workers"]),
-            batch_size=int(prepare_conf["batch_size"]),
-            desc="Recovering images",
-            unit="img",
+            scored_only=False,
         )
-        for result in recovery_results:
-            stats[result] += 1
 
         valid_filenames = {img["filename"] for img in get_all_images()}
 
         with tqdm(
-            total=len(image_files),
-            desc="Importing history",
-            unit="img",
-            leave=False,
+            total=len(all_entries), desc="Processing entries", unit="img"
         ) as pbar:
-            for image_path in image_files:
-                imported = self._import_history_from_json(image_path, valid_filenames)
-                stats["history_imported"] += imported
+            for img_path, entry, _timestamp, file_id in all_entries:
+                filename = Path(img_path).name
+
+                cleaned = self.clean_json_metadata(
+                    entry, default_score=self.default_score, filename=filename
+                )
+                prompt_tags = cleaned["prompt_tags"] or self._extract_prompt_tags(
+                    cleaned
+                )
+                existing = db_get_image(filename)
+                if existing and prompt_tags and existing["prompt_tags"] != prompt_tags:
+                    update_image_tags(filename, prompt_tags)
+
+                if filename in valid_filenames:
+                    history = entry.get("comparison_history")
+                    if isinstance(history, list):
+                        for comp in history:
+                            other = comp["other"]
+                            timestamp = comp["timestamp"]
+                            if not other or not timestamp:
+                                continue
+                            if other not in valid_filenames:
+                                continue
+                            winner_file = filename if comp["winner"] else other
+                            if winner_file not in valid_filenames:
+                                continue
+                            add_historical_comparison(
+                                filename_a=filename,
+                                filename_b=other,
+                                winner=winner_file,
+                                timestamp=str(timestamp),
+                                weight=float(comp["weight"]),
+                                transitive_depth=int(comp["transitive_depth"]),
+                            )
+
                 pbar.update(1)
 
-        cleanup = clean_comparisons()
-        stats.update(cleanup)
+        clean_comparisons()
 
-        ratings_recomputed = self._recompute_ratings_from_database_history()
-        stats["ratings_recomputed"] = ratings_recomputed
+        self._recompute_ratings_from_database_history()
 
         all_comparisons = get_all_comparisons()
         all_images = get_all_images()
 
         filename_to_path: dict[str, Path] = {}
-        for p in image_files:
+        filename_to_entry: dict[str, dict[str, Any]] = {}
+        for img_path, _entry, _ts, _fid in all_entries:
+            p = Path(img_path)
             filename_to_path[p.name] = p
+            filename_to_entry[p.name] = _entry
 
         filename_to_comparisons: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for comp in all_comparisons:
@@ -481,16 +471,14 @@ class ImageProcessor:
         for img in all_images:
             filename_to_image_data[img["filename"]] = img
 
-        logger.info(
-            "Syncing %d images (pre-built indexes ready)...",
-            len(all_images),
-        )
+        prewarm_folder_cache(ranked_root)
 
         sync_worker = partial(
             sync_image_metadata_to_json,
             filename_to_path=filename_to_path,
             filename_to_comparisons=filename_to_comparisons,
             filename_to_image_data=filename_to_image_data,
+            filename_to_entry=filename_to_entry,
         )
         sync_args = [
             (
@@ -503,96 +491,21 @@ class ImageProcessor:
             for img in all_images
         ]
         prepare_conf = config["prepare"]
-        sync_results = parallel_for(
+        logger.debug("sync json data...")
+        parallel_for(
             sync_worker,
             sync_args,
+            # max_workers=2,
             max_workers=int(prepare_conf["max_workers"]),
             batch_size=int(prepare_conf["batch_size"]),
+            # batch_size=0,
             desc="Syncing JSON metadata",
             unit="img",
         )
-        stats["json_synced"] = sum(1 for r in sync_results if r)
+
+        clear_folder_cache()
 
         self.sync_processed_images_from_db()
-        logger.info("Database rebuild complete: %s", stats)
-
-        return stats
-
-    def _recover_ranked_image(self, image_path: Path) -> str:
-        _start = time.perf_counter()
-        filename = image_path.name
-        json_path = image_path.with_suffix(".json")
-        metadata: dict[str, Any] = {}
-        if json_path.exists():
-            with open(json_path, "r", encoding="utf-8") as handle:
-                metadata = json.load(handle)
-
-        cleaned = self.clean_json_metadata(
-            metadata, default_score=self.default_score, filename=filename
-        )
-        prompt_tags = cleaned["prompt_tags"] or self._extract_prompt_tags(cleaned)
-        existing = db_get_image(filename)
-        if existing:
-            if prompt_tags and existing["prompt_tags"] != prompt_tags:
-                update_image_tags(filename, prompt_tags)
-            result = "skipped"
-        else:
-            ok = self.add_to_database(
-                filename=filename,
-                score=self.default_score,
-                comparison_count=0,
-                prompt_tags=prompt_tags,
-                rating_mu=INITIAL_MEAN,
-                rating_sigma=INITIAL_UNCERTAINTY,
-            )
-            result = "recovered" if ok else "errors"
-
-        return result
-
-    def _import_history_from_json(
-        self, image_path: Path, valid_filenames: set[str]
-    ) -> int:
-        _start = time.perf_counter()
-        json_path = image_path.with_suffix(".json")
-        if not json_path.exists():
-
-            return 0
-
-        with open(json_path, "r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
-
-        history = metadata["comparison_history"]
-        if not isinstance(history, list):
-
-            return 0
-
-        imported = 0
-        filename = image_path.name
-        if filename not in valid_filenames:
-
-            return 0
-        for comp in history:
-            other = comp["other"]
-            timestamp = comp["timestamp"]
-            if not other or not timestamp:
-                continue
-            if other not in valid_filenames:
-                continue
-            winner_file = filename if comp["winner"] else other
-            if winner_file not in valid_filenames:
-                continue
-            result = add_historical_comparison(
-                filename_a=filename,
-                filename_b=other,
-                winner=winner_file,
-                timestamp=str(timestamp),
-                weight=float(comp["weight"]),
-                transitive_depth=int(comp["transitive_depth"]),
-            )
-            if result:
-                imported += 1
-
-        return imported
 
     def _recompute_ratings_from_database_history(self) -> int:
         _start = time.perf_counter()

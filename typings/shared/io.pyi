@@ -20,7 +20,9 @@ def parallel_for(
     batch_size: int = ...,
     desc: str = ...,
     unit: str = ...,
-) -> list[R]:
+) -> list[R]: ...
+
+def parallel_batch(fn: Callable[..., R], items: list[tuple[Any, ...]]) -> list[R]:
     ...
 
 def discover_files(root: str) -> Iterator[tuple[str, str]]:
