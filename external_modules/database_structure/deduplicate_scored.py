@@ -118,88 +118,143 @@ def deduplicate_scored(
     duplicates: dict[str, list[EntryTriple]] = {
         k: v for k, v in groups.items() if len(v) > 1
     }
-    if not duplicates:
-        logger.info("No duplicate filenames found under %s", root)
-        result = 0
-        return result
-
-    logger.info("Found %d duplicate basename(s) to resolve", len(duplicates))
-
-    if limit and limit < len(duplicates):
-        logger.info("Processing first %d of %d group(s)", limit, len(duplicates))
-
     total_removed = 0
     total_renamed = 0
     examples: list[str] = []
 
-    items_iter = (
-        sorted(duplicates.items())[:limit] if limit else sorted(duplicates.items())
-    )
-    for basename, items in tqdm(items_iter, desc="Resolving duplicates", unit="group"):
-        md5_groups: dict[str, list[EntryTriple]] = defaultdict(list)
-        for img, jf, data in items:
-            key = _md5(img)
-            md5_groups[key].append((img, jf, data))
+    if duplicates:
+        logger.info("Found %d duplicate basename(s) to resolve", len(duplicates))
 
-        for same_images in md5_groups.values():
-            if len(same_images) < 2:
-                continue
+        if limit and limit < len(duplicates):
+            logger.info("Processing first %d of %d group(s)", limit, len(duplicates))
 
-            same_images.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
-            _keeper_img, keeper_jf, keeper_data = same_images[0]
-            discard_list = same_images[1:]
+        items_iter = (
+            sorted(duplicates.items())[:limit] if limit else sorted(duplicates.items())
+        )
+        for basename, items in tqdm(items_iter, desc="Resolving duplicates", unit="group"):
+            md5_groups: dict[str, list[EntryTriple]] = defaultdict(list)
+            for img, jf, data in items:
+                key = _md5(img)
+                md5_groups[key].append((img, jf, data))
 
-            if len(examples) < _EXAMPLE_COUNT:
-                examples.append(
-                    f"{basename}: {len(same_images)} copy(ies), keeping {keeper_jf.parent.name}"
-                )
-
-            if not dry_run:
-                for _img, _jf, ddata in discard_list:
-                    _merge_comparison_histories(keeper_data, [ddata], basename)
-
-                atomic_write_json(str(keeper_jf), keeper_data, indent=2)
-
-                for dimg, djf, _ddata in discard_list:
-                    dimg.unlink(missing_ok=True)
-                    djf.unlink(missing_ok=True)
-
-            total_removed += len(discard_list)
-
-        if len(md5_groups) > 1:
-            md5_keys: list[str] = list(md5_groups.keys())
-            all_items: list[tuple[Path, Path, str]] = []
-            for mk, mil in md5_groups.items():
-                for img, jf, _data in mil:
-                    all_items.append((img, jf, mk))
-
-            all_items.sort(key=lambda x: x[0].stat().st_mtime)
-
-            for img, jf, mk in all_items[1:]:
-                if mk == md5_keys[0]:
+            for same_images in md5_groups.values():
+                if len(same_images) < 2:
                     continue
 
-                stem = jf.stem
-                if stem.endswith("_2"):
-                    continue
+                same_images.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
+                _keeper_img, keeper_jf, keeper_data = same_images[0]
+                discard_list = same_images[1:]
 
-                new_stem = f"{stem}_2"
-                new_jf = jf.with_stem(new_stem)
-                new_img = img.with_stem(new_stem)
-
-                if new_jf.exists() or new_img.exists():
-                    logger.warning(
-                        "Cannot rename %s -> %s, target already exists",
-                        jf.name,
-                        new_jf.name,
+                if len(examples) < _EXAMPLE_COUNT:
+                    examples.append(
+                        f"{basename}: {len(same_images)} copy(ies), keeping {keeper_jf.parent.name}"
                     )
-                    continue
 
                 if not dry_run:
-                    os.replace(str(jf), str(new_jf))
-                    os.replace(str(img), str(new_img))
+                    for _img, _jf, ddata in discard_list:
+                        _merge_comparison_histories(keeper_data, [ddata], basename)
 
-                total_renamed += 1
+                    atomic_write_json(str(keeper_jf), keeper_data, indent=2)
+
+                    for dimg, djf, _ddata in discard_list:
+                        dimg.unlink(missing_ok=True)
+                        djf.unlink(missing_ok=True)
+
+                total_removed += len(discard_list)
+
+            if len(md5_groups) > 1:
+                md5_keys: list[str] = list(md5_groups.keys())
+                all_items: list[tuple[Path, Path, str]] = []
+                for mk, mil in md5_groups.items():
+                    for img, jf, _data in mil:
+                        all_items.append((img, jf, mk))
+
+                all_items.sort(key=lambda x: x[0].stat().st_mtime)
+
+                for img, jf, mk in all_items[1:]:
+                    if mk == md5_keys[0]:
+                        continue
+
+                    stem = jf.stem
+                    if stem.endswith("_2"):
+                        continue
+
+                    new_stem = f"{stem}_2"
+                    new_jf = jf.with_stem(new_stem)
+                    new_img = img.with_stem(new_stem)
+
+                    if new_jf.exists() or new_img.exists():
+                        logger.warning(
+                            "Cannot rename %s -> %s, target already exists",
+                            jf.name,
+                            new_jf.name,
+                        )
+                        continue
+
+                    if not dry_run:
+                        os.replace(str(jf), str(new_jf))
+                        os.replace(str(img), str(new_img))
+
+                    total_renamed += 1
+    else:
+        logger.info("No duplicate filenames found under %s", root)
+
+    # Phase 2: Cross-stem deduplication - identical image content with different filenames.
+    logger.debug("Building global MD5 index for cross-stem dedup...")
+    survivors_by_md5: dict[str, list[EntryTriple]] = defaultdict(list)
+    for items in tqdm(
+        groups.values(), desc="Building MD5 index", unit="group", leave=False
+    ):
+        for img, jf, data in items:
+            if img.exists():
+                survivors_by_md5[_md5(img)].append((img, jf, data))
+
+    logger.debug(
+        "Collected %d unique MD5(s) from %d surviving file(s)",
+        len(survivors_by_md5),
+        sum(len(v) for v in survivors_by_md5.values()),
+    )
+
+    cross_stem_groups = [
+        v for v in survivors_by_md5.values()
+        if len(v) > 1 and len({t[0].stem for t in v}) > 1
+    ]
+    if cross_stem_groups:
+        logger.info(
+            "Found %d cross-stem MD5 duplicate group(s) to resolve",
+            len(cross_stem_groups),
+        )
+    else:
+        logger.debug("No cross-stem MD5 duplicates found")
+
+    for same_images in tqdm(
+        cross_stem_groups, desc="Resolving cross-stem", unit="group", leave=False
+    ):
+        logger.debug(
+            "Cross-stem match: %s",
+            ", ".join(f"{t[0].name} ({t[0].parent.name})" for t in same_images),
+        )
+
+        same_images.sort(key=lambda x: x[0].stat().st_mtime, reverse=True)
+        _keeper_img, keeper_jf, keeper_data = same_images[0]
+        discard_list = same_images[1:]
+
+        if len(examples) < _EXAMPLE_COUNT:
+            examples.append(
+                f"{keeper_jf.stem} + {len(discard_list)} other(s) (cross-stem), "
+                f"keeping {keeper_jf.parent.name}"
+            )
+
+        if not dry_run:
+            for _img, _jf, ddata in discard_list:
+                _merge_comparison_histories(keeper_data, [ddata], keeper_jf.stem)
+            atomic_write_json(str(keeper_jf), keeper_data, indent=2)
+            for dimg, djf, _ddata in discard_list:
+                logger.debug("Removing cross-stem duplicate %s", dimg.name)
+                dimg.unlink(missing_ok=True)
+                djf.unlink(missing_ok=True)
+
+        total_removed += len(discard_list)
 
     action = "Would remove" if dry_run else "Removed"
     logger.info(

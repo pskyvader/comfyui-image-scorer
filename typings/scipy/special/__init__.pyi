@@ -1,0 +1,3 @@
+from typing import Any
+
+def softmax(x: Any, axis: Any = None) -> Any: ...

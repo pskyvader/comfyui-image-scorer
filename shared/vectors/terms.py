@@ -1,7 +1,17 @@
 import re
+from dataclasses import dataclass, field
+from typing import cast
 
-# Type alias for clarity
-WeightedTerm = tuple[str, float]
+WeightedTerm = tuple[str, float, int]
+
+
+@dataclass
+class ExtractionResult:
+    terms: list[WeightedTerm]
+    raw: list[WeightedTerm] = field(default_factory=lambda: cast(list[WeightedTerm], []))
+    filtered_out: list[WeightedTerm] = field(default_factory=lambda: cast(list[WeightedTerm], []))
+    stripped: list[WeightedTerm] = field(default_factory=lambda: cast(list[WeightedTerm], []))
+    duplicates: list[WeightedTerm] = field(default_factory=lambda: cast(list[WeightedTerm], []))
 
 
 def extract_weight_from_paren(text: str) -> tuple[str, float]:
@@ -49,7 +59,8 @@ def tokenize_by_depth(text: str, splitters: set[str]) -> list[str]:
             depth += 1
             current_chunk.append(char)
         elif char == ")":
-            depth -= 1
+            if depth > 0:
+                depth -= 1
             current_chunk.append(char)
             if depth == 0:
                 tokens.append("".join(current_chunk).strip())
@@ -97,39 +108,57 @@ def clean_term(term: str) -> str:
     s: str = re.sub(r"\s+", " ", s)
     s: str = s.replace("|", "")
     # Remove surrounding punctuation/noise common in prompt tags
-    s: str = s.strip(" \t\n\r\"'`,;:.!?#<>[]{}")
+    s: str = s.strip(" \t\n\r\"'`,;:.!?#<>[]{}()")
     # Clean trailing weight markers that might be left over
     s: str = re.sub(r":\s*\d+\.?\d*$", "", s)
     return s.lower()
 
 
 def filter_terms(
-    terms: list[WeightedTerm], connectors: set[str], splitters: set[str]
-) -> list[WeightedTerm]:
-    """Removes standard stopwords unless they are protected by the user's sets."""
+    terms: list[WeightedTerm],
+    connectors: set[str],
+    splitters: set[str],
+) -> tuple[list[WeightedTerm], list[WeightedTerm]]:
+    """Removes standard stopwords unless they are protected by the user's sets.
+    Returns (kept, filtered_out)."""
     stopwords: set[str] = {"a", "an", "the", "in", "is", "at", "to", "by", "of"}
 
-    filtered: list[tuple[str, float]] = []
-    for term, weight in terms:
+    kept: list[WeightedTerm] = []
+    filtered: list[WeightedTerm] = []
+    for term, weight, idx in terms:
         if " " not in term:
             if term in stopwords and term not in connectors and term not in splitters:
+                filtered.append((term, weight, idx))
                 continue
         if term:
-            filtered.append((term, weight))
-    return filtered
+            kept.append((term, weight, idx))
+    return kept, filtered
 
 
-def deduplicate_terms(terms: list[WeightedTerm]) -> list[WeightedTerm]:
-    """Merges duplicate terms, retaining the highest weight found."""
-    max_weights: dict[str, float] = {}
-    for term, weight in terms:
-        max_weights[term] = max(max_weights.get(term, 0.0), weight)
-    return list(max_weights.items())
+def deduplicate_terms(
+    terms: list[WeightedTerm],
+) -> tuple[list[WeightedTerm], list[WeightedTerm]]:
+    """Merges duplicate terms, retaining the highest weight found.
+    Returns (deduplicated, duplicates_removed)."""
+    best: dict[str, tuple[float, int]] = {}
+    duplicates: list[WeightedTerm] = []
+    for term, weight, idx in terms:
+        if term in best:
+            existing_weight, existing_idx = best[term]
+            if weight > existing_weight:
+                duplicates.append((term, existing_weight, existing_idx))
+                best[term] = (weight, idx)
+            else:
+                duplicates.append((term, weight, idx))
+        else:
+            best[term] = (weight, idx)
+    result: list[WeightedTerm] = [(t, w, i) for t, (w, i) in best.items()]
+    return result, duplicates
 
 
 def _extract_recursive(
     text: str, current_weight: float, splitters: set[str]
-) -> list[WeightedTerm]:
+) -> list[tuple[str, float]]:
     """Handles the heavy lifting of nesting and weight multiplication."""
     text = text.strip()
     if not text:
@@ -146,7 +175,7 @@ def _extract_recursive(
         return _extract_recursive(content, new_weight, splitters)
 
     chunks: list[str] = tokenize_by_depth(text, splitters)
-    results: list[WeightedTerm] = []
+    results: list[tuple[str, float]] = []
     for chunk in chunks:
         if chunk.startswith("(") and chunk.endswith(")"):
             results.extend(_extract_recursive(chunk, current_weight, splitters))
@@ -159,31 +188,41 @@ def extract_terms(
     text: str,
     connectors: tuple[str, ...] = ("and", "or"),
     splitters: tuple[str, ...] = (",", "but", "not"),
-) -> list[WeightedTerm]:
+) -> ExtractionResult:
     """
     The main entry point for processing prompt text into weighted vectors.
     """
     if not text:
-        return []
+        return ExtractionResult(terms=[])
 
-    # Convert tuples to sets for efficient O(1) lookups
     conn_set: set[str] = set(connectors)
     split_set: set[str] = set(splitters)
 
     # 1. Recursive parsing of parentheses and weights
-    raw_weighted_list: list[tuple[str, float]] = _extract_recursive(
-        text, 1.0, split_set
-    )
+    raw = _extract_recursive(text, 1.0, split_set)
+    raw_indexed: list[WeightedTerm] = [(t, w, i) for i, (t, w) in enumerate(raw)]
 
-    # 2. Clean and normalize the strings
-    cleaned_list: list[tuple[str, float]] = [
-        (clean_term(t), w) for t, w in raw_weighted_list
-    ]
+    # 2. Clean and normalize the strings, capturing any that become empty
+    stripped: list[WeightedTerm] = []
+    cleaned_list: list[WeightedTerm] = []
+    for t, w, i in raw_indexed:
+        ct = clean_term(t)
+        entry = (ct, w, i)
+        if ct:
+            cleaned_list.append(entry)
+        else:
+            stripped.append(entry)
 
     # 3. Filter out noise words
-    filtered_list: list[tuple[str, float]] = filter_terms(
-        cleaned_list, conn_set, split_set
-    )
+    kept, filtered_out = filter_terms(cleaned_list, conn_set, split_set)
 
     # 4. Final deduplication
-    return deduplicate_terms(filtered_list)
+    deduped, duplicates = deduplicate_terms(kept)
+
+    return ExtractionResult(
+        terms=deduped,
+        raw=raw_indexed,
+        filtered_out=filtered_out,
+        stripped=stripped,
+        duplicates=duplicates,
+    )

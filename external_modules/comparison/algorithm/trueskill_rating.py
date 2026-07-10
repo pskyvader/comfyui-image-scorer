@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from math import erf, exp, pi, sqrt
 import time
 
+from ....shared.config import config
 from ....shared.logger import get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
@@ -36,13 +37,13 @@ DYNAMICS_NOISE = INITIAL_MEAN / 300.0
 EPSILON = 1e-9
 """Small numerical guard used to avoid division by zero / log-of-zero."""
 
-SCORE_STEEPNESS = 2.0
-"""Multiplier on mu difference when computing public_score_from_rating.
+SCORE_STEEPNESS: float = float(config["ranking"]["score_steepness"])
+"""Multiplier on mu difference when computing scores and win probabilities.
 
-Higher values spread typical mid-range scores farther apart in [0, 1]
-at the cost of saturating extremes more quickly.  1.0 gives a calibrated
-win-probability interpretation; 2.0 is a good practical default for
-regression training.
+Loaded from ranking_config.json.  Higher values spread typical mid-range
+scores farther apart in [0, 1] at the cost of saturating extremes more
+quickly.  1.0 gives a calibrated win-probability interpretation; 2.0 is a
+good practical default for regression training.
 """
 
 
@@ -176,7 +177,8 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
 def expected_win_probability(first_rating: Rating, second_rating: Rating) -> float:
     """Probability that first_rating beats second_rating given current ratings.
 
-    Uses the pairwise win-probability formula from the TrueSkill model.
+    Uses the same SCORE_STEEPNESS-scaled sigmoid-normalised formula as
+    public_score_from_rating so that both functions are consistent.
 
     Args:
         first_rating:  The Rating of the first (reference) player.
@@ -192,7 +194,8 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
         + (_clamp_uncertainty(second_rating.sigma) ** 2)
     )
     result = normal_cumulative_distribution(
-        (first_rating.mu - second_rating.mu) / max(denominator, EPSILON)
+        SCORE_STEEPNESS * (first_rating.mu - second_rating.mu)
+        / max(denominator, EPSILON)
     )
 
     return result
@@ -201,10 +204,9 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
 def public_score_from_rating(rating: Rating) -> float:
     """Convert a (mu, sigma) rating into a [0, 1] score.
 
-    Uses a sigmoid-normalised version of the rating offset at steepness
-    SCORE_STEEPNESS (default 2.0) so that typical mu spreads from
-    comparisons map across a wider band of [0, 1] than the raw win
-    probability would give.  A new rating scores 0.5.
+    Delegates to expected_win_probability against the initial rating so
+    that both functions share the exact same formula.  A new rating scores
+    0.5.
 
     Args:
         rating: The Rating to convert.
@@ -213,17 +215,7 @@ def public_score_from_rating(rating: Rating) -> float:
         A float in [0, 1].
     """
 
-    mu_diff = rating.mu - INITIAL_MEAN
-    combined = sqrt(
-        (2.0 * (PERFORMANCE_VARIATION**2))
-        + (_clamp_uncertainty(rating.sigma) ** 2)
-        + (_clamp_uncertainty(INITIAL_UNCERTAINTY) ** 2)
-    )
-    result: float = normal_cumulative_distribution(
-        SCORE_STEEPNESS * mu_diff / max(combined, EPSILON)
-    )
-
-    return result
+    return expected_win_probability(rating, Rating(mu=INITIAL_MEAN, sigma=INITIAL_UNCERTAINTY))
 
 
 def rating_from_row(row: dict) -> Rating:

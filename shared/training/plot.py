@@ -1,21 +1,22 @@
-from typing import Any, Union, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 import os
 import time
 import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+plt: Any = plt
 from sklearn.metrics import r2_score
 from statistics import mean, stdev
-from scipy.special import softmax
+from scipy.special import softmax  # type: ignore[attr-defined]
 
 import math
 
 from ..loaders.training_loader import training_loader
 from ..config import config
 from .calibration import apply_score_calibration, extract_score_calibration
-from ..vectors.terms import extract_terms
+
 
 
 class PlotManager:
@@ -99,7 +100,7 @@ class PlotManager:
             counts, min_size_px, max_size_px, power
         )
 
-        fig, ax = plt.subplots(figsize=(6, 4))
+        _, ax = plt.subplots(figsize=(6, 4))
         ax.scatter(
             unique_points[:, 0],
             unique_points[:, 1],
@@ -158,7 +159,7 @@ class PlotManager:
             np.ones(len(y_plot)), min_size_px, max_size_px, power
         )
 
-        fig, ax = plt.subplots(figsize=(6, 4))
+        _, ax = plt.subplots(figsize=(6, 4))
         ax.scatter(
             y_plot,
             p_plot,
@@ -400,13 +401,13 @@ class PlotManager:
 
     @staticmethod
     def plot_continuous_analysis(
-        data_dict: dict[str, list[tuple[float, float]]],
+        data_dict: Mapping[str, Sequence[tuple[float, float] | tuple[float, float, int]]],
         group_name: str,
         x_label: str,
         y_label: str,
         cols: int = 4,
         share_axes: bool = True,
-    ):
+    ) -> None:
         """
         Scatter plot grid for continuous metrics. Each subplot shows (value, score).
 
@@ -426,15 +427,11 @@ class PlotManager:
         fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5),
                                  sharex=share_axes, sharey=share_axes,
                                  squeeze=False)
-        if share_axes:
-            global_x_min = min(min(p[0] for p in data_dict[t]) for t in titles)
-            global_x_max = max(max(p[0] for p in data_dict[t]) for t in titles)
-            global_y_min = min(min(p[1] for p in data_dict[t]) for t in titles)
-            global_y_max = max(max(p[1] for p in data_dict[t]) for t in titles)
         for i, title in enumerate(titles):
             ax = axes.flat[i]
             points = data_dict[title]
-            x_coords, y_coords = zip(*points)
+            x_coords = [p[0] for p in points]
+            y_coords = [p[1] for p in points]
             ax.scatter(x_coords, y_coords, color="blue", alpha=0.3, s=3, edgecolors="none")
             ax.set_title(title, fontsize=9)
             ax.grid(True, linestyle="--", alpha=0.3)
@@ -458,7 +455,7 @@ class PlotManager:
         x_label: str,
         y_label: str,
         cols: int = 4,
-    ):
+    ) -> None:
         """
         Plots discrete data in a grid of subplots with shared y-axis.
 
@@ -497,7 +494,7 @@ class PlotManager:
 
     @staticmethod
     def plot_aggregate_summary(
-        data_dict: dict[str, list[tuple[float, float]]],
+        data_dict: Mapping[str, Sequence[tuple[float, float] | tuple[float, float, int]]],
         group_name: str,
         value_label: str,
         top_percent: float = 0.10,
@@ -611,7 +608,7 @@ class PlotManager:
     @staticmethod
     def plot_individual_metrics(
         data_dict: dict[str, list[tuple[float, float]]], cols: int = 4, bins: int = 10
-    ):
+    ) -> None:
         """
         Plots Average Score (Y) vs Setting Value (X) for every metric.
         Bar width represents the sample size (count) for that bucket.
@@ -673,7 +670,7 @@ class PlotManager:
                 widths = [0.5]  # Default for single-column data
 
             # --- PLOTTING ---
-            bars = ax.bar(
+            _ = ax.bar(
                 actual_centers,
                 means,
                 yerr=stds,
@@ -700,7 +697,7 @@ class PlotManager:
 
     @staticmethod
     def plot_discrete_object_analysis(
-        discrete_data: dict[str, dict[Union[str, int], list[float]]],
+        discrete_data: dict[str, dict[str | int, list[float]]],
         title_prefix: str = "Discrete Analysis",
         cols: int = 4,
     ) -> None:
@@ -755,18 +752,21 @@ class PlotManager:
 
     @staticmethod
     def prepare_face_data(
-        text_data: list[dict],
-        scores: Sequence,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, list, list, list, list, list, list, int]:
+        text_data: list[dict[str, Any]],
+        scores: Sequence[float],
+    ) -> tuple[pd.DataFrame, pd.DataFrame, list[float], list[float], list[float], list[float], list[float], list[float], int]:
         AGE_LABELS = ["0-2", "3-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70+"]
         GENDER_LABELS = ["Female", "Male"]
         RACE_LABELS = ["Black", "East Asian", "Indian", "Latino_Hispanic", "Middle Eastern", "Southeast Asian", "White"]
 
-        face_logit_rows: list[dict] = []
-        bbox_rows: list[dict] = []
-        pose_score, no_pose_score = [], []
-        lh_score, no_lh_score = [], []
-        rh_score, no_rh_score = [], []
+        face_logit_rows: list[dict[str, Any]] = []
+        bbox_rows: list[dict[str, Any]] = []
+        pose_score: list[float] = []
+        no_pose_score: list[float] = []
+        lh_score: list[float] = []
+        no_lh_score: list[float] = []
+        rh_score: list[float] = []
+        no_rh_score: list[float] = []
 
         for i in range(len(text_data)):
             outer = text_data[i]
@@ -827,7 +827,7 @@ class PlotManager:
             print("No face bbox data")
             return
         # Position scatter
-        fig, ax = plt.subplots(figsize=(6, 6))
+        _, ax = plt.subplots(figsize=(6, 6))
         sc = ax.scatter(df_bbox["x"], df_bbox["y"], c=df_bbox["score"],
                         s=5, alpha=0.5, cmap="RdYlGn")
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
@@ -839,7 +839,7 @@ class PlotManager:
         plt.tight_layout()
         plt.show()
         # Size vs score
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
+        _, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
         axes[0].scatter(df_bbox["w"], df_bbox["score"], s=3, alpha=0.3, c="steelblue")
         axes[0].set_xlabel("Face width (fraction of image width)")
         axes[0].set_title("Width vs Score")
@@ -945,12 +945,12 @@ class PlotManager:
 
     @staticmethod
     def plot_detection_presence(
-        pose_score: list, no_pose_score: list,
-        lh_score: list, no_lh_score: list,
-        rh_score: list, no_rh_score: list,
+        pose_score: list[float], no_pose_score: list[float],
+        lh_score: list[float], no_lh_score: list[float],
+        rh_score: list[float], no_rh_score: list[float],
         n: int,
     ) -> None:
-        from scipy.stats import mannwhitneyu
+        from scipy.stats import mannwhitneyu  # type: ignore[attr-defined]
         fig, axes = plt.subplots(1, 3, figsize=(14, 5), sharey=True)
         detect_pairs = [
             ("Body Pose", pose_score, no_pose_score),
@@ -965,337 +965,17 @@ class PlotManager:
             ax.set_title(f"{name}")
             ax.axhline(0, color="gray", ls=":", alpha=0.3)
             if len(yes) > 0 and len(no) > 0:
-                stat, p = mannwhitneyu(yes, no, alternative="two-sided")
+                _, p = mannwhitneyu(yes, no, alternative="two-sided")
                 ax.text(0.5, 0.95, f"MW p={p:.4f}", transform=ax.transAxes,
                         ha="center", fontsize=9, style="italic")
         axes[0].set_ylabel("Score")
         fig.suptitle("Detection Presence vs Score")
         plt.tight_layout()
         plt.show()
-    # ------------------------------------------------------------------ #
-    #  Data aggregation helpers for text_analysis.ipynb                  #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def extract_lora(
-        line: dict,
-        score: float,
-        lora_data: dict[str, list[tuple[float, float]]],
-    ) -> None:
-        lora_name = line.pop("lora", None)
-        lora_weight = line.pop("lora_weight", None)
-        if lora_name is not None and lora_weight is not None:
-            if lora_name not in lora_data:
-                lora_data[lora_name] = []
-            lora_data[lora_name].append((float(lora_weight), score))
-
-    @staticmethod
-    def extract_prompts(
-        line: dict,
-        score: float,
-        positive_prompt: dict[str, list[tuple[float, float]]],
-        negative_prompt: dict[str, list[tuple[float, float]]],
-    ) -> None:
-        positive_text = line.pop("positive_prompt", None)
-        if positive_text:
-            try:
-                for prompt, weight in extract_terms(positive_text):
-                    if prompt not in positive_prompt:
-                        positive_prompt[prompt] = []
-                    positive_prompt[prompt].append((weight, score))
-            except Exception as e:
-                print(f"Error parsing positive prompt: {e}")
-
-        negative_text = line.pop("negative_prompt", None)
-        if negative_text:
-            try:
-                for prompt, weight in extract_terms(negative_text):
-                    if prompt not in negative_prompt:
-                        negative_prompt[prompt] = []
-                    negative_prompt[prompt].append((weight, score))
-            except Exception as e:
-                print(f"Error parsing negative prompt: {e}")
-
-    @staticmethod
-    def extract_face_logits(
-        line: dict,
-        score: float,
-        face_age_data: dict[str, list[tuple[float, float]]],
-        face_gender_data: dict[str, list[tuple[float, float]]],
-        face_race_data: dict[str, list[tuple[float, float]]],
-    ) -> None:
-        AGE_LABELS = [
-            "0-2", "3-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70+",
-        ]
-        GENDER_LABELS = ["Female", "Male"]
-        RACE_LABELS = [
-            "Black", "East Asian", "Indian", "Latino_Hispanic",
-            "Middle Eastern", "Southeast Asian", "White",
-        ]
-
-        face_logits = line.pop("face_logits", None)
-        if face_logits and len(face_logits) >= 18:
-            for j, lbl in enumerate(AGE_LABELS):
-                if lbl not in face_age_data:
-                    face_age_data[lbl] = []
-                face_age_data[lbl].append((float(face_logits[j]), score))
-            for j, lbl in enumerate(GENDER_LABELS):
-                if lbl not in face_gender_data:
-                    face_gender_data[lbl] = []
-                face_gender_data[lbl].append((float(face_logits[9 + j]), score))
-            for j, lbl in enumerate(RACE_LABELS):
-                if lbl not in face_race_data:
-                    face_race_data[lbl] = []
-                face_race_data[lbl].append((float(face_logits[11 + j]), score))
-
-    @staticmethod
-    def extract_face_bbox(
-        line: dict,
-        score: float,
-        continuous_data: dict[str, list[tuple[float, float]]],
-        positional_data: dict[str, dict[str, list[float]]],
-    ) -> None:
-        face_bbox_val = line.pop("face_bbox", None)
-        if face_bbox_val and len(face_bbox_val) > 0:
-            b = face_bbox_val[0]
-            for comp_idx, comp_name in enumerate(["x", "y", "w", "h", "conf"]):
-                if comp_idx < len(b):
-                    key = f"face_bbox_{comp_name}"
-                    if key not in continuous_data:
-                        continuous_data[key] = []
-                    continuous_data[key].append((float(b[comp_idx]), score))
-            if "face_bbox" not in positional_data:
-                positional_data["face_bbox"] = {"x": [], "y": [], "w": [], "h": [], "score": []}
-            pd = positional_data["face_bbox"]
-            pd["x"].append(float(b[0]))
-            pd["y"].append(float(b[1]))
-            pd["w"].append(float(b[2]))
-            pd["h"].append(float(b[3]))
-            pd["score"].append(score)
-
-    @staticmethod
-    def extract_pose_landmarks(
-        line: dict,
-        score: float,
-        pose_data: dict[str, list[tuple[float, float]]],
-        positional_data: dict[str, dict[str, list[float]]],
-    ) -> None:
-        POSE_KEY = {
-            0: "nose", 2: "left_eye", 5: "right_eye",
-            7: "left_ear", 8: "right_ear",
-            11: "left_shoulder", 12: "right_shoulder",
-            13: "left_elbow", 14: "right_elbow",
-            15: "left_wrist", 16: "right_wrist",
-            23: "left_hip", 24: "right_hip",
-            25: "left_knee", 26: "right_knee",
-            27: "left_ankle", 28: "right_ankle",
-        }
-
-        pose_raw = line.pop("body_pose", None)
-        if pose_raw and len(pose_raw) > 0 and len(pose_raw[0]) >= 132:
-            arr = pose_raw[0]
-            for idx, name in POSE_KEY.items():
-                x_key = f"pose_{name}_x"
-                y_key = f"pose_{name}_y"
-                vis_key = f"pose_{name}_vis"
-                for target_key, val in [
-                    (x_key, arr[4 * idx]),
-                    (y_key, arr[4 * idx + 1]),
-                    (vis_key, arr[4 * idx + 3]),
-                ]:
-                    if target_key not in pose_data:
-                        pose_data[target_key] = []
-                    pose_data[target_key].append((float(val), score))
-                pos_key = f"pose_{name}"
-                if pos_key not in positional_data:
-                    positional_data[pos_key] = {"x": [], "y": [], "score": []}
-                pd = positional_data[pos_key]
-                pd["x"].append(max(0.0, min(1.0, float(arr[4 * idx]))))
-                pd["y"].append(max(0.0, min(1.0, float(arr[4 * idx + 1]))))
-                pd["score"].append(score)
-
-    @staticmethod
-    def extract_hand_landmarks(
-        line: dict,
-        score: float,
-        lh_data: dict[str, list[tuple[float, float]]],
-        rh_data: dict[str, list[tuple[float, float]]],
-        positional_data: dict[str, dict[str, list[float]]],
-    ) -> None:
-        HAND_KEY = {
-            0: "wrist", 4: "thumb_tip",
-            8: "index_tip", 12: "middle_tip",
-            16: "ring_tip", 20: "pinky_tip",
-        }
-
-        lh_raw = line.pop("left_hand", None)
-        if lh_raw and len(lh_raw) > 0 and len(lh_raw[0]) >= 84:
-            arr = lh_raw[0]
-            for idx, name in HAND_KEY.items():
-                x_key = f"lh_{name}_x"
-                y_key = f"lh_{name}_y"
-                for target_key, val in [(x_key, arr[4 * idx]), (y_key, arr[4 * idx + 1])]:
-                    if target_key not in lh_data:
-                        lh_data[target_key] = []
-                    lh_data[target_key].append((float(val), score))
-                pos_key = f"lh_{name}"
-                if pos_key not in positional_data:
-                    positional_data[pos_key] = {"x": [], "y": [], "score": []}
-                pd = positional_data[pos_key]
-                pd["x"].append(max(0.0, min(1.0, float(arr[4 * idx]))))
-                pd["y"].append(max(0.0, min(1.0, float(arr[4 * idx + 1]))))
-                pd["score"].append(score)
-
-        rh_raw = line.pop("right_hand", None)
-        if rh_raw and len(rh_raw) > 0 and len(rh_raw[0]) >= 84:
-            arr = rh_raw[0]
-            for idx, name in HAND_KEY.items():
-                x_key = f"rh_{name}_x"
-                y_key = f"rh_{name}_y"
-                for target_key, val in [(x_key, arr[4 * idx]), (y_key, arr[4 * idx + 1])]:
-                    if target_key not in rh_data:
-                        rh_data[target_key] = []
-                    rh_data[target_key].append((float(val), score))
-
-    @staticmethod
-    def extract_image_sizes(
-        line: dict,
-        score: float,
-        continuous_data: dict[str, list[tuple[float, float]]],
-        positional_data: dict[str, dict[str, list[float]]],
-    ) -> None:
-        orig_w = line.pop("original_width", None)
-        orig_h = line.pop("original_height", None)
-        final_w = line.pop("final_width", None)
-        final_h = line.pop("final_height", None)
-
-        if orig_w is not None:
-            key = "original_width"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((float(orig_w), score))
-        if orig_h is not None:
-            key = "original_height"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((float(orig_h), score))
-        if final_w is not None:
-            key = "final_width"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((float(final_w), score))
-        if final_h is not None:
-            key = "final_height"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((float(final_h), score))
-        if orig_w is not None and orig_h is not None:
-            ar = float(orig_w) / float(orig_h)
-            key = "original_aspect_ratio"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((ar, score))
-        if final_w is not None and final_h is not None:
-            ar = float(final_w) / float(final_h)
-            key = "final_aspect_ratio"
-            if key not in continuous_data:
-                continuous_data[key] = []
-            continuous_data[key].append((ar, score))
-            if "final_size" not in positional_data:
-                positional_data["final_size"] = {"w": [], "h": [], "score": []}
-            ps = positional_data["final_size"]
-            ps["w"].append(float(final_w))
-            ps["h"].append(float(final_h))
-            ps["score"].append(score)
-        if orig_w is not None and orig_h is not None:
-            if "original_size" not in positional_data:
-                positional_data["original_size"] = {"w": [], "h": [], "score": []}
-            pos_os = positional_data["original_size"]
-            pos_os["w"].append(float(orig_w))
-            pos_os["h"].append(float(orig_h))
-            pos_os["score"].append(score)
-
-    @staticmethod
-    def extract_remaining_fields(
-        line: dict,
-        score: float,
-        discrete_data: dict[str, dict[str | int, list[float]]],
-        continuous_data: dict[str, list[tuple[float, float]]],
-    ) -> None:
-        for key, value in line.items():
-            if isinstance(value, (str, int)) and not isinstance(value, bool):
-                if key not in discrete_data:
-                    discrete_data[key] = {}
-                if value not in discrete_data[key]:
-                    discrete_data[key][value] = []
-                discrete_data[key][value].append(score)
-            elif isinstance(value, float):
-                if key not in continuous_data:
-                    continuous_data[key] = []
-                continuous_data[key].append((value, score))
-            elif isinstance(value, bool):
-                if key not in discrete_data:
-                    discrete_data[key] = {}
-                str_val = str(value)
-                if str_val not in discrete_data[key]:
-                    discrete_data[key][str_val] = []
-                discrete_data[key][str_val].append(score)
-            elif isinstance(value, list):
-                if all(isinstance(v, (int, float)) for v in value):
-                    if key not in continuous_data:
-                        continuous_data[key] = []
-                    for v in value:
-                        continuous_data[key].append((float(v), score))
-
-    @staticmethod
-    def split_continuous(
-        data: dict[str, list[tuple[float, float]]],
-    ) -> tuple[dict[str, list[tuple[float, float]]], dict[str, list[tuple[float, float]]]]:
-        bounded: dict[str, list[tuple[float, float]]] = {}
-        unbounded: dict[str, list[tuple[float, float]]] = {}
-        for key, pts in data.items():
-            vals = [p[0] for p in pts]
-            if all(0 <= v <= 1 for v in vals):
-                bounded[key] = pts
-            else:
-                unbounded[key] = pts
-        return bounded, unbounded
-
-    @staticmethod
-    def split_positional(
-        data: dict[str, dict[str, list[float]]],
-    ) -> tuple[dict[str, dict[str, list[float]]], dict[str, dict[str, list[float]]]]:
-        bounded: dict[str, dict[str, list[float]]] = {}
-        unbounded: dict[str, dict[str, list[float]]] = {}
-        for key, inner in data.items():
-            all_vals = []
-            for field in ("x", "y", "w", "h"):
-                if field in inner:
-                    all_vals.extend(inner[field])
-            if all_vals and all(0 <= v <= 1 for v in all_vals):
-                bounded[key] = inner
-            elif all_vals:
-                unbounded[key] = inner
-        return bounded, unbounded
-
-    @staticmethod
-    def split_discrete(
-        data: dict[str, dict[str | int, list[float]]],
-    ) -> tuple[dict[str, dict[str | int, list[float]]], dict[str, dict[str | int, list[float]]]]:
-        numeric: dict[str, dict[str | int, list[float]]] = {}
-        labels: dict[str, dict[str | int, list[float]]] = {}
-        for key, inner in data.items():
-            keys_are_numeric = all(isinstance(k, (int, float)) for k in inner)
-            if keys_are_numeric:
-                numeric[key] = inner
-            else:
-                labels[key] = inner
-        return numeric, labels
-
     """Callback to plot training progress only at the end of training."""
 
     def __init__(
-        self, save_path: str | None = None, frequency: int = 30, status_bar=None
+        self, save_path: str | None = None, frequency: int = 30, status_bar: Any = None
     ) -> None:
         """Initialize callback to plot only final results."""
         self.save_path = save_path
