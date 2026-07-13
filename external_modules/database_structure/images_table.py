@@ -279,3 +279,17 @@ def delete_image(filename: str) -> bool:
         logger.error("Failed to delete image %s: %s", filename, exc)
         result = False
         return result
+
+
+def clear_all_images() -> int:
+    _start = time.perf_counter()
+    try:
+        with get_db_connection() as conn:
+            cur = conn.execute("DELETE FROM images")
+            conn.commit()
+        result = int(cur.rowcount or 0)
+        return result
+    except Exception as exc:
+        logger.error("Error clearing images: %s", exc)
+        result = 0
+        return result

@@ -26,6 +26,7 @@ from ...shared.paths import image_root_processed, output_dir
 
 from ..database_structure.images_table import (
     add_image,
+    clear_all_images,
     get_all_images,
     get_image as db_get_image,
     get_image_count,
@@ -35,6 +36,7 @@ from ..database_structure.images_table import (
 )
 from ..database_structure.comparisons_table import (
     add_historical_comparison,
+    clear_all_comparisons,
     get_all_comparisons,
     clean_comparisons,
 )
@@ -406,10 +408,26 @@ class ImageProcessor:
             scored_only=False,
         )
 
+        clear_all_comparisons()
+        clear_all_images()
+
+        for img_path, entry, _timestamp, _file_id in all_entries:
+            cleaned = self.clean_json_metadata(
+                entry, default_score=self.default_score, filename=Path(img_path).name
+            )
+            add_image(
+                filename=Path(img_path).name,
+                score=self.default_score,
+                comparison_count=0,
+                prompt_tags=cleaned.get("prompt_tags"),
+                rating_mu=INITIAL_MEAN,
+                rating_sigma=INITIAL_UNCERTAINTY,
+            )
+
         valid_filenames = {img["filename"] for img in get_all_images()}
 
         with tqdm(
-            total=len(all_entries), desc="Processing entries", unit="img"
+            total=len(all_entries), desc="Adding histories from image", unit="img"
         ) as pbar:
             for img_path, entry, _timestamp, file_id in all_entries:
                 filename = Path(img_path).name

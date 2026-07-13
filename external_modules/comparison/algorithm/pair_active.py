@@ -289,6 +289,7 @@ def _phase3_collapsible_pairs(
     for comp_id, tops in tops_by_comp.items():
         if len(tops.items()) < 2:
             continue
+        logger.debug(f"id:{comp_id}, total extremes:{len(tops.items())}")
 
         sorted_top_dict: list[tuple[str, int]] = list(tops.items())
         sorted_top_dict.sort(key=lambda top: top[1], reverse=False)

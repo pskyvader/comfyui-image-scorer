@@ -1,8 +1,8 @@
 """Database endpoints - API routes for maintenance and file operations."""
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, Flask, jsonify, request, current_app
 
-from .images_table import get_all_images, reset_all_image_ratings, get_image_count
+from .images_table import get_all_images, get_image_count
 from .comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
@@ -13,7 +13,7 @@ from .deduplicate_scored import deduplicate_scored
 from .path_handler import sync_image_metadata_to_json
 
 from pathlib import Path
-import time
+from typing import Any
 
 from shared.paths import image_root_processed
 
@@ -27,7 +27,6 @@ database_bp = Blueprint("database", __name__, url_prefix="/api/v2/database")
 
 
 def _get_processor():
-    """Get the image_processor instance from the Flask app."""
     return getattr(current_app, "image_processor", None) or current_app.extensions.get(
         "image_processor"
     )
@@ -47,13 +46,10 @@ def get_status():
 
 @database_bp.route("/normalize-comparisons", methods=["POST"])
 def normalize():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     try:
         stats = clean_comparisons()
         crystal_graph.rebuild_from_database()
         result = jsonify({"status": "success", "stats": stats})
-
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
@@ -62,37 +58,22 @@ def normalize():
 
 @database_bp.route("/rebuild-db", methods=["POST"])
 def rebuild_database():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
     processor = _get_processor()
     if processor is None:
-
         return (
             jsonify({"status": "error", "error": "Image processor not available"}),
             500,
         )
 
-    def _run(tid):
-        _start = time.perf_counter()
-        _start = time.perf_counter()
-        try:
-            processor.rebuild_database_from_ranked()
-            crystal_graph.rebuild_from_database()
-            set_task_output(
-                tid,
-                {
-                    "status": "done",
-                },
-            )
-        except Exception as exc:
-            logger.exception("rebuild_database failed")
-            set_task_output(
-                tid,
-                {
-                    "status": "error",
-                    "error": str(exc),
-                },
-            )
+    def _run(tid: str):
+        processor.rebuild_database_from_ranked()
+        crystal_graph.rebuild_from_database()
+        set_task_output(
+            tid,
+            {
+                "status": "done",
+            },
+        )
 
     _, body = start_task(_run, task_prefix="rebuild", args=())
     return jsonify(body)
@@ -100,12 +81,7 @@ def rebuild_database():
 
 @database_bp.route("/sync-all", methods=["POST"])
 def sync_all():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-
-    def _run(tid):
-        _start = time.perf_counter()
-        _start = time.perf_counter()
+    def _run(tid: str):
         images = get_all_images()
         all_comparisons = get_all_comparisons()
         count = 0
@@ -138,53 +114,35 @@ def sync_all():
         )
 
     _, body = start_task(_run, task_prefix="sync", args=())
-
     return jsonify(body)
 
 
 @database_bp.route("/cleanup-orphans", methods=["POST"])
 def run_cleanup_orphans():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-    data = request.json or {}
-    dry_run = data.get("dry_run", True)
+    data: dict[str, Any] = request.json if isinstance(request.json, dict) else {}
+    dry_run: bool = bool(data.get("dry_run", True))
     try:
         result = cleanup_orphans(root=None, dry_run=dry_run, delete_enabled=not dry_run)
         result = jsonify({"status": "success", "result": result})
-
-        result = result
-
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-
-        result = result
-
         return result
 
 
 @database_bp.route("/deduplicate", methods=["POST"])
 def run_deduplicate():
-    _start = time.perf_counter()
-    _start = time.perf_counter()
-
-    data = request.json or {}
-    dry_run = data.get("dry_run", True)
-    limit = data.get("limit", 0)
+    data: dict[str, Any] = request.json if isinstance(request.json, dict) else {}
+    dry_run: bool = bool(data.get("dry_run", True))
+    limit: int = int(data.get("limit", 0))
     try:
         result = deduplicate_scored(
             root=Path(image_root_processed), dry_run=dry_run, limit=limit
         )
         result = jsonify({"status": "success", "result": result})
-
-        result = result
-
         return result
     except Exception as exc:
         result = jsonify({"status": "error", "message": str(exc)}), 500
-
-        result = result
-
         return result
 
 
@@ -194,14 +152,10 @@ def get_task(task_id: str):
     info = get_task_status(task_id, since=since)
     if info is None:
         result = jsonify({"error": "Task not found"}), 404
-
         return result
     result = jsonify(info)
-
     return result
 
 
-def register_database_routes(app):
-    _start = time.perf_counter()
-    _start = time.perf_counter()
+def register_database_routes(app: Flask):
     app.register_blueprint(database_bp)

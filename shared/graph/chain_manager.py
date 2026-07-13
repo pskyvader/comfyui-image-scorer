@@ -11,31 +11,202 @@ from ..logger import get_logger
 logger = get_logger(__name__)
 
 
-class ChainManager:
-    """Internal data store for the comparison graph. All attributes are private.
-    Access is only through CrystalGraph's public API.
-    """
+# ======================================================================
+# Tiny helpers (pure, no self)
+# ======================================================================
 
+
+def parse_comparison(
+    comp: dict[str, Any],
+) -> tuple[str, str, str, str]:
+    a: str = comp["filename_a"]
+    b: str = comp["filename_b"]
+    winner: str = comp["winner"]
+    loser: str = b if winner == a else a
+    return a, b, winner, loser
+
+
+def add_directed_edge(
+    better_than: defaultdict[str, list[str]],
+    worse_than: defaultdict[str, list[str]],
+    winner: str,
+    loser: str,
+) -> None:
+    better_than[loser].append(winner)
+    worse_than[winner].append(loser)
+
+
+def add_undirected_edge(
+    adjacency: defaultdict[str, set[str]],
+    filenames: set[str],
+    a: str,
+    b: str,
+) -> None:
+    adjacency[a].add(b)
+    adjacency[b].add(a)
+    filenames.add(a)
+    filenames.add(b)
+
+
+def process_one_comparison(
+    comp: dict[str, Any],
+    better_than: defaultdict[str, list[str]],
+    worse_than: defaultdict[str, list[str]],
+    adjacency: defaultdict[str, set[str]],
+    filenames: set[str],
+) -> None:
+    a, b, winner, loser = parse_comparison(comp)
+    add_directed_edge(better_than, worse_than, winner, loser)
+    add_undirected_edge(adjacency, filenames, a, b)
+
+
+# ------------------------------------------------------------------
+# Top / bottom detection
+# ------------------------------------------------------------------
+
+
+def has_no_predecessors(
+    node: str,
+    better_than: defaultdict[str, list[str]],
+) -> bool:
+    return not better_than[node]
+
+
+def has_no_successors(
+    node: str,
+    worse_than: defaultdict[str, list[str]],
+) -> bool:
+    return not worse_than[node]
+
+
+def find_top_nodes(
+    all_filenames: set[str],
+    better_than: defaultdict[str, list[str]],
+) -> set[str]:
+    return {n for n in all_filenames if has_no_predecessors(n, better_than)}
+
+
+def find_bottom_nodes(
+    all_filenames: set[str],
+    worse_than: defaultdict[str, list[str]],
+) -> set[str]:
+    return {n for n in all_filenames if has_no_successors(n, worse_than)}
+
+
+# ------------------------------------------------------------------
+# Components (BFS)
+# ------------------------------------------------------------------
+
+
+def bfs_one_component(
+    start: str,
+    adjacency: defaultdict[str, set[str]],
+    visited: set[str],
+) -> list[str]:
+    queue: deque[str] = deque([start])
+    visited.add(start)
+    members: list[str] = []
+    while queue:
+        current: str = queue.popleft()
+        members.append(current)
+        neighbors = adjacency.get(current, set())
+        # with tqdm(total=len(neighbors), desc="BFS neighbors", unit="edge", leave=False) as pbar:
+        for neighbor in neighbors:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+                # pbar.update(1)
+    return members
+
+
+def index_component(
+    members: list[str],
+    comp_id: int,
+    node_component: dict[str, int],
+    component_members: dict[int, list[str]],
+) -> None:
+    component_members[comp_id] = members
+    with tqdm(
+        total=len(members), desc="Indexing component", unit="node", leave=False
+    ) as pbar:
+        for member in members:
+            node_component[member] = comp_id
+            pbar.update(1)
+
+
+def build_components(
+    all_filenames: set[str],
+    adjacency: defaultdict[str, set[str]],
+) -> tuple[dict[str, int], dict[int, list[str]]]:
+    visited: set[str] = set()
+    node_component: dict[str, int] = {}
+    component_members: dict[int, list[str]] = {}
+    comp_id: int = 0
+
+    for filename in all_filenames:
+        if filename in visited:
+            continue
+        members: list[str] = bfs_one_component(filename, adjacency, visited)
+        index_component(members, comp_id, node_component, component_members)
+        comp_id += 1
+
+    return node_component, component_members
+
+
+# ------------------------------------------------------------------
+# Reachability helpers
+# ------------------------------------------------------------------
+
+
+def same_component(
+    u: str,
+    v: str,
+    node_component: dict[str, int],
+) -> bool | None:
+    cu = node_component.get(u)
+    cv = node_component.get(v)
+    if cu is not None and cv is not None:
+        return cu == cv
+    return None
+
+
+def find_common_chain_id(
+    chains_u: dict[int, bool],
+    chains_v: dict[int, bool],
+) -> int | None:
+    with tqdm(
+        total=len(chains_u), desc="Finding common chain", unit="cid", leave=False
+    ) as pbar:
+        for cid in chains_u:
+            if cid in chains_v:
+                return cid
+            pbar.update(1)
+    return None
+
+
+# ======================================================================
+# ChainManager class
+# ======================================================================
+
+
+class ChainManager:
     def __init__(self) -> None:
-        # -- Core adjacency --
         self._better_than: defaultdict[str, list[str]] = defaultdict(list)
         self._worse_than: defaultdict[str, list[str]] = defaultdict(list)
         self._adjacency: defaultdict[str, set[str]] = defaultdict(set)
 
-        # -- Topology --
-        self._top_nodes: list[str] = []
-        self._bottom_nodes: list[str] = []
+        self._top_nodes: set[str] = set()
+        self._bottom_nodes: set[str] = set()
 
-        # -- Components --
         self._node_component: dict[str, int] = {}
         self._component_members: dict[int, list[str]] = {}
 
-        # -- Tracking --
         self._all_filenames: set[str] = set()
+        self._node_pos: dict[str, int] = {}
+        self._chain_end_at: dict[str, set[int]] = {}
         self._built_at: datetime | None = None
         self._db_comparison_count: int = 0
 
-        # -- Chains --
         self._chains: dict[int, list[str]] = {}
         self._node_to_chains: dict[str, list[tuple[int, list[str]]]] = {}
         self._node_main_chain: dict[str, tuple[int, list[str]]] = {}
@@ -51,10 +222,10 @@ class ChainManager:
         return self._all_filenames
 
     def get_top_nodes(self) -> list[str]:
-        return self._top_nodes
+        return list(self._top_nodes)
 
     def get_bottom_nodes(self) -> list[str]:
-        return self._bottom_nodes
+        return list(self._bottom_nodes)
 
     def get_better_than(self, node_id: str) -> list[str]:
         return self._better_than.get(node_id, [])
@@ -98,98 +269,149 @@ class ChainManager:
         comparisons: list[dict[str, Any]],
         all_filenames: set[str] | None = None,
     ) -> None:
-        self._better_than.clear()
-        self._worse_than.clear()
-        self._adjacency.clear()
-
-        graph_filenames: set[str] = set()
-        # with tqdm(comparisons, desc="Processing comparisons", unit="comp") as pbar:
-        for comp in comparisons:
-            a: str = comp["filename_a"]
-            b: str = comp["filename_b"]
-            winner: str = comp["winner"]
-            loser: str
-
-            if winner == a:
-                loser = b
-            else:
-                loser = a
-
-            if winner not in self._better_than[loser]:
-                self._better_than[loser].append(winner)
-            if loser not in self._worse_than[winner]:
-                self._worse_than[winner].append(loser)
-
-            self._adjacency[a].add(b)
-            self._adjacency[b].add(a)
-            graph_filenames.add(a)
-            graph_filenames.add(b)
-
+        self._reset_adjacency()
+        graph_filenames: set[str] = self._build_from_comparisons(comparisons)
         self._all_filenames = (
             all_filenames if all_filenames is not None else graph_filenames
         )
         self._identify_top_bottom()
         self._build_components()
         self._build_chains()
-        # self._compute_chains_naive()
+
+    def _reset_adjacency(self) -> None:
+        self._better_than.clear()
+        self._worse_than.clear()
+        self._adjacency.clear()
+
+    def _build_from_comparisons(self, comparisons: list[dict[str, Any]]) -> set[str]:
+        graph_filenames: set[str] = set()
+        with tqdm(
+            total=len(comparisons), desc="Building graph from comparisons", unit="comp"
+        ) as pbar:
+            for comp in comparisons:
+                process_one_comparison(
+                    comp,
+                    self._better_than,
+                    self._worse_than,
+                    self._adjacency,
+                    graph_filenames,
+                )
+                pbar.update(1)
+        return graph_filenames
 
     # ==================================================================
     # Incremental update (single comparison, no DB)
     # ==================================================================
 
     def apply_comparison(self, winner: str, loser: str) -> None:
-        _t: float = time.time()
         self._all_filenames.update([winner, loser])
 
-        # -- 1. Add edge --
-        if loser not in self._worse_than[winner]:
-            self._worse_than[winner].append(loser)
-        if winner not in self._better_than[loser]:
-            self._better_than[loser].append(winner)
-        self._adjacency[winner].add(loser)
-        self._adjacency[loser].add(winner)
+        add_directed_edge(self._better_than, self._worse_than, winner, loser)
+        add_undirected_edge(self._adjacency, set(), winner, loser)
 
-        # -- 2. Update top_nodes / bottom_nodes --
-        if winner in self._bottom_nodes and self._worse_than[winner]:
-            self._bottom_nodes.remove(winner)
-        if loser in self._top_nodes and self._better_than[loser]:
-            self._top_nodes.remove(loser)
-        if not self._worse_than[loser] and loser not in self._bottom_nodes:
-            self._bottom_nodes.append(loser)
-        if not self._better_than[winner] and winner not in self._top_nodes:
-            self._top_nodes.append(winner)
+        self._update_top_bottom_for_edge(winner, loser)
+        self._merge_node_components(winner, loser)
 
-        # -- 3. Merge components if different --
-        cw: int | None = self._node_component.get(winner)
-        cl: int | None = self._node_component.get(loser)
-        if cw is not None and cl is not None and cw != cl:
-            self._merge_components(cw, cl)
-        elif cw is None and cl is None:
-            new_id: int = max(self._component_members.keys(), default=-1) + 1
-            self._component_members[new_id] = [winner, loser]
-            self._node_component[winner] = new_id
-            self._node_component[loser] = new_id
-        elif cw is None and cl is not None:
-            self._node_component[winner] = cl
-            self._component_members[cl].append(winner)
-        elif cl is None and cw is not None:
-            self._node_component[loser] = cw
-            self._component_members[cw].append(loser)
-
-        # -- 4. Recompute chains from scratch --
-        # self._compute_chains_naive()
-        # self._build_chains()
-
-        # -- 5. Bookkeeping --
         self._db_comparison_count += 1
         self._built_at = datetime.now(timezone.utc)
 
-    def _merge_components(self, keep_id: int, remove_id: int) -> None:
-        """Merge two components by absorbing the smaller into the larger."""
+    def _remove_from_bottom_if_not_anymore(self, winner: str) -> None:
+        if winner in self._bottom_nodes and self._worse_than[winner]:
+            self._bottom_nodes.discard(winner)
+
+    def _remove_from_top_if_not_anymore(self, loser: str) -> None:
+        if loser in self._top_nodes and self._better_than[loser]:
+            self._top_nodes.discard(loser)
+
+    def _add_to_bottom_if_needed(self, loser: str) -> None:
+        if not self._worse_than[loser]:
+            self._bottom_nodes.add(loser)
+
+    def _add_to_top_if_needed(self, winner: str) -> None:
+        if not self._better_than[winner]:
+            self._top_nodes.add(winner)
+
+    def _update_top_bottom_for_edge(self, winner: str, loser: str) -> None:
+        self._remove_from_bottom_if_not_anymore(winner)
+        self._remove_from_top_if_not_anymore(loser)
+        self._add_to_bottom_if_needed(loser)
+        self._add_to_top_if_needed(winner)
+
+    def _component_of(self, node: str) -> int | None:
+        return self._node_component.get(node)
+
+    def _both_have_components_and_different(
+        self, cw: int | None, cl: int | None
+    ) -> bool:
+        return cw is not None and cl is not None and cw != cl
+
+    def _neither_has_component(self, cw: int | None, cl: int | None) -> bool:
+        return cw is None and cl is None
+
+    def _winner_lacks_component(self, cw: int | None, cl: int | None) -> bool:
+        return cw is None and cl is not None
+
+    def _loser_lacks_component(self, cw: int | None, cl: int | None) -> bool:
+        return cl is None and cw is not None
+
+    def _create_new_component(self, winner: str, loser: str) -> None:
+        new_id: int = max(self._component_members.keys(), default=-1) + 1
+        self._component_members[new_id] = [winner, loser]
+        self._node_component[winner] = new_id
+        self._node_component[loser] = new_id
+
+    def _add_winner_to_loser_component(self, winner: str, cl: int) -> None:
+        self._node_component[winner] = cl
+        self._component_members[cl].append(winner)
+
+    def _add_loser_to_winner_component(self, loser: str, cw: int) -> None:
+        self._node_component[loser] = cw
+        self._component_members[cw].append(loser)
+
+    def _merge_node_components(self, winner: str, loser: str) -> None:
+        cw: int | None = self._component_of(winner)
+        cl: int | None = self._component_of(loser)
+
+        if self._both_have_components_and_different(cw, cl):
+            self._merge_components(cw, cl)
+        elif self._neither_has_component(cw, cl):
+            self._create_new_component(winner, loser)
+        elif self._winner_lacks_component(cw, cl):
+            self._add_winner_to_loser_component(winner, cl)
+        elif self._loser_lacks_component(cw, cl):
+            self._add_loser_to_winner_component(loser, cw)
+
+    # ------------------------------------------------------------------
+    # Component merging
+    # ------------------------------------------------------------------
+
+    def _ensure_larger_component_kept(
+        self, keep_id: int, remove_id: int
+    ) -> tuple[int, int]:
         if len(self._component_members.get(keep_id, [])) < len(
             self._component_members.get(remove_id, [])
         ):
-            keep_id, remove_id = remove_id, keep_id
+            return remove_id, keep_id
+        return keep_id, remove_id
+
+    def _reassign_nodes(self, remove_id: int, keep_id: int) -> None:
+        with tqdm(
+            total=len(self._component_members.get(remove_id, [])),
+            desc="Reassigning nodes",
+            unit="node",
+            leave=False,
+        ) as pbar:
+            for node in self._component_members.get(remove_id, []):
+                self._node_component[node] = keep_id
+                pbar.update(1)
+
+    def _absorb_removed_component(self, keep_id: int, remove_id: int) -> None:
+        self._component_members[keep_id].extend(
+            self._component_members.pop(remove_id, [])
+        )
+
+    def _merge_components(self, keep_id: int, remove_id: int) -> None:
+        keep_id, remove_id = self._ensure_larger_component_kept(keep_id, remove_id)
         with tqdm(
             self._component_members.get(remove_id, []),
             desc="Merging components",
@@ -197,262 +419,234 @@ class ChainManager:
         ) as pbar:
             for node in pbar:
                 self._node_component[node] = keep_id
-        self._component_members[keep_id].extend(
-            self._component_members.pop(remove_id, [])
-        )
+        self._absorb_removed_component(keep_id, remove_id)
 
     # ==================================================================
     # Internal build helpers
     # ==================================================================
 
     def _identify_top_bottom(self) -> None:
-        # with tqdm(
-        #     self._all_filenames, desc="Identifying top nodes", unit="node"
-        # ) as pbar:
-        self._top_nodes = [n for n in self._all_filenames if not self._better_than[n]]
-        # with tqdm(
-        #     self._all_filenames, desc="Identifying bottom nodes", unit="node"
-        # ) as pbar:
-        self._bottom_nodes = [n for n in self._all_filenames if not self._worse_than[n]]
+        self._top_nodes = find_top_nodes(self._all_filenames, self._better_than)
+        self._bottom_nodes = find_bottom_nodes(self._all_filenames, self._worse_than)
 
     def _build_components(self) -> None:
-        visited: set[str] = set()
-        self._node_component = {}
-        self._component_members = {}
-        comp_id: int = 0
-        # with tqdm(self._all_filenames, desc="Building components", unit="node") as pbar:
-        for filename in self._all_filenames:
-            if filename in visited:
-                continue
-            queue: deque[str] = deque([filename])
-            visited.add(filename)
-            members: list[str] = []
-            while queue:
-                current: str = queue.popleft()
-                members.append(current)
-                neighbor: str
-                for neighbor in self._adjacency.get(current, set()):
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        queue.append(neighbor)
-            self._component_members[comp_id] = members
-            member: str
-            for member in members:
-                self._node_component[member] = comp_id
-            comp_id += 1
-
-    def _build_chains(self) -> None:
-        self._node_main_chain = {}
-        self._chains = {}
-        self._build_all_chains()
-
-        assigned_chains: list[int] = []
-
-        # define main chains
-
-        with tqdm(
-            total=len(self._node_chains.items()),
-            desc="Setting main chains",
-            unit="nodes",
-        ):
-            for node, node_chains in self._node_chains.items():
-                longest_chain_length = -1
-                longest_chain_id = -1
-                for chain_id in node_chains.keys():
-                    length: int = len(self._common_chains[chain_id][0])
-                    if length > longest_chain_length:
-                        longest_chain_length: int = length
-                        longest_chain_id: int = chain_id
-
-                if longest_chain_id == -1:
-                    # orphan/new images
-                    continue
-                self._node_chains[node][longest_chain_id] = True
-
-                chain_list: list[str] = self._common_chains[longest_chain_id][0]
-                self._node_main_chain[node] = (longest_chain_id, chain_list)
-
-                if longest_chain_id in assigned_chains:
-                    continue
-
-                self._common_chains[longest_chain_id] = (
-                    chain_list,
-                    True,
-                )
-
-                self._chains[longest_chain_id] = chain_list
-                assigned_chains.append(longest_chain_id)
-
-    def _build_all_chains(self) -> None:
-        # chain id,[filename list,is main chain]
-        self._common_chains: dict[int, tuple[list[str], bool]] = {}
-        # filename,chain list [id chain, is main for this node]
-        self._node_chains: dict[str, dict[int, bool]] = {}
-        current_node: str = self._top_nodes[0]
-        remaining_nodes: list[str] = list(
-            set(self._top_nodes).union(self._all_filenames)
+        self._node_component, self._component_members = build_components(
+            self._all_filenames,
+            self._adjacency,
         )
 
-        last_chain_created = 0
+    # ------------------------------------------------------------------
+    # Chain building
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dedup_path(path: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        # with tqdm(
+        #     total=len(path), desc="Deduping path", unit="node", leave=False
+        # ) as pbar:
+        for x in path:
+            if x in seen:
+                break
+            seen.add(x)
+            result.append(x)
+            # pbar.update(1)
+        return result
+
+    def _build_chains(self) -> None:
+        _start: float = time.perf_counter()
+        self._node_main_chain = {}
+        self._chains = {}
+        self._node_chains = {}
+
+        # Topological order for DP
+        in_degree: dict[str, int] = {}
+        with tqdm(
+            total=len(self._all_filenames), desc="Initializing in-degrees", unit="node"
+        ) as pbar:
+            for n in self._all_filenames:
+                in_degree[n] = 0
+                pbar.update(1)
+        with tqdm(
+            total=sum(len(v) for v in self._worse_than.values()),
+            desc="Building in-degrees",
+            unit="edges",
+        ) as pbar:
+            for children in self._worse_than.values():
+                for child in children:
+                    in_degree[child] = in_degree.get(child, 0) + 1
+                    pbar.update(1)
+
+        order: list[str] = []
+        queue: deque[str] = deque(
+            n for n in self._all_filenames if in_degree.get(n, 0) == 0
+        )
+        remaining: set[str] = set(self._all_filenames)
+        with tqdm(
+            total=len(self._all_filenames), desc="Topological sort", unit="node"
+        ) as pbar:
+            while remaining:
+                while queue:
+                    node: str = queue.popleft()
+                    if node not in remaining:
+                        continue
+                    remaining.discard(node)
+                    order.append(node)
+                    pbar.update(1)
+                    children = self._worse_than.get(node, [])
+                    # with tqdm(
+                    #     total=len(children),
+                    #     desc="Processing children",
+                    #     unit="edge",
+                    #     leave=False,
+                    # ) as cbar:
+                    for child in children:
+                        in_degree[child] -= 1
+                        if in_degree[child] == 0:
+                            queue.append(child)
+                            # cbar.update(1)
+                if not remaining:
+                    break
+                pick: str = sorted(remaining)[0]
+                queue.append(pick)
+
+        # Forward DP (longest path to a bottom, prefer bottom reachable)
+        fwd: dict[str, list[str]] = {}
+        with tqdm(
+            total=len(self._all_filenames), desc="Initializing forward DP", unit="node"
+        ) as pbar:
+            for n in self._all_filenames:
+                fwd[n] = [n]
+                pbar.update(1)
+        changed: bool = True
+        pass_num: int = 0
+        while changed:
+            pass_num += 1
+            changed = False
+            with tqdm(
+                total=len(order),
+                desc=f"Forward DP pass {pass_num}",
+                unit="node",
+                leave=False,
+            ) as pbar:
+                for n in reversed(order):
+                    losers: list[str] = self._worse_than.get(n, [])
+                    if not losers:
+                        fwd[n] = [n]
+                        pbar.update(1)
+                        continue
+                    best: list[str] = []
+                    best_to_bottom: list[str] = []
+                    # with tqdm(
+                    #     total=len(losers),
+                    #     desc="Processing losers",
+                    #     unit="loser",
+                    #     leave=False,
+                    # ) as pbar2:
+                    for l in losers:
+                        p = fwd.get(l, [l])
+                        if n in p:
+                            p = [l]
+                        if len(p) > len(best):
+                            best = p
+                        if self.is_bottom(p[-1]) and len(p) > len(best_to_bottom):
+                            best_to_bottom = p
+                            # pbar2.update(1)
+                    new: list[str] = [n] + (best_to_bottom if best_to_bottom else best)
+                    if len(new) > len(fwd[n]):
+                        fwd[n] = new
+                        changed = True
+                    pbar.update(1)
+
+        # Backward DP (longest path from a top, prefer top reachable)
+        bwd: dict[str, list[str]] = {}
+        with tqdm(
+            total=len(self._all_filenames), desc="Initializing backward DP", unit="node"
+        ) as pbar:
+            for n in self._all_filenames:
+                bwd[n] = [n]
+                pbar.update(1)
+        changed = True
+        pass_num = 0
+        while changed:
+            pass_num += 1
+            changed = False
+            with tqdm(
+                total=len(order),
+                desc=f"Backward DP pass {pass_num}",
+                unit="node",
+                leave=False,
+            ) as pbar:
+                for n in order:
+                    beaters: list[str] = self._better_than.get(n, [])
+                    if not beaters:
+                        bwd[n] = [n]
+                        pbar.update(1)
+                        continue
+                    best: list[str] = []
+                    best_to_top: list[str] = []
+                    # with tqdm(
+                    #     total=len(beaters),
+                    #     desc="Processing beaters",
+                    #     unit="beater",
+                    #     leave=False,
+                    # ) as pbar2:
+                    for b in beaters:
+                        p = bwd.get(b, [b])
+                        if n in p:
+                            p = [b]
+                        if len(p) > len(best):
+                            best = p
+                        if self.is_top(p[0]) and len(p) > len(best_to_top):
+                            best_to_top = p
+                            # pbar2.update(1)
+                    new = (best_to_top if best_to_top else best) + [n]
+                    if len(new) > len(bwd[n]):
+                        bwd[n] = new
+                        changed = True
+                    pbar.update(1)
+
+        # Build unique chains and assign main chains
+        seen: dict[tuple[str, ...], int] = {}
+        next_id: int = 0
+        with tqdm(
+            total=len(self._all_filenames), desc="Building main chains", unit="node"
+        ) as pbar:
+            for n in self._all_filenames:
+                fp: list[str] = self._dedup_path(fwd[n])
+                bp: list[str] = self._dedup_path(bwd[n])
+                if len(bp) > 1:
+                    prefix: set[str] = set(bp[:-1])
+                    full: list[str] = bp[:-1] + [x for x in fp if x not in prefix]
+                else:
+                    full = fp
+                key: tuple[str, ...] = tuple(full)
+                if key not in seen:
+                    seen[key] = next_id
+                    self._chains[next_id] = full
+                    next_id += 1
+                cid: int = seen[key]
+                self._node_main_chain[n] = (cid, full)
+                self._node_chains[n] = {cid: True}
+                self._node_to_chains.setdefault(n, []).append((cid, full))
+                pbar.update(1)
 
         with tqdm(
-            total=len(remaining_nodes),
-            desc="Building all chains from nodes",
-            unit="Node",
+            total=len(self._chains), desc="Setting common chains", unit="chain"
         ) as pbar:
-            while remaining_nodes:
-                current_node = remaining_nodes.pop()
-                if not current_node in self._node_chains:
-                    self._node_chains[current_node] = {}
-
-                # append current node to existing better chains
-                if current_node in self._better_than:
-                    better: list[str] = self._better_than[current_node]
-                    for b in better:
-                        if b not in self._node_chains:
-                            self._node_chains[b] = {}
-                        last_chain_created += 1
-                        self._common_chains[last_chain_created] = ([b], False)
-                        self._node_chains[b][last_chain_created] = False
-
-                        chain_list: dict[int, bool] = self._node_chains[b]
-                        for chain_id in chain_list.keys():
-                            self._node_chains[current_node][chain_id] = False
-                            self._common_chains[chain_id][0].append(current_node)
-
-                # append existing worse nodes to current node's chains
-                if current_node in self._worse_than:
-                    worse: list[str] = self._worse_than[current_node]
-                    for w in worse:
-                        if w not in self._node_chains:
-                            self._node_chains[w] = {}
-                        last_chain_created += 1
-                        self._common_chains[last_chain_created] = ([w], False)
-                        self._node_chains[w][last_chain_created] = False
-
-                        chain_list: dict[int, bool] = self._node_chains[w]
-                        for chain_id in chain_list.keys():
-                            self._node_chains[current_node][chain_id] = False
-                            self._common_chains[chain_id][0].append(current_node)
-
+            for cid, chain in self._chains.items():
+                self._common_chains[cid] = (chain, True)
                 pbar.update(1)
-                pbar.set_description(f"chains created: {last_chain_created}")
 
-    # def _compute_chains_naive(self) -> None:
-    #     """Naive chain computation: iterate from top nodes, build longest paths."""
-    #     self._chains = []
-    #     self._node_to_chains = {}
-    #     self._node_main_chain = {}
+        logger.info(
+            f"Built {len(self._chains)} main chains",
+            start_timer=_start,
+        )
 
-    #     if not self._all_filenames:
-    #         return
-
-    #     covered: set[str] = set()
-    #     all_sorted: list[str] = sorted(self._all_filenames)
-
-    #     def _find_best_start() -> str | None:
-    #         # Prefer top nodes first
-    #         node: str
-    #         for node in self._top_nodes:
-    #             if node not in covered and self._worse_than.get(node):
-    #                 return node
-    #         # Then any uncovered node with outgoing edges
-    #         for node in all_sorted:
-    #             if node not in covered and self._worse_than.get(node):
-    #                 return node
-    #         # Finally any uncovered node
-    #         for node in all_sorted:
-    #             if node not in covered:
-    #                 return node
-    #         return None
-
-    #     def _build_chain(start: str) -> list[str]:
-    #         chain: list[str] = []
-    #         in_chain: set[str] = set()
-    #         cur: str = start
-
-    #         # First, go backwards to find the true start (topmost ancestor)
-    #         stack: list[str] = [cur]
-    #         while stack:
-    #             node: str = stack[-1]
-    #             preds: list[str] = [
-    #                 p for p in self._better_than.get(node, []) if p not in in_chain
-    #             ]
-    #             if not preds:
-    #                 break
-    #             # Pick the predecessor that's furthest from any bottom (heuristic)
-    #             best_pred: str = max(
-    #                 preds, key=lambda p: len(self._worse_than.get(p, []))
-    #             )
-    #             if best_pred in covered:
-    #                 break
-    #             stack.append(best_pred)
-
-    #         # Pop the stack to build chain from top
-    #         while stack:
-    #             node = stack.pop()
-    #             if node not in in_chain and node not in covered:
-    #                 chain.append(node)
-    #                 in_chain.add(node)
-    #                 covered.add(node)
-
-    #         # Now go forward from the last node
-    #         cur = chain[-1] if chain else start
-    #         while True:
-    #             successors: list[str] = [
-    #                 s
-    #                 for s in self._worse_than.get(cur, [])
-    #                 if s not in in_chain and s not in covered
-    #             ]
-    #             if not successors:
-    #                 break
-    #             # Pick successor with most uncovered downstream nodes
-    #             best: str = max(
-    #                 successors, key=lambda s: len(self._worse_than.get(s, []))
-    #             )
-    #             chain.append(best)
-    #             in_chain.add(best)
-    #             covered.add(best)
-    #             cur = best
-
-    #         return chain
-
-    #     total: int = len(self._all_filenames)
-    #     with tqdm(total=total, desc="Building chains", unit="node") as pbar:
-    #         while len(covered) < total:
-    #             start: str | None = _find_best_start()
-    #             if start is None:
-    #                 break
-    #             prev_covered: int = len(covered)
-    #             chain: list[str] = _build_chain(start)
-    #             if chain:
-    #                 self._chains.append(chain)
-    #                 pbar.update(len(covered) - prev_covered)
-
-    #     # Build node -> chains index
-    #     i: int
-    #     chain: list[str]
-    #     with tqdm(
-    #         enumerate(self._chains),
-    #         desc="Indexing chains",
-    #         total=len(self._chains),
-    #         unit="chain",
-    #     ) as pbar:
-    #         for i, chain in pbar:
-    #             node: str
-    #             for node in chain:
-    #                 if node not in self._node_to_chains:
-    #                     self._node_to_chains[node] = []
-    #                 self._node_to_chains[node].append((i, chain))
-
-    #     # Assign main chain = longest chain containing each node
-    #     with tqdm(
-    #         self._all_filenames, desc="Assigning main chains", unit="node"
-    #     ) as pbar:
-    #         for node in pbar:
-    #             chains: list[tuple[int, list[str]]] = self._node_to_chains.get(node, [])
-    #             if chains:
-    #                 self._node_main_chain[node] = max(chains, key=lambda x: len(x[1]))
+    # ==================================================================
+    # Chain accessors
+    # ==================================================================
 
     def get_chains(self) -> dict[int, list[str]]:
         return self._chains
@@ -464,7 +658,52 @@ class ChainManager:
         return self._node_main_chain.get(node_id)
 
     def get_min_chain_count(self) -> int:
-        return len(self._chains.items())
+        return len(self._chains)
+
+    # ==================================================================
+    # Reachability
+    # ==================================================================
+
+    def _quick_reject(self, start: str, end: str) -> str | None:
+        if start not in self._all_filenames or end not in self._all_filenames:
+            return "missing node"
+        same = same_component(start, end, self._node_component)
+        if same is False:
+            return "different component"
+        if not self._worse_than.get(start):
+            return "start has no outgoing"
+        if not self._better_than.get(end):
+            return "end has no incoming"
+        return None
+
+    def _bfs_search(
+        self,
+        start: str,
+        end: str,
+        skip_edges: set[tuple[str, str]] | None,
+        max_depth: int,
+    ) -> bool:
+        visited: set[str] = set()
+        queue: deque[tuple[str, int]] = deque([(start, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
+            children = self._worse_than.get(current, [])
+            with tqdm(
+                total=len(children), desc="BFS search", unit="edge", leave=False
+            ) as pbar:
+                for w in children:
+                    if skip_edges and (current, w) in skip_edges:
+                        pbar.update(1)
+                        continue
+                    if w == end:
+                        return True
+                    if w not in visited:
+                        visited.add(w)
+                        queue.append((w, depth + 1))
+                    pbar.update(1)
+        return False
 
     def _can_reach(
         self,
@@ -474,72 +713,32 @@ class ChainManager:
         max_depth: int = 10,
     ) -> bool:
         _start = time.perf_counter()
-        if start not in self._all_filenames or end not in self._all_filenames:
+        reject: str | None = self._quick_reject(start, end)
+        if reject is not None:
             return False
         if start == end:
             return True
-
-        # Quick component-based rejection
-        c_start = self._node_component.get(start)
-        c_end = self._node_component.get(end)
-        if c_start is not None and c_end is not None and c_start != c_end:
-            return False
-
-        # Quick rejection: bottom nodes can't reach anyone
-        if not self._worse_than.get(start):
-            return False
-
-        # Quick rejection: no one can reach a top node
-        if not self._better_than.get(end):
-            return False
-
-        # Fast same-chain check (only safe without edge constraints)
         if not skip_edges:
-            same_chain, start_before_end = self._check_same_chain(start, end)
+            same_chain, _ = self._check_same_chain(start, end)
             if same_chain:
+                logger.debug(f"can reach (same chain)", start_timer=_start)
                 return True
-            # if same_chain:
-            #     return start_before_end
-
-        visited: set[str] = set()
-        queue: deque[tuple[str, int]] = deque([(start, 0)])
-        depth = -1
-        while queue:
-            current, depth = queue.popleft()
-            if depth >= max_depth:
-                continue
-            for w in self._worse_than.get(current, []):
-                if skip_edges and (current, w) in skip_edges:
-                    continue
-                if w == end:
-                    logger.debug(f"can reach at depth {depth}", start_timer=_start)
-                    return True
-                if w not in visited:
-                    visited.add(w)
-                    queue.append((w, depth + 1))
-        logger.debug(f"{start[:5]} cannot reach {end[:5]} up to depth {depth}", start_timer=_start)
-        return False
+        found: bool = self._bfs_search(start, end, skip_edges, max_depth)
+        if found:
+            logger.debug(f"can reach", start_timer=_start)
+        else:
+            logger.debug(f"cannot reach", start_timer=_start)
+        return found
 
     def _check_same_chain(self, u: str, v: str) -> tuple[bool, bool]:
-        """Check if two nodes share a chain in the minimum chain cover.
-
-        Returns (same_chain, u_before_v). Only valid when chains are cached.
-        """
         chains_u = self._node_chains.get(u)
         chains_v = self._node_chains.get(v)
         if not chains_u or not chains_v:
             return (False, False)
-        chain_list_u = list(chains_u.keys())
-        chain_list_v = list(chains_v.keys())
-        common_chain = []
-        for item in chain_list_u:
-            if item in chain_list_v:
-                common_chain = self._common_chains[item][0]
-                break
-
-        if len(common_chain) == 0:
+        common_id: int | None = find_common_chain_id(chains_u, chains_v)
+        if common_id is None:
             return (False, False)
-
+        common_chain: list[str] = self._common_chains[common_id][0]
         u_position = common_chain.index(u)
         v_position = common_chain.index(v)
         return (True, u_position < v_position)

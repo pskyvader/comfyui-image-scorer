@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from tqdm import tqdm
 import time
+import sys
 
 
 from ...external_modules.database_structure.images_table import (
@@ -261,16 +262,11 @@ class CrystalGraph:
         i: int
         chain: list[str]
 
-        with tqdm(
-            desc="Grouping chains by length",
-            total=len(min_chains),
-            unit="chain",
-        ) as pbar:
-            for i, chain in min_chains.items():
-                length: int = len(chain)
-                if length not in chain_map:
-                    chain_map[length] = []
-                chain_map[length].append((i, chain))
+        for i, chain in min_chains.items():
+            length: int = len(chain)
+            if length not in chain_map:
+                chain_map[length] = []
+            chain_map[length].append((i, chain))
 
         # Build main chains mapping
         all_nodes: list[NodeProxy] = self.get_all_nodes()
@@ -278,14 +274,13 @@ class CrystalGraph:
         node: NodeProxy
         main: tuple[int, list[str]] | None
         chain_id: int
-        with tqdm(all_nodes, desc="Mapping nodes to chains", unit="node") as pbar:
-            for node in pbar:
-                main = self._chain.get_node_main_chain(node.filename)
-                if main is not None:
-                    chain_id = main[0]
-                    if chain_id not in main_chains:
-                        main_chains[chain_id] = []
-                    main_chains[chain_id].append(node.filename)
+        for node in all_nodes:
+            main = self._chain.get_node_main_chain(node.filename)
+            if main is not None:
+                chain_id = main[0]
+                if chain_id not in main_chains:
+                    main_chains[chain_id] = []
+                main_chains[chain_id].append(node.filename)
 
         # Build final map
         final_map: dict[int, ChainDict] = {}
@@ -333,4 +328,5 @@ class CrystalGraph:
 
 
 crystal_graph: CrystalGraph = CrystalGraph()
-crystal_graph.rebuild_from_database()
+if "pytest" not in sys.modules:
+    crystal_graph.rebuild_from_database()

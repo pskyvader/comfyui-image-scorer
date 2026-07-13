@@ -22,7 +22,7 @@ _TASK_LOCK = threading.Lock()
 _TASK_CANCEL: set[str] = set()
 
 
-def _run_captured(task_id: str, fn: Callable, *args, **kwargs) -> None:
+def _run_captured(task_id: str, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
     _start = time.perf_counter()
     lines: list[str] = []
 
@@ -61,7 +61,7 @@ def _run_captured(task_id: str, fn: Callable, *args, **kwargs) -> None:
 
 
 def start_task(
-    fn: Callable, *, task_prefix: str, args: tuple
+    fn: Callable[..., Any], *, task_prefix: str, args: tuple[Any, ...]
 ) -> tuple[str, dict[str, Any]]:
     _start = time.perf_counter()
     task_id = f"{task_prefix}_{int(time.time())}"
