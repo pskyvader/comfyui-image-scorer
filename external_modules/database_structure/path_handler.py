@@ -199,11 +199,12 @@ def sync_image_metadata_to_json(
 ) -> bool:
     """Rewrite one JSON companion file from DB-backed state."""
 
-    if filename_to_path is not None:
+    if filename_to_path is not None and filename in filename_to_path:
         img_path = filename_to_path[filename]
     else:
         img_path = find_image_path(filename)
     if not img_path:
+        logger.warning("Image file not found for %s, cannot sync JSON.", filename)
         return False
     json_path = img_path.with_suffix(".json")
 
@@ -241,11 +242,13 @@ def sync_image_metadata_to_json(
     data["comparison_history"] = history
     data.pop("confidence", None)
 
-    if (old_score == data["score"]
+    if (
+        old_score == data["score"]
         and old_mu == data["rating_mu"]
         and old_sigma == data["rating_sigma"]
         and old_count == data["comparison_count"]
-        and old_history == data["comparison_history"]):
+        and old_history == data["comparison_history"]
+    ):
         return True
 
     try:

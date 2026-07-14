@@ -87,7 +87,9 @@ def parallel_for(
         with tqdm(total=n, desc=desc, unit=unit, leave=False, position=0) as pbar:
             try:
                 if batch_size > 0:
-                    batches = [items[i : i + batch_size] for i in range(0, n, batch_size)]
+                    batches = [
+                        items[i : i + batch_size] for i in range(0, n, batch_size)
+                    ]
                     futures_list: list[Future[list[R]]] = [
                         executor.submit(parallel_batch, fn, batch) for batch in batches
                     ]
@@ -99,7 +101,8 @@ def parallel_for(
                             on_progress()
                 else:
                     started: dict[Future[R], float] = {
-                        executor.submit(fn, *item): time.perf_counter() for item in items
+                        executor.submit(fn, *item): time.perf_counter()
+                        for item in items
                     }
                     recent: deque[float] = deque(maxlen=100)
                     for future in as_completed(started):
@@ -112,9 +115,7 @@ def parallel_for(
                             on_progress()
             except KeyboardInterrupt:
                 executor.shutdown(wait=False, cancel_futures=True)
-                logger.warning(
-                    "Interrupted after %d/%d %s", len(results), n, unit
-                )
+                logger.warning("Interrupted after %d/%d %s", len(results), n, unit)
     return results
 
 
@@ -174,7 +175,7 @@ def collect_single_file(
 
 
 def collect_valid_files(
-    files: list[tuple[str, str]],
+    files: Iterator[tuple[str, str]],
     processed_files: set[str],
     root: str,
     limit: int,
@@ -194,8 +195,8 @@ def collect_valid_files(
                 )
                 for file in files
             ]
-
-            with tqdm(total=len(files), desc="Collecting", unit=" files") as pbar:
+            # total=len(files)
+            with tqdm(desc="Collecting", unit=" files") as pbar:
                 for future in as_completed(futures):
                     result = future.result()
 

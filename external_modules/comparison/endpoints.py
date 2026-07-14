@@ -99,12 +99,15 @@ def _node_payload(filename: str, img_data: dict[str, Any]) -> dict[str, Any]:
 def get_ranking_config():
     _start = time.perf_counter()
     ranking_conf = config["ranking"]
+    all_images = get_all_images()
+    seed_percentage = int(ranking_conf["seed_percentage"])
+    seed_size = max(1, len(all_images) * seed_percentage // 100)
     result = jsonify(
         {
             "reserve_count": int(ranking_conf["reserve_count"]),
             "parallel_requests": bool(ranking_conf["parallel_requests"]),
             "timeout_ms": int(ranking_conf["timeout_ms"]),
-            "seed_size": int(ranking_conf["seed_size"]),
+            "seed_size": seed_size,
             "seed_target_comparisons": int(ranking_conf["seed_target_comparisons"]),
             "insertion_target_comparisons": int(
                 ranking_conf["insertion_target_comparisons"]

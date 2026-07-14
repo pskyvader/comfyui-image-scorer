@@ -8,7 +8,7 @@
     "reserve_count": 30,
     "parallel_requests": false,
     "timeout_ms": 30000,
-    "seed_size": 1000,
+    "seed_percentage": 5,
     "seed_target_comparisons": 10,
     "insertion_target_comparisons": 3,
     "score_steepness": 1.5

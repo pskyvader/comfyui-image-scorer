@@ -30,7 +30,8 @@ _skip_before: int = 0
 def _stable_seed_pool(
     images: list[dict[str, Any]],
 ) -> list[str]:
-    seed_size = int(config["ranking"]["seed_size"])
+    seed_percentage = int(config["ranking"]["seed_percentage"])
+    seed_size = max(1, len(images) * seed_percentage // 100)
     by_comps = sorted(
         images, key=lambda img: int(img["comparison_count"]), reverse=True
     )

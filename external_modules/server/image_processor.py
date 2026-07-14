@@ -395,8 +395,10 @@ class ImageProcessor:
         ranked_root = get_ranked_root()
         deduplicate_scored(root=ranked_root)
         cleanup_orphans(root=ranked_root)
+        clear_all_comparisons()
+        clear_all_images()
 
-        dir_file_pairs = list(discover_files(str(ranked_root)))
+        dir_file_pairs = discover_files(str(ranked_root))
 
         prepare_conf = config["prepare"]
         all_entries = collect_valid_files(
@@ -407,9 +409,6 @@ class ImageProcessor:
             max_workers=int(prepare_conf["max_workers"]),
             scored_only=False,
         )
-
-        clear_all_comparisons()
-        clear_all_images()
 
         for img_path, entry, _timestamp, _file_id in all_entries:
             cleaned = self.clean_json_metadata(

@@ -10,6 +10,10 @@ import pytest
 from tqdm import tqdm
 from comfyui_image_scorer.shared.graph.crystal_graph import CrystalGraph
 from comfyui_image_scorer.shared.graph.chain_manager import ChainManager
+from comfyui_image_scorer.external_modules.database_structure.comparisons_table import (
+    get_images_with_only_wins,
+    get_images_with_only_losses,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +168,33 @@ def test_uncompared_nodes_are_isolated_top_bottom() -> None:
     assert ["isolated_1"] in chains
     assert ["isolated_2"] in chains
     assert ["a", "b"] in chains
+
+
+def test_top_bottom_match_database_exactly() -> None:
+    """Test that computed tops/bottoms exactly match DB: tops only have wins, bottoms only have losses."""
+    logger.debug("Starting test_top_bottom_match_database_exactly...")
+
+    cg = CrystalGraph()
+    cg.rebuild_from_database()
+    cm = cg._chain
+
+    # Use DB functions for only-wins / only-losses
+    db_tops = set(get_images_with_only_wins())
+    db_bottoms = set(get_images_with_only_losses())
+
+    # Compare with ChainManager's computed sets
+    cm_tops = set(cm.get_top_nodes())
+    cm_bottoms = set(cm.get_bottom_nodes())
+    logger.info(f"DB tops: {len(db_tops)}, CM tops: {len(cm_tops)}")
+    logger.info(f"DB bottoms: {len(db_bottoms)}, CM bottoms: {len(cm_bottoms)}")
+
+    assert cm_tops == db_tops, (
+        f"Top nodes mismatch! "
+        f"DB: {len(db_tops)} tops, CM: {len(cm_tops)} tops. "
+        f"Missing from CM: {db_tops - cm_tops}, Extra in CM: {cm_tops - db_tops}"
+    )
+    assert cm_bottoms == db_bottoms, (
+        f"Bottom nodes mismatch! "
+        f"DB: {len(db_bottoms)} bottoms, CM: {len(cm_bottoms)} bottoms. "
+        f"Missing from CM: {db_bottoms - cm_bottoms}, Extra in CM: {cm_bottoms - db_bottoms}"
+    )
