@@ -33,15 +33,18 @@ def test_get_value_from_entry_prefers_alias_then_name() -> None:
 
 
 def test_int_and_float_vectors_parse_and_clamp() -> None:
-    entries = [{"score": 12, "ratio": 1.5}, {"score": 0, "ratio": 3.5}]
+    entries = {
+        "a": {"score": 12, "ratio": 1.5},
+        "b": {"score": 0, "ratio": 3.5},
+    }
 
     int_vector = number_vector.IntVector("score", 10)
-    assert int_vector.parse_value_list(entries) == [12, 0]
-    assert int_vector.create_vector_list() == [[10], [0]]
+    assert int_vector.parse_value_list(entries, None) == {"a": 12, "b": 0}
+    assert int_vector.create_vector_list() == {"a": [10], "b": [0]}
 
     float_vector = number_vector.FloatVector("ratio", 2.0)
-    assert float_vector.parse_value_list(entries) == [1.5, 3.5]
-    assert float_vector.create_vector_list() == [[1.5], [2.0]]
+    assert float_vector.parse_value_list(entries, None) == {"a": 1.5, "b": 3.5}
+    assert float_vector.create_vector_list() == {"a": [1.5], "b": [2.0]}
 
 
 class _FakeMaps:
@@ -66,15 +69,24 @@ def test_map_vector_parse_and_create(monkeypatch) -> None:
     monkeypatch.setattr(
         map_vector,
         "config",
-        {"vector": {"vectors": [{"name": "color", "slot_size": 1}]}},
+        {"vector": {"vectors": [{"name": "color", "slot_size": 3}]}},
     )
 
     vector = map_vector.MapVector("color")
-    entries = [{"color": "red"}, {"custom_text": {"color": "blue"}}]
+    entries = {
+        "a": {"color": "red"},
+        "b": {"custom_text": {"color": "blue"}},
+    }
 
-    assert vector.parse_value_list(entries, add_new_values=True) == ["red", "blue"]
+    assert vector.parse_value_list(entries, True, None) == {
+        "a": {"red": 1.0},
+        "b": {"blue": 1.0},
+    }
     assert fake_maps.mapping["color"] == ["unknown", "red", "blue"]
-    assert vector.create_vector_list() == [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    assert vector.create_vector_list() == {
+        "a": [0.0, 1.0, 0.0],
+        "b": [0.0, 0.0, 1.0],
+    }
 
 
 class _FakeEmbeddingModel:
@@ -97,18 +109,24 @@ def test_embedding_vector_parse_and_encode(monkeypatch) -> None:
         lambda: (fake_model, 3),
     )
 
-    vector = embedding_vector.EmbeddingVector("prompt")
-    entries = [{"prompt": "one"}, {"custom_text": {"prompt": "two"}}]
+    vector = embedding_vector.EmbeddingVector("prompt", 3)
+    entries = {
+        "a": {"prompt": "one"},
+        "b": {"custom_text": {"prompt": "two"}},
+    }
 
-    assert vector.parse_value_list(entries, alias=["prompt"]) == ["one", "two"]
+    assert vector.parse_value_list(entries, ["prompt"]) == {
+        "a": "one",
+        "b": "two",
+    }
     assert vector.create_vector_batch(["alpha", "beta"]) == [
         [0.4472135901451111, 0.8944271802902222, 0.0],
         [0.5547001957893372, 0.8320503234863281, 0.0],
     ]
-    assert vector.create_vector_list(batch_size=1) == [
-        [0.4472135901451111, 0.8944271802902222, 0.0],
-        [0.4472135901451111, 0.8944271802902222, 0.0],
-    ]
+    assert vector.create_vector_list(1) == {
+        "a": [0.4472135901451111, 0.8944271802902222, 0.0],
+        "b": [0.4472135901451111, 0.8944271802902222, 0.0],
+    }
     assert fake_model.calls == [["alpha", "beta"], ["one"], ["two"]]
     assert vector.create_text_batch(["x", "y"]) == ["x", "y"]
-    assert vector.create_text_list(batch_size=1) == ["one", "two"]
+    assert vector.create_text_list(1) == ["one", "two"]

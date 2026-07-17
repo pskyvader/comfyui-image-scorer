@@ -40,6 +40,8 @@ from ...shared.paths import (
 )
 from ...shared.helpers import remove_models, remove_vectors
 from ...shared.analysis.image_analysis import ImageAnalysis
+from ...shared.vectors.helpers import get_value_from_entry
+from ...shared.loaders.maps_loader import maps_list
 from .data.processing import check_for_leakage
 from ..comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
@@ -55,6 +57,31 @@ from ...shared.logger import (
 )
 
 logger = get_logger(__name__)
+
+
+def _register_map_values(processed_data: list) -> None:
+    """Register map categories while processing the text/metadata stage.
+
+    Runs over the freshly processed entries (the "text part"), not during
+    vector building, so every categorical value (sampler, scheduler, model,
+    lora, analysis, age, gender, race) is added to ``maps_list`` before any
+    vector is created. Idempotent: already-known categories are skipped.
+    """
+    map_configs = [
+        v for v in config["vector"]["vectors"] if v["type"] in ("map", "person_map")
+    ]
+    if not map_configs:
+        return
+    for _path, entry, _cat, _extra in processed_data:
+        if not isinstance(entry, dict):
+            continue
+        for v in map_configs:
+            name = v["name"]
+            alias = v.get("alias")
+            value = get_value_from_entry(entry, name, alias)
+            if value is None:
+                continue
+            maps_list.register_value(name, value)
 
 
 def build_comparison_rows(
@@ -160,6 +187,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     logger.info("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
     processed_data = image_analysis.analyze_images_from_paths(batch_size, max_workers)
+    _register_map_values(processed_data)
     logger.info(f"processed data:{len(processed_data)}. Creating vector list object...")
     # print(f"processed data {processed_data}")
     vectors_list_parser = VectorList(

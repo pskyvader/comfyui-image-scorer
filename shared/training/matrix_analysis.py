@@ -97,13 +97,22 @@ class MatrixAnalyzer:
         """
         params: list[str] = []
 
-        # Handle lora + lora_weight special case: group them together
+        # Handle lora (weighted map) — group name + strength together.
         lora_value = record.get("lora", None)
-        lora_weight = record.get("lora_weight", 0)
-
-        if lora_value is not None and lora_value != "":
-            lora_norm, _ = self.get_text_weight(str(lora_value))
-            # Round lora_weight to 2 decimals
+        if isinstance(lora_value, dict):
+            for lname, lweight in lora_value.items():
+                if not lname:
+                    continue
+                lora_norm, _ = self.get_text_weight(str(lname))
+                lora_weight_rounded = round(
+                    float(lweight) if isinstance(lweight, (int, float)) else 0, 2
+                )
+                param_str = f"lora:{lora_norm}_{lora_weight_rounded}".strip()
+                if param_str:
+                    params.append(param_str)
+        elif isinstance(lora_value, str) and lora_value:
+            lora_weight = record.get("lora_weight", 0)
+            lora_norm, _ = self.get_text_weight(lora_value)
             lora_weight_rounded = round(
                 float(lora_weight) if isinstance(lora_weight, (int, float)) else 0, 2
             )

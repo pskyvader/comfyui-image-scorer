@@ -12,7 +12,10 @@ ROOT = Path(__file__).resolve().parents[4]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from shared.analysis.mediapipe_analysis import MediaPipeAnalyzer
+from shared.analysis.mediapipe_analysis import (
+    MediaPipeAnalyzer,
+    POSE_LANDMARK_NAMES,
+)
 
 
 @pytest.fixture
@@ -34,39 +37,31 @@ def noise_image() -> Image.Image:
 def test_analyzer_initializes(analyzer: MediaPipeAnalyzer) -> None:
     assert analyzer._face_detector is None
     assert analyzer._pose_landmarker is None
-    assert analyzer._hand_landmarker is None
 
 
 def test_analyze_returns_all_keys(analyzer: MediaPipeAnalyzer, blank_image: Image.Image) -> None:
     result = analyzer.analyze(blank_image)
-    expected_keys = {"face_bbox", "body_pose", "left_hand", "right_hand"}
+    expected_keys = {"bbox"} | set(POSE_LANDMARK_NAMES)
     assert result.keys() == expected_keys
 
 
 def test_face_bbox_format(analyzer: MediaPipeAnalyzer, blank_image: Image.Image) -> None:
     result = analyzer.analyze(blank_image)
-    for face in result["face_bbox"]:
-        assert len(face) == 5
-        x, y, w, h, conf = face
-        assert 0.0 <= x <= 1.0
-        assert 0.0 <= y <= 1.0
-        assert 0.0 <= w <= 1.0
-        assert 0.0 <= h <= 1.0
-        assert 0.0 <= conf <= 1.0
+    for face in result["bbox"]:
+        assert set(face.keys()) == {"x", "y", "width", "height", "confidence"}
+        assert 0.0 <= face["x"] <= 1.0
+        assert 0.0 <= face["y"] <= 1.0
+        assert 0.0 <= face["width"] <= 1.0
+        assert 0.0 <= face["height"] <= 1.0
+        assert 0.0 <= face["confidence"] <= 1.0
 
 
 def test_body_pose_landmark_count(analyzer: MediaPipeAnalyzer, noise_image: Image.Image) -> None:
     result = analyzer.analyze(noise_image)
-    for person in result["body_pose"]:
-        assert len(person) == 132
-
-
-def test_hand_landmark_count(analyzer: MediaPipeAnalyzer, blank_image: Image.Image) -> None:
-    result = analyzer.analyze(blank_image)
-    for hand in result["left_hand"]:
-        assert len(hand) == 63
-    for hand in result["right_hand"]:
-        assert len(hand) == 63
+    for name in POSE_LANDMARK_NAMES:
+        assert name in result
+        for person in result[name]:
+            assert set(person.keys()) == {"x", "y", "z", "visibility"}
 
 
 def test_lazy_loading_creates_models(analyzer: MediaPipeAnalyzer, blank_image: Image.Image) -> None:
@@ -77,4 +72,3 @@ def test_lazy_loading_creates_models(analyzer: MediaPipeAnalyzer, blank_image: I
         pass
     assert analyzer._face_detector is not None
     assert analyzer._pose_landmarker is not None
-    assert analyzer._hand_landmarker is not None

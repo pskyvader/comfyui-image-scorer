@@ -49,7 +49,7 @@ class BatchSizer:
         if self._ready:
             return
 
-        data, _ = load_json(vectors_size_file, expect=dict, default={})
+        data, _ = load_json(vectors_size_file, expect=dict)
         profiles_data = (
             data["profiles"] if isinstance(data, dict) and "profiles" in data else []
         )
@@ -105,7 +105,7 @@ class BatchSizer:
 
         return result
 
-    def get(self, width: int, height: int, rebuild: bool = False) -> int:
+    def get(self, width: int, height: int, rebuild: bool) -> int:
         _start = time.perf_counter()
         self._ensure_session_profiled()
         profile = self._active
@@ -122,7 +122,7 @@ class BatchSizer:
         return result
 
     def _profile_new_resolution(
-        self, width: int, height: int, rebuild: bool = False
+        self, width: int, height: int, rebuild: bool
     ) -> int:
         _start = time.perf_counter()
         profile = self._active
@@ -315,7 +315,7 @@ class BatchSizer:
 
             return
 
-        data, _ = load_json(vectors_size_file, expect=dict, default={})
+        data, _ = load_json(vectors_size_file, expect=dict)
         if not isinstance(data, dict):
             data = {}
         if "profiles" not in data:

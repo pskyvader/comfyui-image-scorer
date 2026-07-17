@@ -12,10 +12,13 @@ from .image_vector import ImageVector
 from .map_vector import MapVector
 from .number_vector import IntVector, FloatVector
 from .embedding_vector import EmbeddingVector
-from .struct_vector import StructVector
+from .position_vector import PositionVector
+from .keypoint_vector import KeypointVector
+from .person_map_vector import PersonMapVector
 
 from ..paths import split_dir, scores_file
 from ..io import load_single_jsonl, write_single_jsonl
+from ..loaders.maps_loader import maps_list
 from ...external_modules.comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     Rating,
@@ -35,7 +38,9 @@ class VectorList:
     _FLOAT = "float"
     _MAP = "map"
     _EMBEDDING = "embedding"
-    _STRUCT = "struct"
+    _POSITION = "position"
+    _KEYPOINT = "keypoint"
+    _PERSON_MAP = "person_map"
 
     def __init__(
         self,
@@ -46,7 +51,7 @@ class VectorList:
         # text_list: list[dict[str, Any]],
         # add_new: bool,
         # merge_lists: bool = False,
-        read_only: bool = False,
+        read_only: bool,
         # process_images: bool = True,
     ) -> None:
 
@@ -97,7 +102,7 @@ class VectorList:
                 self.scores[file_id] = score
                 self.image_paths[file_id] = image_path
         if len(duplicated) > 0:
-            logger.warning(
+            logger.debug(
                 f"Found {len(duplicated)} duplicated file_ids in raw_data entries. Sample duplicates: {duplicated[:5]}"
             )
         self.final_vector: list[list[float]] = []
@@ -116,12 +121,18 @@ class VectorList:
             elif v_type == self._FLOAT:
                 vec = FloatVector(name, current_type["max_normalization"])
             elif v_type == self._EMBEDDING:
-                vec = EmbeddingVector(name)
+                slot_size = current_type["slot_size"]
+                vec = EmbeddingVector(name, slot_size=slot_size)
             elif v_type == self._IMAGE:
                 model_key = current_type["model_key"]
-                vec = ImageVector(name, model_key=model_key)
-            elif v_type == self._STRUCT:
-                vec = StructVector(name)
+                slot_size = current_type["slot_size"]
+                vec = ImageVector(name, model_key=model_key, slot_size=slot_size)
+            elif v_type == self._POSITION:
+                vec = PositionVector(name)
+            elif v_type == self._KEYPOINT:
+                vec = KeypointVector(name)
+            elif v_type == self._PERSON_MAP:
+                vec = PersonMapVector(name)
             else:
                 raise ValueError(f"Unknown vector type: {v_type}")
 
@@ -158,10 +169,12 @@ class VectorList:
         # split by data type
         for v in self.sorted_vectors:
             c = self.sorted_vectors[v]
-            alias = c.get("alias", None)
+            alias = c["alias"]
             # print(f"Vector config for {v}: {c}")
             if c["type"] == self._MAP:
                 map_vector: MapVector = c["vector"]
+                # Category registration into the map is done during the text
+                # (metadata) stage, not here; create_vectors only maps values.
                 new_entries = self._exclude_present_entry(map_vector)
                 map_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
                 map_vector.create_vector_list()
@@ -200,32 +213,42 @@ class VectorList:
                     # print(f"processing images with size: {result}...")
                     result = image_vector.create_vector_list_from_paths(
                         new_image_paths,
+                        0.85,
                         rebuild_width=result[0],
                         rebuild_height=result[1],
                     )
                 self.sorted_vectors[v]["vector"] = image_vector
-            elif c["type"] == self._STRUCT:
-                struct_vector: StructVector = c["vector"]
-                new_entries = self._exclude_present_entry(struct_vector)
-                struct_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
-                struct_vector.create_vector_list()
-                self.sorted_vectors[v]["vector"] = struct_vector
+            elif c["type"] == self._POSITION:
+                position_vector: PositionVector = c["vector"]
+                new_entries = self._exclude_present_entry(position_vector)
+                position_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
+                position_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = position_vector
+            elif c["type"] == self._KEYPOINT:
+                keypoint_vector: KeypointVector = c["vector"]
+                new_entries = self._exclude_present_entry(keypoint_vector)
+                keypoint_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
+                keypoint_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = keypoint_vector
+            elif c["type"] == self._PERSON_MAP:
+                person_map_vector: PersonMapVector = c["vector"]
+                new_entries = self._exclude_present_entry(person_map_vector)
+                person_map_vector.parse_value_list(
+                    new_entries, self.add_new_to_map, alias
+                )
+                person_map_vector.create_vector_list()
+                self.sorted_vectors[v]["vector"] = person_map_vector
 
     def validate_and_convert(
         self, data: list[list[float]], name: str, target_size: int
     ) -> npt.NDArray[np.float32]:
-        try:
-            return np.array(data, dtype=np.float32)
-        except ValueError:
-            arr_safe = np.array(data, dtype=object)
-            lengths = np.vectorize(len)(arr_safe)
-            bad_indices = np.where(lengths != target_size)[0]
+        arr = np.array(data, dtype=np.float32)
+        if arr.shape[1] != target_size:
             raise ValueError(
-                f"Error in '{name}': Row lengths are inconsistent.\n"
-                f"Expected: {target_size}\n"
-                f"First 5 Mismatched Indices: {bad_indices[:5]}\n"
-                f"Actual lengths at those indices: {lengths[bad_indices[:5]]}"
+                f"Error in '{name}': Row length {arr.shape[1]} "
+                f"does not match configured slot_size {target_size}"
             )
+        return arr
 
     def filter_missing_vectors(self) -> None:
         logger.debug("filtering missing scores...")
@@ -334,7 +357,14 @@ class VectorList:
                 c = self.sorted_vectors[v]
                 current_vector = c["vector"]
                 valid_texts: dict[str, str] = {}
-                if c["type"] in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
+                if c["type"] in [
+                    self._MAP,
+                    self._INT,
+                    self._FLOAT,
+                    self._POSITION,
+                    self._KEYPOINT,
+                    self._PERSON_MAP,
+                ]:
                     current_list: dict[str, str] = current_vector.value_list
                 elif c["type"] == self._EMBEDDING:
                     current_list: dict[str, str] = current_vector.text_list
@@ -368,9 +398,20 @@ class VectorList:
         comparison_rows: list[dict[str, Any]] = []
 
         for row in get_all_comparisons():
-            filename_a = str(row.get("filename_a", ""))
-            filename_b = str(row.get("filename_b", ""))
-            winner = str(row.get("winner", ""))
+            filename_a = row.get("filename_a")
+            filename_b = row.get("filename_b")
+            winner = row.get("winner")
+            if filename_a is None or filename_b is None or winner is None:
+                logger.warning(
+                    f"Skipping comparison row {row.get('id')}: missing required "
+                    f"filename_a/filename_b/winner (got a={filename_a!r}, "
+                    f"b={filename_b!r}, winner={winner!r})"
+                )
+                continue
+
+            filename_a = str(filename_a)
+            filename_b = str(filename_b)
+            winner = str(winner)
 
             if (
                 filename_a not in index_lookup
@@ -473,6 +514,12 @@ class VectorList:
                         self.unique_ids.append(obj["id"])
                         raw_vals[obj["id"]] = obj["raw"]
                         vec_vals[obj["id"]] = obj["vector"]
+                        # Re-register categories from the stored raw value so the
+                        # map vocabulary stays complete even when split files
+                        # already covered these entries (the text stage may not
+                        # have registered them on a prior run).
+                        if v_type in (self._MAP, self._PERSON_MAP):
+                            maps_list.register_value(name, obj["raw"])
                     else:
                         invalid.append(obj)
 
@@ -481,7 +528,14 @@ class VectorList:
 
                 current_vector.vector_list = vec_vals
 
-                if v_type in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
+                if v_type in [
+                    self._MAP,
+                    self._INT,
+                    self._FLOAT,
+                    self._POSITION,
+                    self._KEYPOINT,
+                    self._PERSON_MAP,
+                ]:
                     current_vector.value_list = raw_vals
                 elif v_type == self._EMBEDDING:
                     current_vector.text_list = raw_vals
@@ -544,7 +598,14 @@ class VectorList:
                 current_vector = c["vector"]
                 raw_values: dict[str, Any] = {}
 
-                if v_type in [self._MAP, self._INT, self._FLOAT, self._STRUCT]:
+                if v_type in [
+                    self._MAP,
+                    self._INT,
+                    self._FLOAT,
+                    self._POSITION,
+                    self._KEYPOINT,
+                    self._PERSON_MAP,
+                ]:
                     raw_values = current_vector.value_list
                 elif v_type == self._EMBEDDING:
                     raw_values = current_vector.text_list

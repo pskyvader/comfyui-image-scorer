@@ -33,9 +33,10 @@ imageTuple = tuple[str, Image.Image]
 
 
 class ImageVector:
-    def __init__(self, name: str, model_key: str) -> None:
+    def __init__(self, name: str, model_key: str, slot_size: int) -> None:
         self.name = name
         self.model_key = model_key
+        self.slot_size = slot_size
         self.image_list: dict[str, Image.Image] = {}
         self.path_list: dict[str, str] = {}
         self.vector_list: vectorDict = {}
@@ -46,10 +47,7 @@ class ImageVector:
         self.model_input_size: sizeTuple | None = None
         self.batch_sizer = BatchSizer(model_key=model_key)
 
-        try:
-            self.vector_sizes, _ = load_json(vectors_size_file, expect=dict, default={})
-        except:
-            self.vector_sizes = {}
+        self.vector_sizes, _ = load_json(vectors_size_file, expect=dict)
 
         # only use dedicated memory
         torch.cuda.set_per_process_memory_fraction(0.99, 0)
@@ -97,18 +95,8 @@ class ImageVector:
 
         # Start handling different input types
         if isinstance(image, str):
-            try:
-                img = Image.open(image).convert("RGB")
-                return [img]
-            except Exception as e:
-                logger.warning(f"Warning: (retrying) Failed to load image {image}: {e}")
-                try:
-                    with Image.open(image) as temp_img:
-                        size = temp_img.size
-                except Exception as e:
-                    logger.error(f"Failed to load image {image}: {e}")
-                    raise
-                return [Image.new("RGB", size, (0, 0, 0))]
+            img = Image.open(image).convert("RGB")
+            return [img]
         if isinstance(image, Image.Image):
             return [image.convert("RGB")]
         if isinstance(image, torch.Tensor):
@@ -146,11 +134,18 @@ class ImageVector:
         with torch.no_grad():
             outputs = model(batch_tensor)
 
-        # Validate output shape
+        # Validate output shape against the model's own output dim and the
+        # configured slot_size. A mismatch means the config is out of sync with
+        # the model and must be fixed explicitly rather than silently padded.
         _, vector_length = outputs.shape
         if vector_length != self.vector_length:
             raise RuntimeError(
                 f"Unexpected vector length {vector_length} != {self.vector_length}"
+            )
+        if vector_length != self.slot_size:
+            raise RuntimeError(
+                f"Model output length {vector_length} for '{self.name}' "
+                f"does not match configured slot_size {self.slot_size}"
             )
 
         processed = outputs.detach().cpu().float().numpy()
@@ -173,19 +168,16 @@ class ImageVector:
             # until it's too late to catch it in this loop.
             torch.cuda.synchronize(device)
 
-    def get_batch_size(self, width: int, height: int, rebuild: bool = False) -> int:
+    def get_batch_size(self, width: int, height: int, rebuild: bool) -> int:
         result = self.batch_sizer.get(width, height, rebuild)
         return result
 
     def create_vector_list(
         self,
         entries: dict[str, Image.Image],
-        memory_usage: float = 0.85,
-        rebuild: bool = False,
-        model_key: str | None = None,
+        memory_usage: float,
+        rebuild: bool,
     ) -> vectorDict | None:
-        if model_key is not None:
-            self.model_key = model_key
         if not entries:
             result: vectorDict = {}
             return result
@@ -217,9 +209,9 @@ class ImageVector:
     def create_vector_list_from_paths(
         self,
         entries: dict[str, str],
-        memory_usage: float = 0.85,
-        rebuild_width: int = -1,
-        rebuild_height: int = -1,
+        memory_usage: float,
+        rebuild_width: int,
+        rebuild_height: int,
     ) -> vectorDict | sizeTuple:
         """
         Exact-size bucketing with controlled RAM and VRAM usage.
@@ -347,9 +339,12 @@ class ImageVector:
                             zip(batch_indices, current_image_batch)
                         )
 
-                        batch_vecs: vectorDict = {}
+                        # Encode batch. The batch sizer deliberately pushes the
+                        # GPU toward its memory limit to discover the max batch
+                        # size, so a CUDA OOM here is expected: emit a warning,
+                        # free VRAM, and return the failing size so the caller
+                        # retries with the rebuilt (smaller) profile.
                         try:
-                            # Encode batch
                             batch_vecs = self.create_image_vector_batch(current_batch)
                         except Exception as e:
                             torch.cuda.empty_cache()
@@ -362,12 +357,7 @@ class ImageVector:
                             del current_batch
                             del batch_vecs
                             del vectors
-                            # time.sleep(1)
                             return (width, height)
-
-                            # return self.create_vector_list_from_paths(
-                            #     memory_usage, width, height
-                            # )
 
                         # Store vectors in original order
                         vectors.update(batch_vecs)

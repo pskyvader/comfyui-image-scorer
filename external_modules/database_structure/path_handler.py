@@ -215,7 +215,7 @@ def sync_image_metadata_to_json(
     else:
         if not json_path.exists():
             return False
-        data, err = load_json(str(json_path), expect=dict, default=None)
+        data, err = load_json(str(json_path), expect=dict)
         if err is not None or data is None:
             return False
 

@@ -18,7 +18,7 @@ def l2_normalize_batch(vectors: npt.NDArray[np.float32]) -> npt.NDArray[np.float
 
 
 def get_value_from_entry(
-    entry: dict[str, Any], name: str, alias: list[str] | None = None
+    entry: dict[str, Any], name: str, alias: list[str] | None
 ) -> Any:
     _start = time.perf_counter()
     custom_text: dict[str, Any] = {}

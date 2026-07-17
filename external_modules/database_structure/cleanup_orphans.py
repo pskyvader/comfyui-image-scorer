@@ -25,7 +25,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from shared.paths import image_root_processed  # noqa: E402
 import time
 
-from ...shared.logger import get_logger, ModuleLogger
+from ...shared.logger import (
+    get_logger,
+    ModuleLogger,
+    configure_package_logging,
+)
 logger: ModuleLogger = get_logger(__name__)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -204,11 +208,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    configure_package_logging(level=getattr(logging, args.log_level))
 
     count = cleanup_orphans(
         root=Path(args.root) if args.root else None,

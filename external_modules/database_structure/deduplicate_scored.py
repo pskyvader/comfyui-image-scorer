@@ -28,7 +28,11 @@ from ...shared.io import (
     parallel_for,
 )  # noqa: E402
 import time
-from ...shared.logger import get_logger, ModuleLogger
+from ...shared.logger import (
+    get_logger,
+    ModuleLogger,
+    configure_package_logging,
+)
 from ...shared.config import config
 
 logger: ModuleLogger = get_logger(__name__)
@@ -93,7 +97,7 @@ def deduplicate_scored(
     def _scan_worker(
         image_path: str, json_path: str
     ) -> tuple[str, Path, Path, JsonDict] | None:
-        data, err = load_json(json_path, expect=dict, default=None)
+        data, err = load_json(json_path, expect=dict)
         if err is not None or data is None:
             return None
         img = Path(image_path)
@@ -295,11 +299,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    configure_package_logging(level=getattr(logging, args.log_level))
 
     count = deduplicate_scored(
         root=Path(args.root) if args.root else None,

@@ -200,13 +200,13 @@ class AestheticScoreNode:
         for entry in (v for v in vector_config if v["type"] == "image"):
             name = entry["name"]
             model_key = entry["model_key"]
-            image_vector = ImageVector(name, model_key=model_key)
+            image_vector = ImageVector(name, model_key=model_key, slot_size=entry["slot_size"])
             # image_vector.image_list = images_list
             images_dict = {str(i): image for i, image in enumerate(images_list)}
             rebuild = False
             retry = True
             while retry:
-                result = image_vector.create_vector_list(images_dict, rebuild)
+                result = image_vector.create_vector_list(images_dict, 0.85, rebuild)
                 if result is None:
                     rebuild = True
                     retry = True

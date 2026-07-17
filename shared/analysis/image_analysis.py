@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 from skimage.feature import local_binary_pattern
 
-from .mediapipe_analysis import MediaPipeAnalyzer
+from .mediapipe_analysis import MediaPipeAnalyzer, POSE_LANDMARK_NAMES
 from .attribute_analysis import FaceAttributeAnalyzer, NSFWAnalyzer
 from ..config import config
 from ..io import atomic_write_json
@@ -30,6 +30,16 @@ REQUIRED_ANALYSIS_FIELDS: set[str] = {
     "final_height",
     "final_aspect_ratio",
     "original_aspect_ratio",
+    "analysis",
+    "bbox",
+    *POSE_LANDMARK_NAMES,
+    "age",
+    "gender",
+    "race",
+    "nsfw_score",
+}
+
+METRIC_KEYS: list[str] = [
     "contrast",
     "sharpness",
     "noise_score",
@@ -37,13 +47,7 @@ REQUIRED_ANALYSIS_FIELDS: set[str] = {
     "artifact_score",
     "edge_density",
     "texture_lbp",
-    "face_bbox",
-    "body_pose",
-    "left_hand",
-    "right_hand",
-    "face_logits",
-    "nsfw_score",
-}
+]
 
 
 def process_single_batch(
@@ -69,7 +73,8 @@ class ImageAnalysis(ImageVector):
         if not image_entries:
             raise KeyError("No image-type entries found in vector_config")
         model_key = image_entries[0]["model_key"]
-        super().__init__("tmp_image", model_key=model_key)
+        slot_size = image_entries[0]["slot_size"]
+        super().__init__("tmp_image", model_key=model_key, slot_size=slot_size)
         self.raw_data: list[ImageEntry] = raw_data
         self.processed_data: list[ImageEntry] = []
         self._mediapipe = MediaPipeAnalyzer()
@@ -251,18 +256,22 @@ class ImageAnalysis(ImageVector):
         return entry
 
     def _mediapipe_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
-        mp_fields = {"face_bbox", "body_pose", "left_hand", "right_hand"}
+        mp_fields = {"bbox"} | set(POSE_LANDMARK_NAMES)
         if mp_fields.issubset(entry.keys()):
             return entry
         result = self._mediapipe.analyze(img)
         entry.update(result)
         return entry
 
-    def _attribute_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
-        if "face_logits" in entry:
+    def _assemble_analysis_map(self, entry: dict[str, Any]) -> dict[str, Any]:
+        if "analysis" in entry:
             return entry
-        result = self._face_attr.predict(img)
-        entry["face_logits"] = result
+        analysis: dict[str, float] = {}
+        for key in METRIC_KEYS:
+            if key in entry:
+                analysis[key] = entry[key]
+                del entry[key]
+        entry["analysis"] = analysis
         return entry
 
     def _nsfw_analysis(self, img: Image.Image, entry: dict[str, Any]) -> dict[str, Any]:
@@ -272,7 +281,7 @@ class ImageAnalysis(ImageVector):
         return entry
 
     def _run_face_pass(self, entries: list[ImageEntry]) -> list[ImageEntry]:
-        indices = [i for i, (_, e, _, _) in enumerate(entries) if "face_logits" not in e]
+        indices = [i for i, (_, e, _, _) in enumerate(entries) if "age" not in e]
         if not indices:
             return entries
         paths = [entries[i][0] for i in indices]
@@ -280,7 +289,9 @@ class ImageAnalysis(ImageVector):
         results = self._face_attr.predict_batch(imgs)
         for idx, r in zip(indices, results):
             path, entry, cat, extra = entries[idx]
-            entry["face_logits"] = r
+            entry["age"] = r["age"]
+            entry["gender"] = r["gender"]
+            entry["race"] = r["race"]
             entries[idx] = (path, entry, cat, extra)
             self._save_entry_sidecar(entries[idx])
         return entries
@@ -318,9 +329,36 @@ class ImageAnalysis(ImageVector):
             entry = self._edge_density(img, entry)
             entry = self._texture_lbp(img, entry)
             entry = self._mediapipe_analysis(img, entry)
+            entry = self._assemble_analysis_map(entry)
             data_batch[i] = (path, entry, cat, extra)
 
         return data_batch
+
+    @staticmethod
+    def _normalize_lora(entry: dict[str, Any]) -> dict[str, Any]:
+        """Fold the legacy scalar ``lora_weight`` into the ``lora`` map.
+
+        The ``lora`` field is normalized to a weighted dict ``{name: weight}``
+        so the sidecar is human-readable and the map vector can carry strengths.
+        """
+        lora = entry.get("lora")
+        weight = entry.get("lora_weight")
+        if isinstance(lora, dict):
+            pass
+        elif isinstance(lora, list):
+            lora = {str(name): 1.0 for name in lora if name}
+        elif isinstance(lora, str) and lora:
+            try:
+                w = float(weight) if weight is not None else 1.0
+            except (TypeError, ValueError):
+                w = 1.0
+            lora = {lora: w}
+        else:
+            lora = entry.get("lora")
+        if lora is not None:
+            entry["lora"] = lora
+        entry.pop("lora_weight", None)
+        return entry
 
     def analyze_images_from_paths(
         self, batch_size: int, max_workers: int
@@ -329,6 +367,11 @@ class ImageAnalysis(ImageVector):
         new_path: list[str] = []
         new_raw: list[ImageEntry] = []
         result: list[ImageEntry] = []
+
+        for raw in self.raw_data:
+            path, entry, cat, extra = raw
+            self._normalize_lora(entry)
+            raw = (path, entry, cat, extra)
 
         for id, path in self.path_list.items():
             current_raw: ImageEntry = next((d for d in self.raw_data if d[3] == id))
@@ -366,7 +409,7 @@ class ImageAnalysis(ImageVector):
                         result.extend(res)
                         pbar.update(len(res))
 
-            attr_batch_size = max(self.get_batch_size(224, 224), 4)
+            attr_batch_size = max(self.get_batch_size(224, 224, False), 4)
 
             logger.info("Running face attribute analysis...")
             _face_start = time.perf_counter()

@@ -30,7 +30,7 @@ def _load_raw_config(path: PathLike) -> ConfigDict:
     config_file: Path = _get_config_file(path)
     if not config_file.exists():
         return {}
-    data, err = load_json(str(config_file), expect=dict, default=None)
+    data, err = load_json(str(config_file), expect=dict)
     if err:
         return {}
     return data or {}

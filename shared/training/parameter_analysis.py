@@ -86,7 +86,16 @@ class ParameterAnalyzer:
             # Adjust these keys based on your actual vector format
             steps = vector.get("generation_params", {}).get("steps", 0)
             cfg = vector.get("generation_params", {}).get("cfg_scale", 0)
-            lora_w = vector.get("generation_params", {}).get("lora_weight", 0)
+            lora_val = vector.get("lora")
+            if isinstance(lora_val, dict):
+                lora_weights = [
+                    float(w) for w in lora_val.values() if isinstance(w, (int, float))
+                ]
+                lora_w = max(lora_weights) if lora_weights else 0.0
+            else:
+                lora_w = vector.get("lora_weight", 0) or vector.get(
+                    "generation_params", {}
+                ).get("lora_weight", 0)
             sampler = vector.get("generation_params", {}).get("sampler_name", "unknown")
             scheduler = vector.get("generation_params", {}).get("scheduler", "unknown")
             model = vector.get("generation_params", {}).get("model", "unknown")

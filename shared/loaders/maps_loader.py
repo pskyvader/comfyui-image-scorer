@@ -1,8 +1,46 @@
-from typing import cast
+from typing import Any, cast
 import os
 import json
 
 from ..paths import maps_dir
+from ..logger import get_logger
+
+logger = get_logger(__name__)
+
+
+# Fixed category vocabularies for per-person / combined maps.
+# Order MUST match the model output index order used by attribute_analysis.py
+# (FairFace age bins) and the metric names emitted by image_analysis.py.
+AGE_CATEGORIES = [
+    "0-2",
+    "10-19",
+    "20-29",
+    "3-9",
+    "30-39",
+    "40-49",
+    "50-59",
+    "60-69",
+    "more than 70",
+]
+GENDER_CATEGORIES = ["Female", "Male"]
+RACE_CATEGORIES = [
+    "Black",
+    "East Asian",
+    "Indian",
+    "Latino_Hispanic",
+    "Middle Eastern",
+    "Southeast Asian",
+    "White",
+]
+ANALYSIS_CATEGORIES = [
+    "contrast",
+    "sharpness",
+    "noise_score",
+    "colorfulness",
+    "artifact_score",
+    "edge_density",
+    "texture_lbp",
+]
 
 
 class MapsLoader:
@@ -12,7 +50,50 @@ class MapsLoader:
             "scheduler": [],
             "model": [],
             "lora": [],
+            "age": list(AGE_CATEGORIES),
+            "gender": list(GENDER_CATEGORIES),
+            "race": list(RACE_CATEGORIES),
+            "analysis": list(ANALYSIS_CATEGORIES),
         }
+
+        # Ensure fixed-category map files exist on disk (seeded once).
+        for seeded in ("age", "gender", "race", "analysis"):
+            file_name = os.path.join(maps_dir, f"{seeded}_map.json")
+            if not os.path.exists(file_name):
+                self._save_single_map(seeded)
+
+    def get_all_categories(self, name: str) -> list[str]:
+        if name not in self.mapping:
+            logger.warning(f"Map '{name}' has no registered categories; returning empty list")
+            return []
+        return list(self.mapping[name])
+
+    def register_value(self, name: str, value: Any) -> None:
+        """Idempotently ensure ``value`` (and its sub-keys for dict/list values)
+        is present in the map. Unlike :meth:`add_value`, this is safe to call
+        repeatedly for the same value: already-present categories are skipped.
+
+        Used while processing text/metadata (and when re-reading split files)
+        so the category vocabulary is kept in sync with the data without
+        producing duplicates.
+        """
+        if name not in self.mapping:
+            return
+        if value is None:
+            return
+        if isinstance(value, dict):
+            for key in value.keys():
+                self.register_value(name, key)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                self.register_value(name, item)
+            return
+        key = (str(value) or "").strip()
+        if key == "" or key == "unknown":
+            return
+        if key not in self.mapping[name]:
+            self.add_value(name, key)
 
     def add_value(self, name: str, value: str) -> tuple[int, int]:
         """return index of the new added value to the current map

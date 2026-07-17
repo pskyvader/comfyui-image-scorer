@@ -773,48 +773,38 @@ class PlotManager:
             d = outer[next(iter(outer))]
             s = float(scores[i])
 
-            fl = d.get("face_logits")
-            if fl and len(fl) >= 18:
-                row = {}
-                for j, lbl in enumerate(AGE_LABELS):
-                    row[f"age_{j}_{lbl}"] = fl[j]
-                for j, lbl in enumerate(GENDER_LABELS):
-                    row[f"gender_{j}_{lbl}"] = fl[9 + j]
-                for j, lbl in enumerate(RACE_LABELS):
-                    row[f"race_{j}_{lbl}"] = fl[11 + j]
-                age_sm = softmax(fl[:9])
-                gender_sm = softmax(fl[9:11])
-                race_sm = softmax(fl[11:18])
-                for j, lbl in enumerate(AGE_LABELS):
-                    row[f"age_sm_{j}_{lbl}"] = age_sm[j]
-                for j, lbl in enumerate(GENDER_LABELS):
-                    row[f"gender_sm_{j}_{lbl}"] = gender_sm[j]
-                for j, lbl in enumerate(RACE_LABELS):
-                    row[f"race_sm_{j}_{lbl}"] = race_sm[j]
-                row["score"] = s
+            age_list = d.get("age") or []
+            gender_list = d.get("gender") or []
+            race_list = d.get("race") or []
+            if age_list and gender_list and race_list:
+                age0 = age_list[0]
+                gender0 = gender_list[0]
+                race0 = race_list[0]
+                row = {"score": s}
+                for lbl in AGE_LABELS:
+                    row[f"age_{lbl}"] = float(age0.get(lbl, 0.0))
+                for lbl in GENDER_LABELS:
+                    row[f"gender_{lbl}"] = float(gender0.get(lbl, 0.0))
+                for lbl in RACE_LABELS:
+                    row[f"race_{lbl}"] = float(race0.get(lbl, 0.0))
                 face_logit_rows.append(row)
 
-            bbox = d.get("face_bbox")
-            if bbox and len(bbox) > 0:
+            bbox = d.get("bbox") or []
+            if bbox:
                 b = bbox[0]
                 bbox_rows.append({
-                    "x": b[0], "y": b[1], "w": b[2], "h": b[3],
-                    "conf": b[4] if len(b) > 4 else 1.0,
+                    "x": b.get("x", 0.0),
+                    "y": b.get("y", 0.0),
+                    "w": b.get("width", 0.0),
+                    "h": b.get("height", 0.0),
+                    "conf": b.get("confidence", 1.0),
                     "score": s,
                 })
 
-            if d.get("body_pose"):
+            if d.get("nose"):
                 pose_score.append(s)
             else:
                 no_pose_score.append(s)
-            if d.get("left_hand"):
-                lh_score.append(s)
-            else:
-                no_lh_score.append(s)
-            if d.get("right_hand"):
-                rh_score.append(s)
-            else:
-                no_rh_score.append(s)
 
         df_face = pd.DataFrame(face_logit_rows)
         df_bbox = pd.DataFrame(bbox_rows)

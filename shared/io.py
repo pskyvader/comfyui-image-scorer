@@ -149,7 +149,7 @@ def collect_single_file(
     if file_id in processed_files or img_path in processed_files:
         result = None
     else:
-        entry, err = load_json(meta_path, expect=dict, default=None)
+        entry, err = load_json(meta_path, expect=dict)
         if err == "not_found" or entry is None:
             result = None
         elif err:
@@ -217,9 +217,6 @@ def collect_valid_files(
     return collected_data
 
 
-T = TypeVar("T")
-
-
 def _recursive_parse_json(obj: Any, path: str | None) -> Any:
     _start = time.perf_counter()
     result: Any
@@ -251,20 +248,19 @@ def _recursive_parse_json(obj: Any, path: str | None) -> Any:
 def load_json(
     path: str,
     expect: type | tuple[type, ...] | None,
-    default: T | None,
-) -> tuple[T | Any, str | None]:
+) -> tuple[Any, str | None]:
     _start = time.perf_counter()
-    result: tuple[T | Any, str | None]
+    result: tuple[Any, str | None]
     if not path:
-        result = (default, "missing_path")
+        result = (None, "missing_path")
     elif not Path(path).exists():
-        result = (default, "not_found")
+        result = (None, "not_found")
     else:
         with Path(path).open("r", encoding="utf-8") as fh:
             data = json.load(fh)
             data = _recursive_parse_json(data, path)
         if expect is not None and not isinstance(data, expect):
-            result = (default, "invalid_type")
+            result = (None, "invalid_type")
         else:
             result = (data, None)
 
@@ -289,7 +285,7 @@ def load_single_entry_mapping(
     path: str,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     _start = time.perf_counter()
-    data, err = load_json(path, expect=dict, default=None)
+    data, err = load_json(path, expect=dict)
     result: tuple[dict[str, Any] | None, str | None, str | None]
     if err:
         result = (None, None, err)

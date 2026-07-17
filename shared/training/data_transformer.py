@@ -409,116 +409,28 @@ class DataTransformer:
         return X_final
 
 
-def _label_face_slot(pos_in_unit: int) -> str:
-    """Map a position within a face_logits unit to a human-readable label."""
-    AGE_LABELS = [
-        "0-2",
-        "3-9",
-        "10-19",
-        "20-29",
-        "30-39",
-        "40-49",
-        "50-59",
-        "60-69",
-        "70+",
-    ]
-    GENDER_LABELS = ["Female", "Male"]
-    RACE_LABELS = [
-        "Black",
-        "East Asian",
-        "Indian",
-        "Latino_Hispanic",
-        "Middle Eastern",
-        "SE Asian",
-        "White",
-    ]
-    if pos_in_unit < 9:
-        return f"age_{AGE_LABELS[pos_in_unit]}"
-    elif pos_in_unit < 11:
-        return f"gender_{GENDER_LABELS[pos_in_unit - 9]}"
-    elif pos_in_unit < 18:
-        return f"race_{RACE_LABELS[pos_in_unit - 11]}"
-    return f"slot_{pos_in_unit}"
-
-
-def _label_bbox_slot(pos_in_unit: int) -> str:
+def _label_position_slot(pos_in_unit: int) -> str:
     return (
-        ["x", "y", "w", "h", "conf"][pos_in_unit]
+        ["x", "y", "width", "height", "confidence"][pos_in_unit]
         if pos_in_unit < 5
         else f"slot_{pos_in_unit}"
     )
 
 
-def _label_pose_slot(pos_in_unit: int) -> str:
-    POSE_NAMES = {
-        0: "nose",
-        1: "left_eye_inner",
-        2: "left_eye",
-        3: "left_eye_outer",
-        4: "right_eye_inner",
-        5: "right_eye",
-        6: "right_eye_outer",
-        7: "left_ear",
-        8: "right_ear",
-        9: "mouth_left",
-        10: "mouth_right",
-        11: "left_shoulder",
-        12: "right_shoulder",
-        13: "left_elbow",
-        14: "right_elbow",
-        15: "left_wrist",
-        16: "right_wrist",
-        17: "left_pinky",
-        18: "right_pinky",
-        19: "left_index",
-        20: "right_index",
-        21: "left_thumb",
-        22: "right_thumb",
-        23: "left_hip",
-        24: "right_hip",
-        25: "left_knee",
-        26: "right_knee",
-        27: "left_ankle",
-        28: "right_ankle",
-        29: "left_heel",
-        30: "right_heel",
-        31: "left_foot_index",
-        32: "right_foot_index",
-    }
-    lm_idx = pos_in_unit // 4
-    coord = ["x", "y", "z", "vis"][pos_in_unit % 4]
-    name = POSE_NAMES.get(lm_idx, f"lm{lm_idx}")
-    return f"{name}_{coord}"
+def _label_keypoint_slot(vec_name: str, pos_in_unit: int) -> str:
+    coord = (
+        ["x", "y", "z", "visibility"][pos_in_unit]
+        if pos_in_unit < 4
+        else f"slot_{pos_in_unit}"
+    )
+    return f"{vec_name}_{coord}"
 
 
-def _label_hand_slot(pos_in_unit: int) -> str:
-    NAMES = [
-        "wrist",
-        "thumb_cmc",
-        "thumb_mcp",
-        "thumb_ip",
-        "thumb_tip",
-        "index_mcp",
-        "index_pip",
-        "index_dip",
-        "index_tip",
-        "middle_mcp",
-        "middle_pip",
-        "middle_dip",
-        "middle_tip",
-        "ring_mcp",
-        "ring_pip",
-        "ring_dip",
-        "ring_tip",
-        "pinky_mcp",
-        "pinky_pip",
-        "pinky_dip",
-        "pinky_tip",
-    ]
-    lm_idx = pos_in_unit // 3
-    coord = ["x", "y", "z"][pos_in_unit % 3]
-    name = NAMES[lm_idx] if lm_idx < len(NAMES) else f"lm{lm_idx}"
-    return f"{name}_{coord}"
+def _label_person_map_slot(vec_name: str, pos_in_unit: int) -> str:
+    labels = _load_map_slots(vec_name)
+    if labels and pos_in_unit < len(labels):
+        return labels[pos_in_unit]
+    return f"slot_{pos_in_unit}"
 
 
 def _load_map_slots(vec_name: str) -> list[str] | None:
@@ -544,23 +456,21 @@ def _print_vector_summary(
     per_unit_size: int | None,
     start_idx: int = 0,
 ) -> None:
-    """Print one vector line (or expanded lines for known struct / map vectors)."""
+    """Print one vector line (or expanded lines for known multi-slot / map vectors)."""
     kept_count = len(kept_in_vec)
     pct = 100.0 * kept_count / total_in_vec if total_in_vec else 0
 
     if per_unit_size and per_unit_size > 1:
-        # Known struct vector — break down by sub-feature
+        # Multi-slot vector (position / keypoint / person_map) broken down per unit
         n_units = slot_size // per_unit_size
         local_kept = [i - start_idx for i in kept_in_vec]
         unit_labels_fn = None
-        if vec_name == "face_logits":
-            unit_labels_fn = lambda upos: _label_face_slot(upos)
-        elif vec_name == "face_bbox":
-            unit_labels_fn = lambda upos: _label_bbox_slot(upos)
-        elif vec_name == "body_pose":
-            unit_labels_fn = lambda upos: _label_pose_slot(upos)
-        elif vec_name in ("left_hand", "right_hand"):
-            unit_labels_fn = lambda upos: _label_hand_slot(upos)
+        if vec_name == "bbox":
+            unit_labels_fn = lambda upos: _label_position_slot(upos)
+        elif vec_type == "keypoint":
+            unit_labels_fn = lambda upos: _label_keypoint_slot(vec_name, upos)
+        elif vec_type == "person_map":
+            unit_labels_fn = lambda upos: _label_person_map_slot(vec_name, upos)
 
         print(f"  {vec_name}  ({kept_count}/{total_in_vec} = {pct:.1f}%)")
         if unit_labels_fn:
@@ -601,8 +511,8 @@ def _print_vector_summary(
 def list_filtered_features() -> None:
     """
     Loads the cached filtered features and prints a compact summary of which
-    features survived the gain-based pruning. Known struct vectors (face,
-    pose, hand) are broken down by named sub-feature.
+    features survived the gain-based pruning. Multi-slot vectors (position,
+    keypoint, person_map) are broken down by named sub-feature.
     """
     cached = training_loader.load_filtered_data()
     if cached is None:

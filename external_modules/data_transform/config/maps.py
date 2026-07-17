@@ -30,7 +30,7 @@ def load_map(name: str, path: str | None = None) -> list[str]:
 
         return result
 
-    data, _ = load_json(map_path, expect=list, default=["unknown"])
+    data, _ = load_json(map_path, expect=list)
     result = data if data else ["unknown"]
 
     return result

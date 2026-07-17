@@ -15,8 +15,9 @@ logger = get_logger(__name__)
 
 
 class EmbeddingVector:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, slot_size: int) -> None:
         self.name = name
+        self.slot_size = slot_size
         self.value_list: dict[str, str] = {}
         self.vector_list: dict[str, list[float]] = {}
         self.text_list: dict[str, str] = {}
@@ -48,13 +49,18 @@ class EmbeddingVector:
                 "CLIP returned unexpected vector length "
                 f"{processed.shape[-1]}, expected {vector_length}"
             )
+        if vector_length != self.slot_size:
+            raise RuntimeError(
+                f"Embedding model output length {vector_length} for '{self.name}' "
+                f"does not match configured slot_size {self.slot_size}"
+            )
         normalized: npt.NDArray[np.float32] = l2_normalize_batch(processed)
         normalized_list = normalized.tolist()
         result: dict[str, list[float]] = dict(zip(batch_id, normalized_list))
 
         return result
 
-    def create_vector_list(self, batch_size: int = 4) -> dict[str, list[float]]:
+    def create_vector_list(self, batch_size: int) -> dict[str, list[float]]:
         total = len(self.value_list.items())
         if total == 0:
             result: dict[str, list[float]] = {}
@@ -83,7 +89,7 @@ class EmbeddingVector:
         result: dict[str, str] = dict(zip(batch_id, batch_values))
         return result
 
-    def create_text_list(self, batch_size: int = 4) -> dict[str, str]:
+    def create_text_list(self, batch_size: int) -> dict[str, str]:
         total = len(self.value_list.items())
         if total == 0:
             result: dict[str, str] = {}
