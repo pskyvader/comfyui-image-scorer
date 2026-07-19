@@ -295,7 +295,7 @@ class ModelTrainer:
             return None
 
         try:
-            target_scores = training_loader.load_scores()
+            target_scores = training_loader.load_scores_array()
         except Exception as exc:
             logger.warning("Skipping score calibration: failed to load scores: %s", exc)
             return None

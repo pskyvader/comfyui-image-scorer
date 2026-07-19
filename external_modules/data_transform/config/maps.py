@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import json
 import os
 import time
 
-from shared.io import load_json
+from shared.io import load_json, atomic_write_json
 from shared.logger import get_logger
 from shared.paths import maps_dir
 from shared.config import ensure_dir
+from shared.vectors.helpers import get_value_from_entry
+from shared.config import config
 
 logger = get_logger(__name__)
 
@@ -24,8 +25,7 @@ def load_map(name: str, path: str | None = None) -> list[str]:
     ensure_dir(maps_dir)
     map_path = map_dir_path(name, path)
     if not os.path.exists(map_path):
-        with open(map_path, "w", encoding="utf-8") as file_handle:
-            json.dump(["unknown"], file_handle, indent=4)
+        atomic_write_json(map_path, ["unknown"], indent=4)
         result = ["unknown"]
 
         return result
@@ -40,8 +40,7 @@ def save_map(name: str, data: list[str], path: str | None = None) -> None:
     _start = time.perf_counter()
     ensure_dir(maps_dir)
     map_path = map_dir_path(name, path)
-    with open(map_path, "w", encoding="utf-8") as file_handle:
-        json.dump(data, file_handle, indent=4)
+    atomic_write_json(map_path, data, indent=4)
 
 
 # Not used anywhere in the project right now. Keep the implementation commented
@@ -68,3 +67,30 @@ def save_map(name: str, data: list[str], path: str | None = None) -> None:
 #         save_map(name, items, path=path)
 #         return len(items) - 1, items, "added"
 #     return 0, items, "overflow"
+
+
+def register_map_values(processed_data: list) -> None:
+    """Register map categories while processing the text/metadata stage.
+
+    Runs over the freshly processed entries (the "text part"), not during
+    vector building, so every categorical value (sampler, scheduler, model,
+    lora, analysis, age, gender, race) is added to ``maps_list`` before any
+    vector is created. Idempotent: already-known categories are skipped.
+    """
+    from shared.loaders.maps_loader import maps_list
+
+    map_configs = [
+        v for v in config["vector"]["vectors"] if v["type"] in ("map", "person_map")
+    ]
+    if not map_configs:
+        return
+    for _path, entry, _cat, _extra in processed_data:
+        if not isinstance(entry, dict):
+            continue
+        for v in map_configs:
+            name = v["name"]
+            alias = v.get("alias")
+            value = get_value_from_entry(entry, name, alias)
+            if value is None:
+                continue
+            maps_list.register_value(name, value)

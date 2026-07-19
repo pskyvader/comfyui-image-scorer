@@ -11,6 +11,10 @@ from sklearn.preprocessing import PolynomialFeatures
 from ..config import config
 from ..loaders.training_loader import training_loader
 from .model_trainer import model_trainer
+from ...external_modules.comparison.algorithm.trueskill_rating import (
+    public_score_from_rating,
+    replay_ratings,
+)
 
 from ..logger import get_logger
 
@@ -66,62 +70,74 @@ class DataTransformer:
         self.vector_ranges = feature_mapping["vector_ranges"]
 
     def get_raw_data(self) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-        raw_data_cached = training_loader.load_raw_data()
-        if raw_data_cached:
-            return raw_data_cached
-        scores = training_loader.load_scores()
         vectors = training_loader.load_vectors()
-        raw_data = training_loader.save_raw_data(vectors, scores)
-        return raw_data
+        scores = training_loader.load_scores()
+        order = list(scores.keys())
+        x = np.array([vectors[fid] for fid in order], dtype=np.float32)
+        y = np.array([scores[fid] for fid in order], dtype=np.float32)
+        return x, y
 
     def filter_low_comparisons(
-        self, x: npt.NDArray[np.float32], y: npt.NDArray[np.float32], threshold: int = 0
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-        comparison_data_cached = training_loader.load_comparison_data()
-        if comparison_data_cached:
-            return comparison_data_cached
+        self,
+        threshold: int = 0,
+    ) -> dict[str, tuple[float, int]]:
+        """Return the kept subset as filename -> (score, count).
 
-        comparisons_dict: dict[str, list[dict[str, str]]] = (
-            training_loader.load_comparison_counts()
-        )
-        x_list: list[list[float]] = x.tolist()
-        y_list: list[float] = y.tolist()
+        Filenames with at least ``threshold`` comparisons are kept, then the
+        TrueSkill ratings are replayed using only comparisons between kept
+        filenames so the surviving scores are self-consistent for that subset.
+        The result is cached in comparison_rule.npz keyed by threshold.
+        """
+        rule_cached = training_loader.load_comparison_rule(threshold)
+        if rule_cached is not None:
+            return rule_cached
 
-        if len(x_list) != len(y_list) != len(comparisons_dict.items()):
-            raise ValueError(
-                f" vectors or score list size mismatch with index: x:{len(x_list)}, y:{len(y_list)}, index:{len(comparisons_dict.items())}"
-            )
+        rows = training_loader.load_comparison_rows()
 
-        x_new: list[list[float]] = []
-        y_new: list[float] = []
-        for i, (_index, records) in enumerate(comparisons_dict.items()):
-            if len(records) >= threshold:
-                x_new.append(x_list[i])
-                y_new.append(y_list[i])
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[row["filename_a"]] = counts.get(row["filename_a"], 0) + 1
+            counts[row["filename_b"]] = counts.get(row["filename_b"], 0) + 1
+        kept_filenames = {fid for fid, count in counts.items() if count >= threshold}
 
-        x_vector: npt.NDArray[np.float32] = np.array(x_new, dtype=float)
-        y_vector: npt.NDArray[np.float32] = np.array(y_new, dtype=float)
+        subset_rows = [
+            row
+            for row in rows
+            if row["filename_a"] in kept_filenames
+            and row["filename_b"] in kept_filenames
+        ]
+        replayed = replay_ratings(subset_rows)
+        rule = {
+            fid: (public_score_from_rating(rating), count)
+            for fid, (rating, count) in replayed.items()
+        }
 
-        comparison_data = training_loader.save_comparison_data(x=x_vector, y=y_vector)
-
-        return comparison_data
+        training_loader.save_comparison_rule(threshold, rule)
+        return rule
 
     def filter_unused_features(
         self,
-        x: npt.NDArray[np.float32],
-        y: npt.NDArray[np.float32],
+        vectors_keyed: dict[str, npt.NDArray[np.float32]],
+        scores_keyed: dict[str, float],
         steps: int,
         verbose: bool = True,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
+    ) -> npt.NDArray[np.intp]:
         """
-        Trains a fast LightGBM model to identify and remove features with zero importance
-        and low cumulative gain. Returns the filtered X dataset and the indices of kept features.
-        Handles its own caching via 'filtered_data_cache.npz'.
+        Trains a fast LightGBM model on the keyed vectors/scores to identify and
+        remove features with zero importance and low cumulative gain. Returns
+        only the kept column indices (the feature mask). Caches the mask as
+        feature_rule.npz. No sorting or alignment is performed here; the keyed
+        inputs are already consistent.
         """
 
-        filtered_data_cached = training_loader.load_filtered_data()
-        if filtered_data_cached:
-            return filtered_data_cached
+        rule_cached = training_loader.load_feature_rule()
+        if rule_cached is not None:
+            return rule_cached
+
+        # Build (x, y) from the keyed inputs without imposing any ordering.
+        order = list(scores_keyed.keys())
+        x = np.array([vectors_keyed[fid] for fid in order], dtype=np.float32)
+        y = np.array([scores_keyed[fid] for fid in order], dtype=np.float32)
 
         user_verbosity = int(config["training"]["verbosity"])
 
@@ -190,17 +206,11 @@ class DataTransformer:
 
         kept_indices = sorted_indices[keep_mask]
 
-        # Apply mask to X
-        X_filtered = x[:, kept_indices]
+        # Cache only the mask (kept column indices); the caller applies it.
+        training_loader.save_feature_rule(kept_indices)
+        logger.debug("Saved feature rule to cache")
 
-        n_dropped = x.shape[1] - X_filtered.shape[1]
-        logger.debug(f"Dropped {n_dropped} features. New shape: {X_filtered.shape}")
-
-        # Cache filtered data
-        filtered_data = training_loader.save_filtered_data(X_filtered, kept_indices)
-        logger.debug("Saved filtered data to cache")
-
-        return filtered_data
+        return kept_indices
 
     def calculate_interaction_batch(
         self,
@@ -369,15 +379,14 @@ class DataTransformer:
         self, vecs: list[npt.NDArray[np.float32]]
     ) -> list[npt.NDArray[np.float32]]:
         """
-        Applies the feature filter (kept_indices) from filtered_data_cache.npz to the input vector.
-        model_bin_dir: directory containing filtered_data_cache.npz
+        Applies the feature filter (kept_indices) from feature_rule.npz to the input vector.
         """
 
-        filtered_data_cached = training_loader.load_filtered_data()
-        if not filtered_data_cached:
-            raise FileNotFoundError("Training data not found, must generate first")
+        rule = training_loader.load_feature_rule()
+        if rule is None:
+            raise FileNotFoundError("Feature rule not found, must generate first")
 
-        _, kept_indices = filtered_data_cached
+        kept_indices = rule
         results: list[npt.NDArray[np.float32]] = []
         for vec in vecs:
             filtered_vector = vec[kept_indices]
@@ -514,14 +523,14 @@ def list_filtered_features() -> None:
     features survived the gain-based pruning. Multi-slot vectors (position,
     keypoint, person_map) are broken down by named sub-feature.
     """
-    cached = training_loader.load_filtered_data()
+    cached = training_loader.load_feature_rule()
     if cached is None:
         print(
-            "No filtered data cache found. Run data_transformer.filter_unused_features() first."
+            "No feature rule cache found. Run data_transformer.filter_unused_features() first."
         )
         return
 
-    _, kept_indices = cached
+    kept_indices = cached
     mapping = get_feature_mapping_from_config()
     total = mapping["total_features"]
     kept_set = set(kept_indices.tolist())

@@ -221,13 +221,17 @@ class VectorList:
             elif c["type"] == self._POSITION:
                 position_vector: PositionVector = c["vector"]
                 new_entries = self._exclude_present_entry(position_vector)
-                position_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
+                position_vector.parse_value_list(
+                    new_entries, self.add_new_to_map, alias
+                )
                 position_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = position_vector
             elif c["type"] == self._KEYPOINT:
                 keypoint_vector: KeypointVector = c["vector"]
                 new_entries = self._exclude_present_entry(keypoint_vector)
-                keypoint_vector.parse_value_list(new_entries, self.add_new_to_map, alias)
+                keypoint_vector.parse_value_list(
+                    new_entries, self.add_new_to_map, alias
+                )
                 keypoint_vector.create_vector_list()
                 self.sorted_vectors[v]["vector"] = keypoint_vector
             elif c["type"] == self._PERSON_MAP:
@@ -466,10 +470,14 @@ class VectorList:
 
     def update_lists(self) -> None:
         logger.info("updating vector lists...")
-        self.vectors_list = self.final_vector
+        # Use the filename as the object key (matching text_data.jsonl style)
+        # so the merged vectors.jsonl / scores.jsonl are self-identifying and
+        # no longer require index.jsonl to reconstruct alignment. index.jsonl
+        # is still written for compatibility but is not used as the join key.
+        self.vectors_list = [{fid: vec} for fid, vec in zip(self.unique_ids, self.final_vector)]
         self.text_list = self.final_text_data
         self.index_list: list[str] = self.unique_ids
-        self.scores_list: list[float] = [self.scores[fid] for fid in self.index_list]
+        self.scores_list = [{fid: float(self.scores[fid])} for fid in self.index_list]
         self.comparisons_list = self.final_comparison_data
 
     def load_split_files(self) -> None:
@@ -561,7 +569,39 @@ class VectorList:
 
     def load_split_scores(self):
         scores_list = list(load_single_jsonl(scores_file))
-        if len(scores_list) == len(self.unique_ids):
+        if not scores_list:
+            logger.warning(
+                "Scores file is empty. Attempting to rebuild scores mapping from DB..."
+            )
+        elif all(isinstance(s, dict) and len(s) == 1 for s in scores_list):
+            # Filename-as-key format (matches text_data.jsonl): one key/value
+            # per record, keyed by filename. Aligns by filename id with no
+            # positional assumption and no dependency on index.jsonl.
+            self.scores = {str(fid): float(score) for s in scores_list for fid, score in s.items()}
+            missing = [fid for fid in self.unique_ids if fid not in self.scores]
+            if missing:
+                logger.warning(
+                    f"{len(missing)} IDs present in vectors but missing from scores; rebuilding those from DB..."
+                )
+                errors: list[str] = []
+                for fid in missing:
+                    row = get_image(fid)
+                    if row is not None:
+                        self.scores[fid] = public_score_from_rating(
+                            Rating(
+                                mu=float(row["rating_mu"]),
+                                sigma=float(row["rating_sigma"]),
+                            )
+                        )
+                    else:
+                        errors.append(fid)
+                        # logger.warning(f"No DB record for ID: {fid}")
+                logger.warning(
+                    f"Missing IDs with no DB record: {len(errors)}. Sample: {errors[:5]}"
+                )
+            return
+        elif len(scores_list) == len(self.unique_ids):
+            # Legacy positional format kept for backward compatibility.
             self.scores = {
                 fid: score for fid, score in zip(self.unique_ids, scores_list)
             }

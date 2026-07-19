@@ -218,6 +218,37 @@ def public_score_from_rating(rating: Rating) -> float:
     return expected_win_probability(rating, Rating(mu=INITIAL_MEAN, sigma=INITIAL_UNCERTAINTY))
 
 
+def replay_ratings(rows: list[dict]) -> dict[str, tuple[Rating, int]]:
+    """Replay comparisons in id order and return final ratings and counts.
+
+    Each row must provide filename_a, filename_b and winner. Rows are applied
+    in ascending comparison id so the result is independent of iteration order.
+    Weight, transitive depth and timestamps are ignored.
+
+    Returns a dict mapping filename -> (Rating, comparison_count).
+    """
+
+    ordered = sorted(rows, key=lambda r: int(r.get("id", 0) or 0))
+    ratings: dict[str, Rating] = {}
+    counts: dict[str, int] = {}
+
+    for row in ordered:
+        left = str(row["filename_a"])
+        right = str(row["filename_b"])
+        winner = str(row["winner"])
+        if winner not in (left, right):
+            continue
+        loser = right if winner == left else left
+
+        winner_rating = ratings.get(winner, Rating())
+        loser_rating = ratings.get(loser, Rating())
+        ratings[winner], ratings[loser] = update_ratings(winner_rating, loser_rating)
+        counts[winner] = counts.get(winner, 0) + 1
+        counts[loser] = counts.get(loser, 0) + 1
+
+    return {fid: (rating, counts.get(fid, 0)) for fid, rating in ratings.items()}
+
+
 def rating_from_row(row: dict) -> Rating:
     """Deserialise a Rating from a database row (dictionary).
 

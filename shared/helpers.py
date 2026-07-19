@@ -45,6 +45,21 @@ def remove_models() -> None:
     remove_directory(directory_path)
 
 
+def remove_derived_caches(*paths: str) -> None:
+    """Delete only the named derived cache files. Each file is removed
+    independently and missing files are skipped, so a prepare step can drop
+    exactly the caches whose source inputs changed -- without wiping the whole
+    models/ directory or touching caches that are still valid.
+    """
+    for p in paths:
+        try:
+            if Path(p).exists():
+                Path(p).unlink()
+                logger.debug(f"Removed stale cache: {p}")
+        except OSError as exc:
+            logger.warning(f"Failed to remove cache {p}: {exc}")
+
+
 def export_image_batch(pil_images: list[Image.Image]) -> Tensor:
     _start = time.perf_counter()
     if not pil_images:

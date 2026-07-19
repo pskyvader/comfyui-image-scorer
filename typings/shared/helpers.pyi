@@ -15,6 +15,9 @@ def remove_vectors() -> None:
 def remove_models() -> None:
     ...
 
+def remove_derived_caches(*paths: str) -> None:
+    ...
+
 def export_image_batch(pil_images: list[Image.Image]) -> Tensor:
     ...
 

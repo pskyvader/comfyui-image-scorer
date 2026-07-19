@@ -4,7 +4,8 @@ import os
 
 from pathlib import Path
 import time
-import random
+
+# import random
 from typing import Any, Iterator
 
 if __name__ == "__main__":
@@ -37,11 +38,67 @@ from ...shared.paths import (
     index_file,
     image_root,
     text_data_file,
+    vectors_data,
+    scores_data,
+    feature_rule,
+    comparison_rule,
+    training_model,
 )
-from ...shared.helpers import remove_models, remove_vectors
+from ...shared.helpers import remove_derived_caches
 from ...shared.analysis.image_analysis import ImageAnalysis
-from ...shared.vectors.helpers import get_value_from_entry
-from ...shared.loaders.maps_loader import maps_list
+from .config.maps import register_map_values
+
+
+def _current_scores_dict() -> dict[str, float]:
+    """Read the existing scores.jsonl on disk into a filename-keyed dict.
+
+    Returns empty dict if the file is missing, so a first-time rebuild always
+    reports a difference.
+    """
+    out: dict[str, float] = {}
+    for rec in load_single_jsonl(scores_file):
+        if isinstance(rec, dict) and len(rec) == 1:
+            fid, score = next(iter(rec.items()))
+            out[str(fid)] = float(score)
+    return out
+
+
+def _current_comparison_counts() -> dict[str, int]:
+    """Read the existing comparisons.jsonl and count rows per filename."""
+    out: dict[str, int] = {}
+    for rec in load_single_jsonl(comparisons_file):
+        for key in ("filename_a", "filename_b"):
+            fid = rec.get(key)
+            if fid:
+                out[fid] = out.get(fid, 0) + 1
+    return out
+
+
+def _comparison_counts_from_rows(rows: list[dict[str, str]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for rec in rows:
+        for key in ("filename_a", "filename_b"):
+            fid = rec.get(key)
+            if fid:
+                out[fid] = out.get(fid, 0) + 1
+    return out
+
+
+def _scores_changed(new_scores: dict[str, float]) -> bool:
+    old = _current_scores_dict()
+    if set(old) != set(new_scores):
+        return True
+    return any(old[k] != new_scores[k] for k in new_scores)
+
+
+def _comparisons_changed(new_rows: list[dict[str, str]]) -> bool:
+    new_counts = _comparison_counts_from_rows(new_rows)
+    old = _current_comparison_counts()
+    if set(old) != set(new_counts):
+        return True
+    return any(old.get(k, 0) != new_counts[k] for k in new_counts)
+
+
 from .data.processing import check_for_leakage
 from ..comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
@@ -51,37 +108,9 @@ from ..comparison.algorithm.comparison_recorder import get_all_comparisons
 from ..database_structure.images_table import get_image
 
 
-from ...shared.logger import (
-    configure_package_logging,
-    get_logger,
-)
+from ...shared.logger import configure_package_logging, get_logger, ModuleLogger
 
-logger = get_logger(__name__)
-
-
-def _register_map_values(processed_data: list) -> None:
-    """Register map categories while processing the text/metadata stage.
-
-    Runs over the freshly processed entries (the "text part"), not during
-    vector building, so every categorical value (sampler, scheduler, model,
-    lora, analysis, age, gender, race) is added to ``maps_list`` before any
-    vector is created. Idempotent: already-known categories are skipped.
-    """
-    map_configs = [
-        v for v in config["vector"]["vectors"] if v["type"] in ("map", "person_map")
-    ]
-    if not map_configs:
-        return
-    for _path, entry, _cat, _extra in processed_data:
-        if not isinstance(entry, dict):
-            continue
-        for v in map_configs:
-            name = v["name"]
-            alias = v.get("alias")
-            value = get_value_from_entry(entry, name, alias)
-            if value is None:
-                continue
-            maps_list.register_value(name, value)
+logger: ModuleLogger = get_logger(__name__)
 
 
 def build_comparison_rows(
@@ -155,14 +184,22 @@ def run_prepare(limit: int) -> dict[str, int]:
     batch_size = config["prepare"]["batch_size"]
     max_workers = config["prepare"]["max_workers"]
 
-    logger.info("loading index...")
-    index_list: Iterator[Any] = load_single_jsonl(index_file)
-
-    processed_files = {s.split("#", 1)[0] for s in index_list}
+    logger.info("loading already-scored files from scores file...")
+    # Use the scores file (keyed by filename, matching text_data.jsonl style)
+    # as the source of truth for which files are already processed, instead of
+    # index.jsonl. index.jsonl is still written for compatibility but is no
+    # longer the dedup source.
+    scores_records: Iterator[dict[str, float]] = load_single_jsonl(scores_file)
+    processed_files: set[str] = {
+        str(fid).split("#", 1)[0]
+        for rec in scores_records
+        if len(rec) == 1
+        for fid in rec.keys()
+    }
 
     logger.info(f"collecting files in {image_root}...")
-    files = list(discover_files(image_root))
-    random.shuffle(files)
+    files: Iterator[tuple[str, str]] = discover_files(image_root)
+    # random.shuffle(files)
     collected_data = collect_valid_files(
         files,
         processed_files,
@@ -187,7 +224,7 @@ def run_prepare(limit: int) -> dict[str, int]:
     logger.info("analyzing images ...")
     image_analysis = ImageAnalysis(collected_data)
     processed_data = image_analysis.analyze_images_from_paths(batch_size, max_workers)
-    _register_map_values(processed_data)
+    register_map_values(processed_data)
     logger.info(f"processed data:{len(processed_data)}. Creating vector list object...")
     # print(f"processed data {processed_data}")
     vectors_list_parser = VectorList(
@@ -208,7 +245,24 @@ def run_prepare(limit: int) -> dict[str, int]:
     new_index_list = vectors_list_parser.index_list
     new_scores_list = vectors_list_parser.scores_list
 
-    check_for_leakage(new_vectors_list, new_scores_list)
+    # Leakage check operates on the raw aligned arrays, not the keyed records.
+    # Both lists are already in the same (unique_ids) order, but to stay
+    # independent of index.jsonl we join by filename key.
+    vec_by_id = {fid: vec for v in new_vectors_list for fid, vec in v.items()}
+    score_by_id = {fid: score for s in new_scores_list for fid, score in s.items()}
+    aligned_ids = [
+        fid for fid in new_index_list if fid in vec_by_id and fid in score_by_id
+    ]
+    if len(aligned_ids) != len(new_index_list):
+        raise RuntimeError(
+            "check leakage: id sets for vectors and scores do not match index. "
+            f"vectors ids: {len(vec_by_id)}, scores ids: {len(score_by_id)}, "
+            f"index: {len(new_index_list)}"
+        )
+    check_for_leakage(
+        [vec_by_id[fid] for fid in aligned_ids],
+        [score_by_id[fid] for fid in aligned_ids],
+    )
     write_single_jsonl(index_file, new_index_list, mode="w")
     write_single_jsonl(vectors_file, new_vectors_list, mode="w")
     write_single_jsonl(text_data_file, new_text_list, mode="w")
@@ -237,7 +291,7 @@ def run_rebuild_scores_only() -> dict[str, int]:
         result = {"total": 0, "updated": 0, "missing": 0}
         return result
 
-    new_scores_list: list[float] = []
+    new_scores_list: list[dict[str, Any]] = []
     updated_count = 0
     missing_count = 0
 
@@ -245,18 +299,17 @@ def run_rebuild_scores_only() -> dict[str, int]:
         row = get_image(index_entry)
         if row is None:
             logger.warning("No DB record for: %s", index_entry)
-            new_scores_list.append(0.5)
+            new_scores_list.append({index_entry: 0.5})
             missing_count += 1
         else:
             mu = float(row["rating_mu"])
             sigma = float(row["rating_sigma"])
             score = public_score_from_rating(Rating(mu=mu, sigma=sigma))
-            new_scores_list.append(score)
+            new_scores_list.append({index_entry: score})
             updated_count += 1
 
     score_lookup = {
-        str(filename): float(score)
-        for filename, score in zip(index_list, new_scores_list, strict=False)
+        fid: float(score) for s in new_scores_list for fid, score in s.items()
     }
     comparison_rows = build_comparison_rows(index_list, score_lookup)
 
@@ -266,11 +319,38 @@ def run_rebuild_scores_only() -> dict[str, int]:
     summary = {
         "total": len(index_list),
         "updated": updated_count,
-        "missing": missing_count,
+        "missing": updated_count,
         "comparisons": len(comparison_rows),
     }
-    logger.info("Scores rebuilt. Cleaning trained models...")
-    remove_models()
+    # Only remove caches whose actual source content changed. Vectors are never
+    # touched here, so vectors_data is always kept.
+    new_scores = score_lookup
+    scores_differ = _scores_changed(new_scores)
+    comps_differ = _comparisons_changed(comparison_rows)
+
+    to_remove: list[str] = []
+    # scores_data, feature_rule and the trained model all depend on the score
+    # target, so they are stale only when scores changed.
+    if scores_differ:
+        to_remove += [scores_data, feature_rule, training_model]
+    # comparison_rule is built from comparisons intersected with scores, so it
+    # is stale if either the comparisons or the score key set changed.
+    if comps_differ or scores_differ:
+        to_remove += [comparison_rule]
+
+    if to_remove:
+        logger.info(
+            "Scores rebuilt. Removing only caches whose sources changed "
+            "(scores=%s, comparisons=%s)...",
+            scores_differ,
+            comps_differ,
+        )
+        remove_derived_caches(*to_remove)
+    else:
+        logger.info(
+            "Scores rebuilt. No change detected in scores or comparisons; "
+            "no caches removed."
+        )
 
     logger.info("=== DONE ===")
     logger.info(
@@ -282,13 +362,13 @@ def run_rebuild_scores_only() -> dict[str, int]:
 
 
 def main(
-    rebuild: bool,
+    # rebuild: bool,
     test_run: bool,
     limit: int,
     batch: bool,
     rebuild_scores: bool,
-    text_only: bool,
-    rebuild_missing: bool,
+    # text_only: bool,
+    # rebuild_missing: bool,
     debug: bool,
 ) -> None:
     configure_package_logging(10 if debug else 20)
@@ -320,13 +400,39 @@ def main(
             new = int(summary["new"])
             if new > 0:
                 i += 1
+        # Only remove derived caches when at least one step actually changed
+        # data. run_prepare rewrites all source jsonl only when new > 0, so a
+        # zero-change run leaves every cache valid.
         if i > 0:
-            remove_models()
+            logger.info(
+                "Prepare produced changes; removing all source-derived caches."
+            )
+            remove_derived_caches(
+                vectors_data,
+                scores_data,
+                feature_rule,
+                comparison_rule,
+                training_model,
+            )
     else:
         summary = run_prepare(limit=limit)
         new = int(summary["new"])
         if new > 0:
-            remove_models()
+            logger.info(
+                "Prepare produced changes; removing all source-derived caches."
+            )
+            remove_derived_caches(
+                vectors_data,
+                scores_data,
+                feature_rule,
+                comparison_rule,
+                training_model,
+            )
+        else:
+            logger.info(
+                "Prepare found no new images; no source files rewritten, no "
+                "caches removed."
+            )
 
 
 if __name__ == "__main__":
@@ -372,12 +478,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(
-        rebuild=args.rebuild,
+        # rebuild=args.rebuild,
         test_run=args.test_run,
         limit=args.limit,
         batch=args.batch,
         rebuild_scores=args.rebuild_scores,
-        text_only=args.text_only,
-        rebuild_missing=args.rebuild_missing,
+        # text_only=args.text_only,
+        # rebuild_missing=args.rebuild_missing,
         debug=args.debug,
     )

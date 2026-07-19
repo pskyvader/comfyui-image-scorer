@@ -220,7 +220,7 @@ def _phase2_anchor_insert(
         )
         return None, {}
 
-    pool.sort(key=lambda img: int(img["comparison_count"]))
+    pool.sort(key=lambda img: (int(img["comparison_count"]), float(img["score"])))
     source = pool[0]
     source_name = source["filename"]
     source_mu = float(source["rating_mu"])

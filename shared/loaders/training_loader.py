@@ -11,14 +11,16 @@ from ..io import load_single_jsonl
 from ..paths import (
     vectors_file,
     scores_file,
-    filtered_data,
     models_dir,
     interaction_data,
     training_model,
-    raw_data,
+    vectors_data,
+    scores_data,
+    comparisons_data,
+    feature_rule,
+    comparison_rule,
     index_file,
     comparisons_file,
-    comparison_data,
 )
 from ..helpers import remove_directory
 from ..logger import get_logger, ModuleLogger
@@ -29,162 +31,320 @@ logger: ModuleLogger = get_logger(__name__)
 class TrainingLoader:
     def __init__(self, use_cache: bool):
         self.training_model: Any | None = None
-        self.raw_data: (
-            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
-        ) = None
-        self.comparison_data: (
-            tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None
-        ) = None
-        self.filtered_data: (
-            tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None
-        ) = None
         self.interaction_data: (
             tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None
         ) = None
         self.vectors: npt.NDArray[np.float32] | None = None
         self.scores: npt.NDArray[np.float32] | None = None
-        self.comparisons: dict[str, list[dict[str, str]]] | None = None
+        self.vectors_keyed: dict[str, npt.NDArray[np.float32]] | None = None
+        self.scores_keyed: dict[str, float] | None = None
+        self.comparison_rows: list[dict[str, Any]] | None = None
+        self.feature_rule: npt.NDArray[np.intp] | None = None
+        self.comparison_rule: tuple[int, dict[str, tuple[float, int]]] | None = None
         self.use_cache = use_cache
 
     def _reset_models(self) -> None:
         self.vectors = None
         self.scores = None
+        self.vectors_keyed = None
+        self.scores_keyed = None
+        self.comparison_rows = None
         self.training_model = None
-        self.raw_data = None
-        self.comparison_data = None
-        self.filtered_data = None
+        self.feature_rule = None
+        self.comparison_rule = None
         self.interaction_data = None
 
     def remove_training_models(self) -> None:
         remove_directory(Path(models_dir))
         self._reset_models()
 
-    def load_vectors(self) -> npt.NDArray[np.float32]:
+    def load_vectors(self) -> dict[str, npt.NDArray[np.float32]]:
+        """Load vectors keyed by filename.
+
+        Three-tier resolution: in-memory cache -> vectors.npz ->
+        vectors.jsonl (then cached as vectors.npz). Raises if the jsonl source
+        is absent.
+        """
+        if self.use_cache and self.vectors_keyed is not None:
+            return self.vectors_keyed
+        cached = self._load_vectors_from_npz()
+        if cached is not None:
+            if self.use_cache:
+                self.vectors_keyed = cached
+            return cached
+        if not os.path.exists(vectors_file):
+            raise FileNotFoundError(
+                "Missing source jsonl file required to load vectors. "
+                f"Expected {vectors_file}. Run the prepare pipeline "
+                "(prepare_data) before training."
+            )
+        logger.info("loading vectors file...")
+        keyed = self._load_vectors_from_jsonl()
+        self._save_vectors_to_npz(keyed)
+        if self.use_cache:
+            self.vectors_keyed = keyed
+        return keyed
+
+    def load_vectors_array(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.vectors is not None:
             return self.vectors
-
-        logger.info("loading vectors file...")
-
-        vectors = list(load_single_jsonl(vectors_file))
-        x_vector: npt.NDArray[np.float32] = np.array(vectors, dtype=float)
+        keyed = self.load_vectors()
+        x_vector: npt.NDArray[np.float32] = np.array(
+            [keyed[fid] for fid in keyed], dtype=np.float32
+        )
         self.vectors = x_vector
         return self.vectors
 
-    def load_scores(self) -> npt.NDArray[np.float32]:
+    def _load_vectors_from_jsonl(self) -> dict[str, npt.NDArray[np.float32]]:
+        keyed: dict[str, npt.NDArray[np.float32]] = {}
+        for rec in load_single_jsonl(vectors_file):
+            if not isinstance(rec, dict) or len(rec) != 1:
+                continue
+            fid, vec = next(iter(rec.items()))
+            keyed[str(fid)] = np.asarray(vec, dtype=np.float32)
+        return keyed
+
+    def _load_vectors_from_npz(
+        self,
+    ) -> dict[str, npt.NDArray[np.float32]] | None:
+        if os.path.exists(vectors_data):
+            try:
+                data = np.load(vectors_data, allow_pickle=True)
+                if "x" in data and "keys" in data:
+                    keys = list(data["keys"])
+                    x_array = data["x"]
+                    return {
+                        str(keys[i]): x_array[i] for i in range(len(keys))
+                    }
+            except Exception:
+                pass
+        return None
+
+    def _save_vectors_to_npz(
+        self, keyed: dict[str, npt.NDArray[np.float32]]
+    ) -> None:
+        logger.debug("saving vectors cache...")
+        os.makedirs(models_dir, exist_ok=True)
+        order = list(keyed.keys())
+        x_array = np.array([keyed[fid] for fid in order], dtype=np.float32)
+        keys_array = np.array(order, dtype=object)
+        np.savez_compressed(vectors_data, x=x_array, keys=keys_array)
+
+    def load_scores(self) -> dict[str, float]:
+        """Load scores keyed by filename.
+
+        Scores are the single source of truth for training rows. Three-tier
+        resolution: in-memory cache -> scores.npz -> scores.jsonl (then cached
+        as scores.npz). Raises if the jsonl source is absent.
+        """
+        if self.use_cache and self.scores_keyed is not None:
+            return self.scores_keyed
+        cached = self._load_scores_from_npz()
+        if cached is not None:
+            if self.use_cache:
+                self.scores_keyed = cached
+            return cached
+        if not os.path.exists(scores_file):
+            raise FileNotFoundError(
+                "Missing source jsonl file required to load scores. "
+                f"Expected {scores_file}. Run the prepare pipeline "
+                "(prepare_data) before training."
+            )
+        logger.debug("loading scores file....")
+        keyed = self._load_scores_from_jsonl()
+        self._save_scores_to_npz(keyed)
+        if self.use_cache:
+            self.scores_keyed = keyed
+        return keyed
+
+    def load_scores_array(self) -> npt.NDArray[np.float32]:
         if self.use_cache and self.scores is not None:
             return self.scores
-        logger.debug("loading scores file....")
-        scores = list(load_single_jsonl(scores_file))
-        y_vector: npt.NDArray[np.float32] = np.array(scores, dtype=float)
+        keyed = self.load_scores()
+        y_vector: npt.NDArray[np.float32] = np.array(
+            [keyed[fid] for fid in keyed], dtype=np.float32
+        )
         self.scores = y_vector
         return self.scores
 
-    def load_comparison_counts(self) -> dict[str, list[dict[str, str]]]:
-        if self.use_cache and self.comparisons is not None:
-            return self.comparisons
-        logger.debug("loading index file....")
-        index = load_single_jsonl(index_file)
-        comparisons: Iterator[Any] = load_single_jsonl(comparisons_file)
+    def _load_scores_from_jsonl(self) -> dict[str, float]:
+        keyed: dict[str, float] = {}
+        for rec in load_single_jsonl(scores_file):
+            if not isinstance(rec, dict) or len(rec) != 1:
+                continue
+            fid, score = next(iter(rec.items()))
+            keyed[str(fid)] = float(score)
+        return keyed
 
-        comparisons_count: dict[str, list[dict[str, str]]] = {}
-        for i in index:
-            comparisons_count[i] = []
-
-        for c in comparisons:
-            filename_a: str = c["filename_a"]
-            filename_b: str = c["filename_b"]
-            winner: str = c["winner"]
-
-            record_a = {"other": filename_b, "winner": winner}
-            record_b = {"other": filename_a, "winner": winner}
-            if filename_a in comparisons_count:
-                comparisons_count[filename_a].append(record_a)
-            if filename_b in comparisons_count:
-                comparisons_count[filename_b].append(record_b)
-        self.comparisons = comparisons_count
-        return self.comparisons
-
-    def load_raw_data(
-        self,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
-        if self.use_cache and self.raw_data is not None:
-            return self.raw_data
-
-        if os.path.exists(raw_data):
+    def _load_scores_from_npz(self) -> dict[str, float] | None:
+        if os.path.exists(scores_data):
             try:
-                data = np.load(raw_data)
-                if "x" in data and "y" in data:
-                    self.raw_data = data["x"], data["y"]
-                    return self.raw_data
+                data = np.load(scores_data, allow_pickle=True)
+                if "y" in data and "keys" in data:
+                    keys = list(data["keys"])
+                    y_array = data["y"]
+                    return {
+                        str(keys[i]): float(y_array[i])
+                        for i in range(len(keys))
+                    }
             except Exception:
                 pass
         return None
 
-    def save_raw_data(
-        self, x: npt.NDArray[np.float32], y: npt.NDArray[Any]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
-        logger.debug("saving raw data...")
+    def _save_scores_to_npz(self, keyed: dict[str, float]) -> None:
+        logger.debug("saving scores cache...")
         os.makedirs(models_dir, exist_ok=True)
-        np.savez_compressed(raw_data, x=x, y=y)
-        saved_data = (x, y)
+        order = list(keyed.keys())
+        y_array = np.array([keyed[fid] for fid in order], dtype=np.float32)
+        keys_array = np.array(order, dtype=object)
+        np.savez_compressed(scores_data, y=y_array, keys=keys_array)
+
+    def load_comparison_rows(self) -> list[dict[str, Any]]:
+        """Load ordered comparison rows (filename_a, filename_b, winner, id).
+
+        Three-tier resolution: in-memory cache -> comparisons.npz ->
+        comparisons.jsonl (then cached as comparisons.npz). Rows are the source
+        of truth for both counts and rating replay, so order-carrying fields are
+        preserved. Raises if the jsonl source is absent.
+        """
+        if self.use_cache and self.comparison_rows is not None:
+            return self.comparison_rows
+        cached = self._load_comparisons_from_npz()
+        if cached is not None:
+            if self.use_cache:
+                self.comparison_rows = cached
+            return cached
+        if not os.path.exists(comparisons_file):
+            raise FileNotFoundError(
+                "Missing source jsonl file required to load comparisons. "
+                f"Expected {comparisons_file}. Run the prepare pipeline "
+                "(prepare_data) before training."
+            )
+        logger.debug("loading comparisons file....")
+        rows = [
+            {
+                "id": int(c.get("comparison_id", 0) or 0),
+                "filename_a": str(c["filename_a"]),
+                "filename_b": str(c["filename_b"]),
+                "winner": str(c["winner"]),
+            }
+            for c in load_single_jsonl(comparisons_file)
+        ]
+        self._save_comparisons_to_npz(rows)
         if self.use_cache:
-            self.raw_data = saved_data
-        return saved_data
+            self.comparison_rows = rows
+        return rows
 
-    def load_comparison_data(
-        self,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]] | None:
-        if self.use_cache and self.comparison_data is not None:
-            return self.comparison_data
+    def load_comparison_counts(self) -> dict[str, int]:
+        """Return per-filename comparison counts derived from the rows."""
+        counts: dict[str, int] = {}
+        for row in self.load_comparison_rows():
+            counts[row["filename_a"]] = counts.get(row["filename_a"], 0) + 1
+            counts[row["filename_b"]] = counts.get(row["filename_b"], 0) + 1
+        return counts
 
-        if os.path.exists(comparison_data):
+    def _load_comparisons_from_npz(self) -> list[dict[str, Any]] | None:
+        if os.path.exists(comparisons_data):
             try:
-                data = np.load(comparison_data)
-                if "x" in data and "y" in data:
-                    self.comparison_data = data["x"], data["y"]
-                    return self.comparison_data
+                data = np.load(comparisons_data, allow_pickle=True)
+                if all(k in data for k in ("ids", "winners", "a", "b")):
+                    ids = data["ids"]
+                    winners = data["winners"]
+                    a = data["a"]
+                    b = data["b"]
+                    return [
+                        {
+                            "id": int(ids[i]),
+                            "filename_a": str(a[i]),
+                            "filename_b": str(b[i]),
+                            "winner": str(winners[i]),
+                        }
+                        for i in range(len(ids))
+                    ]
             except Exception:
                 pass
         return None
 
-    def save_comparison_data(
-        self, x: npt.NDArray[np.float32], y: npt.NDArray[Any]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[Any]]:
-        logger.debug("saving comparison data...")
+    def _save_comparisons_to_npz(self, rows: list[dict[str, Any]]) -> None:
+        logger.debug("saving comparisons cache...")
         os.makedirs(models_dir, exist_ok=True)
-        np.savez_compressed(comparison_data, x=x, y=y)
-        saved_data = (x, y)
-        if self.use_cache:
-            self.comparison_data = saved_data
-        return saved_data
+        ids = np.array([r["id"] for r in rows], dtype=np.int64)
+        winners = np.array([r["winner"] for r in rows], dtype=object)
+        a = np.array([r["filename_a"] for r in rows], dtype=object)
+        b = np.array([r["filename_b"] for r in rows], dtype=object)
+        np.savez_compressed(comparisons_data, ids=ids, winners=winners, a=a, b=b)
 
-    def load_filtered_data(
-        self,
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]] | None:
-        if self.use_cache and self.filtered_data is not None:
-            return self.filtered_data
-
-        if os.path.exists(filtered_data):
+    def load_feature_rule(self) -> npt.NDArray[np.intp] | None:
+        if self.use_cache and self.feature_rule is not None:
+            return self.feature_rule
+        if os.path.exists(feature_rule):
             try:
-                data = np.load(filtered_data)
-                if "X" in data and "kept_indices" in data:
-                    # Validate shape compatibility if possible or just trust cache
-                    self.filtered_data = data["X"], data["kept_indices"]
-                    return self.filtered_data
+                data = np.load(feature_rule)
+                if "kept_indices" in data:
+                    self.feature_rule = data["kept_indices"]
+                    return self.feature_rule
             except Exception:
                 pass
         return None
 
-    def save_filtered_data(
-        self, x: npt.NDArray[np.float32], kept_indices: npt.NDArray[np.intp]
-    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.intp]]:
-        logger.debug("saving filtered data...")
+    def save_feature_rule(self, kept_indices: npt.NDArray[np.intp]) -> None:
+        logger.debug("saving feature rule...")
         os.makedirs(models_dir, exist_ok=True)
-        np.savez_compressed(filtered_data, X=x, kept_indices=kept_indices)
-        saved_data = (x, kept_indices)
+        np.savez_compressed(feature_rule, kept_indices=kept_indices)
         if self.use_cache:
-            self.filtered_data = saved_data
-        return saved_data
+            self.feature_rule = kept_indices
+
+    def load_comparison_rule(
+        self, threshold: int
+    ) -> dict[str, tuple[float, int]] | None:
+        """Return the cached subset rule for this threshold.
+
+        The rule maps kept filename -> (score, count), where the score is
+        recomputed on the kept subset. It is only valid for the threshold it was
+        built with, so a mismatch is treated as a cache miss.
+        """
+        if self.use_cache and self.comparison_rule is not None:
+            cached_threshold, rule = self.comparison_rule
+            if cached_threshold == threshold:
+                return rule
+        if os.path.exists(comparison_rule):
+            try:
+                data = np.load(comparison_rule, allow_pickle=True)
+                if all(k in data for k in ("threshold", "keys", "scores", "counts")):
+                    if int(data["threshold"]) != threshold:
+                        return None
+                    keys = [str(f) for f in data["keys"]]
+                    score_array = data["scores"]
+                    count_array = data["counts"]
+                    rule = {
+                        keys[i]: (float(score_array[i]), int(count_array[i]))
+                        for i in range(len(keys))
+                    }
+                    if self.use_cache:
+                        self.comparison_rule = (threshold, rule)
+                    return rule
+            except Exception:
+                pass
+        return None
+
+    def save_comparison_rule(
+        self, threshold: int, rule: dict[str, tuple[float, int]]
+    ) -> None:
+        logger.debug("saving comparison rule...")
+        os.makedirs(models_dir, exist_ok=True)
+        keys = sorted(rule)
+        keys_array = np.array(keys, dtype=object)
+        scores_array = np.array([rule[k][0] for k in keys], dtype=np.float32)
+        counts_array = np.array([rule[k][1] for k in keys], dtype=np.int64)
+        np.savez_compressed(
+            comparison_rule,
+            threshold=np.int64(threshold),
+            keys=keys_array,
+            scores=scores_array,
+            counts=counts_array,
+        )
+        if self.use_cache:
+            self.comparison_rule = (threshold, rule)
 
     def load_interaction_data(
         self,

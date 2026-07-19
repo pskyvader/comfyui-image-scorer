@@ -56,9 +56,8 @@ from ..database_structure.cleanup_orphans import (
 from ..comparison.algorithm.trueskill_rating import (
     INITIAL_MEAN,
     INITIAL_UNCERTAINTY,
-    Rating,
     public_score_from_rating,
-    update_ratings,
+    replay_ratings,
 )
 
 from ..comparison.algorithm.pair_active import reset_skip
@@ -527,61 +526,24 @@ class ImageProcessor:
     def _recompute_ratings_from_database_history(self) -> int:
         _start = time.perf_counter()
         reset_all_image_ratings(score=self.default_score)
-        all_images = get_all_images()
-        ratings = {
-            img["filename"]: Rating(mu=INITIAL_MEAN, sigma=INITIAL_UNCERTAINTY)
-            for img in all_images
-        }
-        counts = {img["filename"]: 0 for img in all_images}
-        last_seen: dict[str, str] = {img["filename"]: "" for img in all_images}
 
-        all_comparisons = get_all_comparisons()
-        with tqdm(
-            total=len(all_comparisons),
-            desc="Recomputing ratings",
-            unit="cmp",
-            leave=False,
-        ) as pbar:
-            for comp in all_comparisons:
-                left = comp["filename_a"]
-                right = comp["filename_b"]
-                winner = comp["winner"]
-                if (
-                    left not in ratings
-                    or right not in ratings
-                    or winner not in (left, right)
-                ):
-                    pbar.update(1)
-                    continue
-                loser = right if winner == left else left
-                winner_rating, loser_rating = update_ratings(
-                    ratings[winner], ratings[loser]
-                )
-                ratings[winner] = winner_rating
-                ratings[loser] = loser_rating
-                counts[winner] += 1
-                counts[loser] += 1
-                timestamp = str(comp["timestamp"])
-                last_seen[winner] = timestamp
-                last_seen[loser] = timestamp
-                pbar.update(1)
+        replayed = replay_ratings(get_all_comparisons())
 
         updated = 0
         with tqdm(
-            total=len(ratings),
+            total=len(replayed),
             desc="Updating scores",
             unit="img",
             leave=False,
         ) as pbar:
-            for filename, rating in ratings.items():
+            for filename, (rating, count) in replayed.items():
                 if update_image_rating_state(
                     filename=filename,
                     score=public_score_from_rating(rating),
                     rating_mu=rating.mu,
                     rating_sigma=rating.sigma,
-                    comparison_count=counts[filename],
+                    comparison_count=count,
                     touch_timestamp=False,
-                    last_compared_at=last_seen[filename],
                 ):
                     updated += 1
                 pbar.update(1)

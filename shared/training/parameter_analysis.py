@@ -17,6 +17,7 @@ from sklearn.preprocessing import MinMaxScaler
 from typing import Any
 
 from ...shared.io import load_single_jsonl
+from ...shared.paths import vectors_file, text_data_file
 
 matplotlib.use("Agg")
 
@@ -455,8 +456,8 @@ def main():
     # Load data
     print("Loading data...")
     try:
-        vectors_data = list(load_single_jsonl("output/vectors.jsonl"))
-        text_data = list(load_single_jsonl("output/text_data.jsonl"))
+        vectors_data = list(load_single_jsonl(vectors_file))
+        text_data = list(load_single_jsonl(text_data_file))
 
         if not vectors_data:
             print("✗ No vectors data found. Run data preparation first.")

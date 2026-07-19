@@ -40,9 +40,6 @@ def _mapping_get(mapping: Any, key: str, default: Any = None) -> Any:
     return default
 
 
-
-
-
 def _load_state() -> dict[str, Any]:
     training_config = config["training"]
     data = []
@@ -98,7 +95,7 @@ def list_filtered_features(kept_indices: npt.NDArray[np.float32]):
         kept: list[int] = feature["kept"]
         removed: list[int] = feature["removed"]
         slot_size = data_transformer.vector_ranges[name]["slot_size"]
-        logger.debug(
+        logger.info(
             f" {name}: \n"
             f"kept: {len(kept)}/{slot_size} ({(100*len(kept)/slot_size):.1f}%)"
             # f"removed: {len(removed)}/{slot_size} ({(100*len(removed)/slot_size):.1f}%)"
@@ -111,25 +108,77 @@ def load_training_data(
     if retrain:
         logger.info("Retrain mode: removing cached models and data...")
         training_loader.remove_training_models()
-    logger.info("loading raw data ...")
-    x, y = data_transformer.get_raw_data()
-    logger.info(f"raw data loaded, shape: {x.shape}, {y.shape}")
 
+    # 1. raw vectors (keyed)   2. raw scores (keyed)
+    logger.info("loading raw data ...")
+    vectors_keyed = training_loader.load_vectors()
+    scores_keyed = training_loader.load_scores()
+    n_features_total = next(iter(vectors_keyed.values())).shape[0]
+    logger.info(
+        f"raw data loaded: {len(vectors_keyed)} vectors, "
+        f"{len(scores_keyed)} scores, {n_features_total} features"
+    )
+
+    # Original scores-file ordering, captured before any filtering reassignment
+    # so the final rows follow the source scores.jsonl order.
+    original_score_order: list[str] = list(scores_keyed.keys())
+
+    # 3. feature filter -> feature mask only (no alignment/sorting inside)
     filter_steps = 1000
     logger.info(f"filtering unused features after {filter_steps} steps...")
-    x, kept_indices = data_transformer.filter_unused_features(x, y, steps=filter_steps)
-    list_filtered_features(kept_indices)
+    kept_feature_idx = data_transformer.filter_unused_features(
+        vectors_keyed, scores_keyed, steps=filter_steps
+    )
+    list_filtered_features(kept_feature_idx)
+    logger.info(
+        f"Feature filtering: kept {len(kept_feature_idx)} features "
+        f"({100*len(kept_feature_idx)/n_features_total:.1f}%), "
+        f"dropped {n_features_total - len(kept_feature_idx)}."
+    )
+
+    # 4. comparisons   5. comparison filter -> kept filenames + subset scores
+    threshold = config["training"]["min_comparisons_threshold"]
+    kept_filenames: set[str] | None = None
     if filter_comparisons:
         logger.info("filtering low comparison data ...")
-        threshold = config["training"]["min_comparisons_threshold"]
-        x, y = data_transformer.filter_low_comparisons(x, y, threshold=threshold)
+        rule = data_transformer.filter_low_comparisons(threshold=threshold)
+        # Use the scores recomputed on the kept subset so surviving rows stay
+        # self-consistent; the full-history scores remain the unfiltered target.
+        kept_filenames = set(rule)
+        scores_keyed = {fid: score for fid, (score, _count) in rule.items()}
+        dropped = len(vectors_keyed) - len(kept_filenames)
         logger.info(
-            f"filtered data by count (>={threshold}), shape: {x.shape}, {y.shape}"
+            f"Comparison filtering: kept {len(kept_filenames)} filenames "
+            f"(threshold={threshold}), dropped {dropped}."
         )
 
-    logger.info(f"Feature filtering complete: X={x.shape}")
-    result = (x, y)
-    return result
+    # Preserve the original scores-file ordering. The final rows are emitted in
+    # this order, skipping any filename that did not survive the filters or has
+    # no matching vector.
+    score_order: list[str] = original_score_order
+
+    # 6. apply both filters in one pass   7. materialize (x, y)
+    x_rows: list[npt.NDArray[np.float32]] = []
+    y_rows: list[float] = []
+    n_skipped = 0
+    for fid in score_order:
+        if kept_filenames is not None and fid not in kept_filenames:
+            continue
+        score = scores_keyed[fid]
+        vec = vectors_keyed.get(fid)
+        if vec is None:
+            n_skipped += 1
+            continue
+        x_rows.append(vec[kept_feature_idx])
+        y_rows.append(score)
+
+    if n_skipped:
+        logger.info(f"Skipped {n_skipped} scored filenames missing from vectors.")
+
+    x = np.array(x_rows, dtype=np.float32)
+    y = np.array(y_rows, dtype=np.float32)
+    logger.info(f"Feature filtering complete: X={x.shape}, Y={y.shape}")
+    return x, y
 
 
 def _evaluate_config(
@@ -267,7 +316,9 @@ def _run_step_on_config(
         )
 
     if improved:
-        logger.info(f"    Config improved: score={best_score:.6f}, time={best_time:.2f}s")
+        logger.info(
+            f"    Config improved: score={best_score:.6f}, time={best_time:.2f}s"
+        )
     else:
         logger.info(f"    Config unchanged: best score remains {best_score:.6f}")
         used_keys.append(chosen_key)
@@ -320,7 +371,9 @@ def hpo_cycle(
         step_start = state.get("step", 0)
 
         logger.info(f"\n{'='*80}")
-        logger.info(f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}")
+        logger.info(
+            f"HPO Cycle {cycle + 1} — Starting from step {step_start}/{num_steps}"
+        )
 
         for i in range(step_start, num_steps):
             idx = i % NUM_CONFIGS
@@ -380,8 +433,12 @@ def hpo_cycle(
         child1 = crossover_config(dict(parents[0]), dict(parents[1]))
         child2 = crossover_config(dict(parents[0]), dict(parents[1]))
         random_child = generate_random_config()
-        logger.info(f"  Parent 1:  score={_mapping_get(parents[0], 'best_score', -1):.6f}")
-        logger.info(f"  Parent 2:  score={_mapping_get(parents[1], 'best_score', -1):.6f}")
+        logger.info(
+            f"  Parent 1:  score={_mapping_get(parents[0], 'best_score', -1):.6f}"
+        )
+        logger.info(
+            f"  Parent 2:  score={_mapping_get(parents[1], 'best_score', -1):.6f}"
+        )
         logger.info(f"  Child 1:   score=NEW (to be evaluated next cycle)")
         logger.info(f"  Child 2:   score=NEW (to be evaluated next cycle)")
         logger.info(f"  random child:   score=NEW (to be evaluated next cycle)")
