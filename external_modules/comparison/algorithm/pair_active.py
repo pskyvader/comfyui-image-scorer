@@ -15,16 +15,14 @@ from ....shared.config import config
 from ....shared.logger import SharedLogger
 from ...database_structure.comparisons_table import (
     get_all_comparisons,
-    get_total_comparisons,
     get_images_with_only_wins,
     get_images_with_only_losses,
 )
 
+from .constants import MIN_CHAIN_THRESHOLD
 from .trueskill_rating import expected_win_probability, rating_from_row
 
 logger = SharedLogger.get_logger(__name__)
-
-_skip_before: int = 0
 
 
 def _stable_seed_pool(
@@ -137,7 +135,7 @@ def _build_low_count_pool(
 def _phase1_seed_coverage(
     seed_candidates: list[dict[str, Any]],
     existing_pair_set: set[tuple[str, str]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     _start = time.perf_counter()
     seed_target = int(config["ranking"]["seed_target_comparisons"])
     # p1_tiebreaker = _random_tiebreaker(seed_candidates)
@@ -189,25 +187,17 @@ def _phase1_seed_coverage(
 
         if chosen is None:
             continue
-        result = (
-            (source["filename"], chosen["filename"]),
-            {
-                "pair_type": "bootstrap_seed",
-                "left_comp_count": int(source["comparison_count"]),
-                "right_comp_count": int(chosen["comparison_count"]),
-                "refinement_details": None,
-            },
-        )
+        result = (source["filename"], chosen["filename"])
         logger.debug(f"return result after {i} steps", start_timer=_start)
         return result
-    return None, {}
+    return None
 
 
 def _phase2_anchor_insert(
     candidate_images: list[dict[str, Any]],
     seed_pool: set[str],
     existing_pair_set: set[tuple[str, str]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     _start = time.perf_counter()
     pool = _build_low_count_pool(
         [img for img in candidate_images if img["filename"] not in seed_pool]
@@ -218,7 +208,7 @@ def _phase2_anchor_insert(
             f"_phase2_anchor_insert: pool too small ({len(pool)} < {reserve_count})",
             start_timer=_start,
         )
-        return None, {}
+        return None
 
     pool.sort(key=lambda img: (int(img["comparison_count"]), float(img["score"])))
     source = pool[0]
@@ -234,33 +224,22 @@ def _phase2_anchor_insert(
         opp_name = opponent["filename"]
         if not _are_in_different_paths(source_name, opp_name):
             continue
-        result = (
-            (source_name, opp_name),
-            {
-                "pair_type": "anchor_insert",
-                "left_comp_count": int(source["comparison_count"]),
-                "right_comp_count": int(opponent["comparison_count"]),
-                "refinement_details": {
-                    "source_mu": round(source_mu, 4),
-                    "opponent_mu": round(float(opponent["rating_mu"]), 4),
-                },
-            },
-        )
+        result = (source_name, opp_name)
         # logger.debug(f"returning result: {result}")
         return result
     logger.debug(f"no pair found out of {seen_opponents} opponents")
-    return None, {}
+    return None
 
 
 def _phase3_collapsible_pairs(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     _start = time.perf_counter()
     only_wins = get_images_with_only_wins()
     only_loses = get_images_with_only_losses()
     if len(only_wins) == 1 and len(only_loses) == 1:
-        return None, {}
+        return None
 
     candidate_names = {img["filename"] for img in candidate_images}
 
@@ -287,37 +266,6 @@ def _phase3_collapsible_pairs(
             comp = _component_id(chain.last.filename)
             if chain.last.filename not in bottoms_by_comp[comp]:
                 bottoms_by_comp[comp][chain.last.filename] = len(chain.last.get_links())
-    for comp_id, tops in tops_by_comp.items():
-        if len(tops.items()) < 2:
-            continue
-        logger.debug(f"id:{comp_id}, total extremes:{len(tops.items())}")
-
-        sorted_top_dict: list[tuple[str, int]] = list(tops.items())
-        sorted_top_dict.sort(key=lambda top: top[1], reverse=False)
-        sorted_tops: list[str] = [top[0] for top in sorted_top_dict]
-
-        for i, a in enumerate(sorted_tops):
-            if a not in only_wins:
-                raise RuntimeError(f"top node {a} not present in only wins.")
-            for b in sorted_tops[i + 1 :]:
-                if b not in only_wins:
-                    raise RuntimeError(f"top node {b} not present in only wins.")
-
-                result = (
-                    (a, b),
-                    {
-                        "pair_type": "collapsible",
-                        "left_comp_count": 0,
-                        "right_comp_count": 0,
-                        "refinement_details": {
-                            "collapsible_type": "both_top",
-                            "component": comp_id,
-                        },
-                    },
-                )
-
-                return result
-
     for comp_id, bottoms in bottoms_by_comp.items():
 
         if len(bottoms) < 2:
@@ -335,22 +283,31 @@ def _phase3_collapsible_pairs(
                 if b not in only_loses:
                     raise RuntimeError(f"bottom node {b} not present in only loses.")
 
-                result = (
-                    (a, b),
-                    {
-                        "pair_type": "collapsible",
-                        "left_comp_count": 0,
-                        "right_comp_count": 0,
-                        "refinement_details": {
-                            "collapsible_type": "both_bottom",
-                            "component": comp_id,
-                        },
-                    },
-                )
+                result = (a, b)
 
                 return result
 
-    return None, {}
+    for comp_id, tops in tops_by_comp.items():
+        if len(tops.items()) < 2:
+            continue
+        logger.debug(f"id:{comp_id}, total extremes:{len(tops.items())}")
+
+        sorted_top_dict: list[tuple[str, int]] = list(tops.items())
+        sorted_top_dict.sort(key=lambda top: top[1], reverse=False)
+        sorted_tops: list[str] = [top[0] for top in sorted_top_dict]
+
+        for i, a in enumerate(sorted_tops):
+            if a not in only_wins:
+                raise RuntimeError(f"top node {a} not present in only wins.")
+            for b in sorted_tops[i + 1 :]:
+                if b not in only_wins:
+                    raise RuntimeError(f"top node {b} not present in only wins.")
+
+                result = (a, b)
+
+                return result
+
+    return None
 
 
 _last_chains_index: list[int] = []
@@ -358,15 +315,14 @@ _last_chains_index: list[int] = []
 
 def _phase4_chain_merge(
     candidate_images: list[dict[str, Any]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     global _last_chains_index
-    min_chain_threshold = 20
     score_threshold = 0.01
     min_comparisons = int(config["ranking"]["insertion_target_comparisons"])
 
-    if len(_last_chains_index) > min_chain_threshold:
+    if len(_last_chains_index) > MIN_CHAIN_THRESHOLD:
         # logger.debug(f"last chains before:{_last_chains_index}")
-        _last_chains_index = _last_chains_index[min_chain_threshold // 2 :]
+        _last_chains_index = _last_chains_index[MIN_CHAIN_THRESHOLD // 2 :]
         # logger.debug(f"last chains after:{_last_chains_index}")
 
     _start = time.perf_counter()
@@ -374,18 +330,18 @@ def _phase4_chain_merge(
     # logger.warning(f"candidate_names", start_timer=_start)
 
     chains_list: list[tuple[ChainProxy, list[NodeTuple]]] = (
-        crystal_graph.get_all_chains(min_length=3, sort_order="asc")
+        crystal_graph.get_all_chains(min_length=1, sort_order="asc")
     )
     chains: list[list[NodeTuple]] = [c[1] for c in chains_list]
 
-    if len(chains) < min_chain_threshold:
+    if len(chains) < MIN_CHAIN_THRESHOLD:
         logger.info(
-            f"skipping phase 4: <{min_chain_threshold} chains", start_timer=_start
+            f"skipping phase 4: <{MIN_CHAIN_THRESHOLD} chains", start_timer=_start
         )
-        return None, {}
+        return None
 
     logger.debug(f"shortest chain: {len(chains[0])}, longest: {len(chains[-1])}")
-    top_n: int = min(min_chain_threshold * 10, len(chains))
+    top_n: int = min(MIN_CHAIN_THRESHOLD * 10, len(chains))
 
     for i in range(top_n - 1):
         if i in _last_chains_index:
@@ -429,18 +385,7 @@ def _phase4_chain_merge(
                 if crystal_graph.are_in_same_path(a_name, b_name):
                     continue
 
-                result = (
-                    (a_name, b_name),
-                    {
-                        "pair_type": "chain_merge",
-                        "left_comp_count": 0,
-                        "right_comp_count": 0,
-                        "refinement_details": {
-                            "source_chain_length": len(chains[i]),
-                            "opponent_chain_length": len(chains[j]),
-                        },
-                    },
-                )
+                result = (a_name, b_name)
                 _last_chains_index.append(i)
                 _last_chains_index.append(j)
                 logger.debug(f"I={i},j={j}", start_timer=_start)
@@ -451,75 +396,60 @@ def _phase4_chain_merge(
 
                 return result
     logger.warning(
-        f"skipping phase 4: no valid pair found in shorter {min_chain_threshold*10} chains",
+        f"skipping phase 4: no valid pair found in shorter {MIN_CHAIN_THRESHOLD*10} chains",
         start_timer=_start,
     )
 
-    return None, {}
+    return None
 
 
 def _phase5_uncertainty_refine(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     _start = time.perf_counter()
+    # Sort by highest sigma (uncertainty) first
     uncertainty_pool = sorted(
         candidate_images,
         key=lambda img: (-float(img["rating_sigma"]), int(img["comparison_count"])),
     )
 
+    # Build seed pool for similar-mu matching
+    seed_filenames = set(_stable_seed_pool(candidate_images))
+    seed_pool = [img for img in candidate_images if img["filename"] in seed_filenames]
+    if not seed_pool:
+        return None
+
     for source in uncertainty_pool:
-        source_rating = rating_from_row(source)
+        source_mu = float(source["rating_mu"])
+        source_name = source["filename"]
 
-        unseen_iterator = _find_unseen_candidates(source, candidate_images, pair_set)
+        # Find seed images with similar mu, unseen with source
+        candidates = [
+            s for s in seed_pool
+            if s["filename"] != source_name
+            and _pair_key(source_name, s["filename"]) not in pair_set
+            and not crystal_graph.are_in_same_path(source_name, s["filename"])
+        ]
 
-        chosen = None
-        i = 0
-        for opp in unseen_iterator:
-            i += 1
-            a_name = source["filename"]
-            b_name = opp["filename"]
-            if crystal_graph.are_in_same_path(a_name, b_name):
-                continue
-            if chosen is None:
-                chosen = opp
-            else:
-                if abs(source["rating_mu"] - opp["rating_mu"]) < abs(
-                    source["rating_mu"] - chosen["rating_mu"]
-                ):
-                    chosen = opp
-            if i >= 5:
-                break
-
-        if chosen is None:
+        if not candidates:
             continue
 
-        prob = _pair_probability(source, chosen)
-
-        result = (
-            (source["filename"], chosen["filename"]),
-            {
-                "pair_type": "uncertainty_refine",
-                "left_comp_count": int(source["comparison_count"]),
-                "right_comp_count": int(chosen["comparison_count"]),
-                "refinement_details": {
-                    "strategy": "uncertainty",
-                    "predicted_win_probability": round(prob, 4),
-                    "left_sigma": round(float(source["rating_sigma"]), 4),
-                    "right_sigma": round(float(chosen["rating_sigma"]), 4),
-                },
-            },
+        chosen = min(
+            candidates,
+            key=lambda s: abs(float(s["rating_mu"]) - source_mu),
         )
 
+        result = (source_name, chosen["filename"])
         return result
 
-    return None, {}
+    return None
 
 
 def _phase_fallback(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
+) -> tuple[str, str] | None:
     _start = time.perf_counter()
     ordered = sorted(
         candidate_images,
@@ -530,88 +460,10 @@ def _phase_fallback(
             if _pair_key(left["filename"], right["filename"]) in pair_set:
                 continue
 
-            result = (
-                (left["filename"], right["filename"]),
-                {
-                    "pair_type": "fallback",
-                    "left_comp_count": int(left["comparison_count"]),
-                    "right_comp_count": int(right["comparison_count"]),
-                    "refinement_details": None,
-                },
-            )
+            result = (left["filename"], right["filename"])
 
             return result
-    return None, {}
+    return None
 
 
-def reset_skip():
-    global _skip_before
-    _skip_before = 0
 
-
-def select_pair(
-    all_images: list[dict[str, Any]],
-    candidate_images: list[dict[str, Any]],
-) -> tuple[tuple[str, str] | None, dict[str, Any]]:
-    global _skip_before
-
-    if len(candidate_images) < 2:
-        logger.warning(
-            "select_pair: only %d candidates, need >=2", len(candidate_images)
-        )
-        return None, {}
-
-    existing_pairs_set = _existing_pairs()
-
-    seed_pool = set(_stable_seed_pool(all_images))
-
-    # randomize order of candidates
-
-    random.shuffle(candidate_images)
-
-    seed_candidates = [img for img in candidate_images if img["filename"] in seed_pool]
-
-    reserve_count = int(config["ranking"]["reserve_count"])
-    total_comps: int = get_total_comparisons()
-    logger.debug(f"total comps: {total_comps}, skip before:{_skip_before}")
-    if total_comps % reserve_count == 0:
-        reset_skip()
-
-    if _skip_before <= 0:
-        result = _phase1_seed_coverage(seed_candidates, existing_pairs_set)
-        if result[0]:
-            _skip_before = 0
-            return result
-
-    if _skip_before <= 1:
-        result = _phase2_anchor_insert(candidate_images, seed_pool, existing_pairs_set)
-        if result[0]:
-            _skip_before = 1
-            return result
-
-    if _skip_before <= 2:
-        result = _phase3_collapsible_pairs(candidate_images, existing_pairs_set)
-        if result[0]:
-            _skip_before = 2
-            return result
-
-    if _skip_before <= 3:
-        result = _phase4_chain_merge(candidate_images)
-        if result[0]:
-            _skip_before = 3
-            return result
-
-    if _skip_before <= 4:
-        result = _phase5_uncertainty_refine(candidate_images, existing_pairs_set)
-        if result[0]:
-            _skip_before = 4
-            return result
-
-    if _skip_before <= 5:
-        result = _phase_fallback(candidate_images, existing_pairs_set)
-        if result[0]:
-            _skip_before = 5
-            return result
-
-    logger.warning("select_pair: no pair found after all phases")
-    return None, {}

@@ -78,12 +78,10 @@ class CompareMode {
             statsNextLevelNum: document.getElementById("stat-next-level-num"),
             statsBaseLevel: document.getElementById("stat-base-level"),
             loadingOverlay: document.getElementById("loading-overlay"),
+            loadingOverlayText: document.getElementById("loading-overlay-text"),
             debugBtn: document.getElementById("toggle-debug"),
             debugPanel: document.getElementById("debug-panel"),
             debugContent: document.getElementById("debug-content"),
-            graphIndicator: document.getElementById("graph-indicator"),
-            graphComponentId: document.getElementById("graph-component-id"),
-            graphCount: document.getElementById("graph-count"),
             leftCard: document.querySelector(".left-card"),
             rightCard: document.querySelector(".right-card"),
             collapsibleIndicator: document.getElementById("collapsible-indicator"),
@@ -106,23 +104,22 @@ class CompareMode {
             backdrop-filter: blur(8px);
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px;
-            padding: 6px 10px;
+            padding: 6px 8px;
             font-size: 10px;
             font-family: monospace;
             color: #a0a0a0;
             z-index: 9999;
             pointer-events: none;
             display: flex;
-            align-items: center;
-            gap: 8px;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
             transition: opacity 0.2s;
             opacity: 0;
         `;
         el.innerHTML = `
             <span id="qi-queue" title="Votes pending submission">⬆ 0</span>
-            <span style="opacity:0.3">|</span>
             <span id="qi-pending" title="Votes submitting">⬆ 0</span>
-            <span style="opacity:0.3">|</span>
             <span id="qi-ready" title="Comparisons fully loaded (images ready)">⬇ 0</span>
         `;
         document.body.appendChild(el);
@@ -243,10 +240,13 @@ class CompareMode {
         }
     }
 
-    showLoading(show) {
+    showLoading(show, message) {
         const overlay = this.elements.loadingOverlay;
         if (!overlay) {
             return;
+        }
+        if (message && this.elements.loadingOverlayText) {
+            this.elements.loadingOverlayText.textContent = message;
         }
 
         if (show) {
@@ -310,6 +310,12 @@ class CompareMode {
         if (skipButton) {
             skipButton.onclick = () => {
                 this._hasSubmitted = true;
+                const pair = this.currentPair;
+                if (pair && pair.left && pair.right) {
+                    // Put one of the two images into the exclude cache so this
+                    // pair cannot be formed again.
+                    CompareApi.skipImage(pair.left.filename);
+                }
                 this.loadPair();
             };
         }
@@ -328,15 +334,32 @@ class CompareMode {
         this.cacheElements();
         this.attachEventListeners();
 
-        const serverConfig = await CompareApi.getRankingConfig();
+        // Fetch config and phases in parallel
+        const [serverConfig, phases] = await Promise.all([
+            CompareApi.getRankingConfig(),
+            CompareApi.getPhases().catch(e => {
+                compareLogger.warn("Failed to load phases:", null, e);
+                return null;
+            }),
+        ]);
+
         this._config.reserve_count = serverConfig.reserve_count;
         this._config.parallel_requests = serverConfig.parallel_requests;
         this._config.timeout_ms = serverConfig.timeout_ms || 30000;
         this._config.seed_size = serverConfig.seed_size;
         this._config.seed_target_comparisons = serverConfig.seed_target_comparisons;
         this._config.insertion_target_comparisons = serverConfig.insertion_target_comparisons;
-        this._populateLegend();
         compareLogger.info("Ranking config loaded:", null, this._config);
+
+        // Push phase metadata into CompareView with config values for descriptions
+        if (phases) {
+            CompareView.setPhases(phases);
+            CompareView.renderDescriptions({
+                seed_size: serverConfig.seed_size,
+                seed_target: serverConfig.seed_target_comparisons,
+                insertion_target: serverConfig.insertion_target_comparisons,
+            });
+        }
 
         // Configure sub-managers from server config
         this._queue._parallelRequests = !!this._config.parallel_requests;
@@ -354,16 +377,37 @@ class CompareMode {
                 CompareApi.getImage(leftFile),
                 CompareApi.getImage(rightFile),
             ]);
-            this.currentPair = {
-                left: leftData,
-                right: rightData,
-                rationale: {
-                    strategy: "Manual Selection (Chain Map)",
-                    score_diff: Math.abs(leftData.score - rightData.score)
-                        .toFixed(4),
-                    seed: leftFile,
-                },
+            const norm = (d, fn) => ({
+                filename: d.filename || fn,
+                score: d.score ?? 0.5,
+                rating_mu: d.rating_mu ?? 25.0,
+                rating_sigma: d.rating_sigma ?? 25.0 / 3.0,
+                comparison_count: d.comparison_count ?? 0,
+                chain_length: d.chain_length ?? 0,
+                component_size: d.component_size ?? 0,
+                component_id: d.component_id ?? null,
+                is_top: !!d.is_top,
+                is_bottom: !!d.is_bottom,
+                is_seed: false,
+                _extremes: d._extremes ?? { top: 0, bottom: 0 },
+            });
+            const left = norm(leftData, leftFile);
+            const right = norm(rightData, rightFile);
+            const pair = {
+                phase: null,
+                total_images: 0,
+                total_comparisons: 0,
+                level: {},
+                base_level: 0,
+                collapsable: false,
+                same_component: false,
+                seed_percentage: this._config.seed_size ? 0 : 0,
+                seed_target_comparisons: this._config.seed_target_comparisons || 0,
+                insertion_target_comparisons: this._config.insertion_target_comparisons || 0,
+                reserve_count: this._config.reserve_count || 1,
+                probability_a_beats_b: 0.5,
             };
+            this.currentPair = { left, right, pair };
             await this.renderPair();
         } else {
             await this.loadPair();
@@ -412,6 +456,10 @@ class CompareMode {
             return;
         }
         compareLogger.info("Loaded pair:", null, pair, { cached: cached !== null });
+        compareLogger.info("Loaded pair top-level keys:", null, pair ? Object.keys(pair) : null);
+        if (pair && !pair.pair) {
+            compareLogger.error("Backend response missing `pair` envelope; has keys:", null, Object.keys(pair));
+        }
         this.currentPair = { ...pair, _preloadedLeft: cached?.leftImg, _preloadedRight: cached?.rightImg };
         await this.renderPair();
         this.showLoading(false);
@@ -433,7 +481,7 @@ class CompareMode {
     // ── Rendering ────────────────────────────────────────────────────
 
     async renderPair() {
-        const { left, right, pair_meta, collapsable } = this.currentPair;
+        const { left, right, pair } = this.currentPair;
         const els = this.elements;
 
         els.leftImg.classList.add("opacity-0");
@@ -453,303 +501,9 @@ class CompareMode {
 
         els.leftFilename.textContent = left.filename;
         els.rightFilename.textContent = right.filename;
-        // seed badge as sibling so it doesn't get clipped by truncate
-        let badge = els.leftFilename.parentElement.querySelector(".seed-badge");
-        if (left.is_seed) {
-            if (!badge) {
-                badge = document.createElement("span");
-                badge.className = "seed-badge";
-                badge.textContent = "🌱";
-                els.leftFilename.parentElement.appendChild(badge);
-            }
-        } else if (badge) {
-            badge.remove();
-        }
-        badge = els.rightFilename.parentElement.querySelector(".seed-badge");
-        if (right.is_seed) {
-            if (!badge) {
-                badge = document.createElement("span");
-                badge.className = "seed-badge";
-                badge.textContent = "🌱";
-                els.rightFilename.parentElement.appendChild(badge);
-            }
-        } else if (badge) {
-            badge.remove();
-        }
 
-        // Update footer stats
-        if (this.currentPair.global_stats) {
-            const gs = this.currentPair.global_stats;
-            const totalEl = document.getElementById("stat-total");
-            const rankedEl = document.getElementById("stat-ranked");
-            const levelEl = document.getElementById("stat-level");
-            const compsEl = document.getElementById("stat-comparisons");
-            const compsStatEl = document.getElementById("stat-components");
-            const chainsEl = document.getElementById("stat-chains");
-            const activeEl = document.getElementById("stat-active");
-            const nextLevelEl = document.getElementById("stat-next-level");
-            const nextLevelNumEl = document.getElementById("stat-next-level-num");
-            const baseLevelEl = document.getElementById("stat-base-level");
-
-            if (totalEl) {
-                totalEl.textContent = gs.total_images.toLocaleString();
-            }
-            if (rankedEl) {
-                rankedEl.textContent = gs.level_count.toLocaleString();
-            }
-            if (levelEl) {
-                levelEl.textContent = gs.base_level;
-            }
-            if (compsEl) {
-                compsEl.textContent = gs.total_comparisons.toLocaleString();
-            }
-            if (compsStatEl) {
-                compsStatEl.textContent = gs.total_components.toLocaleString();
-            }
-            if (chainsEl) {
-                chainsEl.textContent = gs.total_chains.toLocaleString();
-            }
-            if (activeEl) {
-                activeEl.textContent = gs.active_nodes.toLocaleString();
-            }
-            if (nextLevelEl) {
-                nextLevelEl.textContent = gs.next_level_count.toLocaleString();
-            }
-            if (nextLevelNumEl) {
-                nextLevelNumEl.textContent = gs.target_level;
-            }
-            if (baseLevelEl) {
-                baseLevelEl.textContent = gs.base_level;
-            }
-        }
-
-        // Single line stats separated by |
-        const statsText = `Score: ${Utils.formatScore(left.score)} | Chain: ${left.chain_length} | Component: ${left.component_size} | Comparisons: ${left.comparison_count}`;
-        const rightStatsText = `Score: ${Utils.formatScore(right.score)} | Chain: ${right.chain_length} | Component: ${right.component_size} | Comparisons: ${right.comparison_count}`;
-
-        const leftStatsEl = document.getElementById("left-stats-line");
-        const rightStatsEl = document.getElementById("right-stats-line");
-        if (leftStatsEl) {
-            leftStatsEl.textContent = statsText;
-        }
-        if (rightStatsEl) {
-            rightStatsEl.textContent = rightStatsText;
-        }
-
-        // Update borders based on comparison type
-        els.leftCard.classList.remove("collapsible-card", "card-bootstrap", "card-anchor", "card-refine", "card-fallback", "card-collapsible", "card-chain-merge");
-        els.rightCard.classList.remove("collapsible-card", "card-bootstrap", "card-anchor", "card-refine", "card-fallback", "card-collapsible", "card-chain-merge");
-
-        const pairType = pair_meta && pair_meta.pair_type;
-        const cardCls = {
-            bootstrap_seed: "card-bootstrap",
-            anchor_insert: "card-anchor",
-            uncertainty_refine: "card-refine",
-            fallback: "card-fallback",
-            collapsible: "card-collapsible",
-            chain_merge: "card-chain-merge",
-        }[pairType];
-        els.leftCard.classList.add(cardCls);
-        els.rightCard.classList.add(cardCls);
-
-        // Debug/Pair Meta Rationale - Enhanced Grid Alignment
-        const rationale = pair_meta;
-        if (els.debugContent && rationale) {
-            els.debugContent.innerHTML = `
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-start">
-                    <table class="w-full text-left border-collapse">
-                        <thead><tr><th colspan="2" class="text-purple-400 border-b border-purple-500/20 pb-2 mb-2 uppercase tracking-widest text-[9px]">Selection Logic</th></tr></thead>
-                        <tbody class="text-[10px]">
-                            <tr class="h-6">
-                                <td class="text-gray-500 pr-4">Strategy</td>
-                                <td class="text-white font-bold">${rationale.pair_type}</td>
-                            </tr>
-                            <tr class="h-6">
-                                <td class="text-gray-500 pr-4">Comp Size</td>
-                                <td class="text-white">${rationale.left_component_size} vs ${rationale.right_component_size}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr>
-                                <th class="text-purple-400 border-b border-purple-500/20 pb-2 mb-2 uppercase tracking-widest text-[9px]">Node Metrics</th>
-                                <th class="text-[8px] text-gray-500 text-right uppercase tracking-tighter">Left</th>
-                                <th class="text-[8px] text-gray-500 text-right uppercase tracking-tighter">Right</th>
-                            </tr>
-                        </thead>
-                        <tbody class="text-[10px]">
-                            <tr class="h-6 border-b border-white/5">
-                                <td class="text-gray-500 pr-4">Score</td>
-                                <td class="text-white text-right font-mono">${Utils.formatScore(left.score)}</td>
-                                <td class="text-white text-right font-mono">${Utils.formatScore(right.score)}</td>
-                            </tr>
-                            <tr class="h-6 border-b border-white/5">
-                                <td class="text-gray-500 pr-4">Chain Depth</td>
-                                <td class="text-white text-right">${left.chain_length}</td>
-                                <td class="text-white text-right">${right.chain_length}</td>
-                            </tr>
-                            <tr class="h-6 border-b border-white/5">
-                                <td class="text-gray-500 pr-4">Comparisons</td>
-                                <td class="text-white text-right">${left.comparison_count}</td>
-                                <td class="text-white text-right">${right.comparison_count}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            `;
-
-            if (rationale.refinement_details && rationale.refinement_details.node_0) {
-                const rd = rationale.refinement_details;
-
-                // Extract filenames from node objects, handling both old string format and new {filename, score} format
-                const getFilename = node => typeof node === "string" ? node : node.filename;
-
-                // Explicit cross-side matching for reliability
-                const leftSub = rd.node_0.sub_chain_nodes;
-                const rightSub = rd.node_1.sub_chain_nodes;
-                const leftFull = rd.node_0.full_chain_nodes;
-                const rightFull = rd.node_1.full_chain_nodes;
-
-                const leftSubFilenames = new Set(leftSub.map(getFilename));
-                const rightSubFilenames = new Set(rightSub.map(getFilename));
-                const leftFullFilenames = new Set(leftFull.map(getFilename));
-                const rightFullFilenames = new Set(rightFull.map(getFilename));
-
-                const isFilenameInBothSubs = fn => leftSubFilenames.has(fn) && rightSubFilenames.has(fn);
-                const isFilenameInBothFulls = fn => leftFullFilenames.has(fn) && rightFullFilenames.has(fn);
-
-                // Helper to get consistent styling for nodes
-                const getNodeStyle = (filename, currentActive, otherActive) => {
-                    // 1. Priority: Active Node on THIS side
-                    if (filename === currentActive) {
-                        return { bullet: "bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.6)]", text: "text-purple-400 font-black bg-purple-500/20 px-1 rounded ring-1 ring-purple-500/30", isInline: false };
-                    }
-
-                    // 2. Secondary: Active Node of the OTHER side (if it exists in our list)
-                    if (filename === otherActive) {
-                        return { bullet: "bg-pink-500 animate-pulse", text: "text-pink-400 font-bold bg-pink-500/20 px-1 rounded italic", isInline: false };
-                    }
-
-                    // 3. Shared in the specific GAP/Subchain (Blue shades)
-                    if (isFilenameInBothSubs(filename) || rd.common_subchain_nodes?.includes(filename)) {
-                        const hash = [...filename].reduce((a, c) => a + c.charCodeAt(0), 0);
-                        const hue = 190 + (hash % 50);
-                        return {
-                            bullet: `background-color: hsl(${hue}, 80%, 50%); box-shadow: 0 0 8px hsla(${hue}, 80%, 50%, 0.5)`,
-                            text: `color: hsl(${hue}, 80%, 75%); background-color: hsla(${hue}, 80%, 50%, 0.2); padding: 0 4px; border-radius: 3px; font-weight: 600;`,
-                            isInline: true,
-                            rawColor: `hsl(${hue}, 80%, 50%)`,
-                        };
-                    }
-
-                    // 4. Shared in the FULL chain (Red waypoints)
-                    if (isFilenameInBothFulls(filename) || rd.common_nodes?.includes(filename)) {
-                        return { bullet: "bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.4)]", text: "text-red-400 font-bold bg-red-900/40 px-1 rounded", isInline: false };
-                    }
-
-                    return { bullet: "bg-gray-800", text: "text-gray-500 opacity-60", isInline: false };
-                };
-
-                const renderNodeList = (nodes, currentActive, otherActive) => nodes.map((n) => {
-                    const filename = getFilename(n);
-                    const score = typeof n === "string" ? null : n.score;
-                    const s = getNodeStyle(filename, currentActive, otherActive);
-                    const bStyle = s.isInline ? `style="${s.bullet}"` : `class="w-1.5 h-1.5 rounded-full ${s.bullet}"`;
-                    const tStyle = s.isInline ? `style="${s.text}"` : `class="${s.text}"`;
-                    const scoreDisplay = score !== null ? ` [${Utils.formatScore(score)}]` : "";
-                    return `
-                            <li class="flex items-center gap-2 py-1">
-                                ${s.isInline ? `<span class="w-1.5 h-1.5 rounded-full" ${bStyle}></span>` : `<span ${bStyle}></span>`}
-                                <span ${tStyle} class="truncate text-[8px]">${filename}<span class="opacity-70">${scoreDisplay}</span></span>
-                            </li>`;
-                })
-                    .join("");
-
-                els.debugContent.innerHTML += `
-                    <div class="col-span-1 md:col-span-2 mt-4 p-4 bg-purple-500/5 rounded-2xl border border-purple-500/20 shadow-2xl backdrop-blur-sm">
-                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 border-b border-purple-500/10 pb-3">
-                            <div>
-                                <h5 class="text-purple-400 text-[10px] uppercase font-black tracking-[0.2em]">Refinement Topology</h5>
-                                <p class="text-[8px] text-gray-500 mt-1">Cross-chain filename matching enabled</p>
-                            </div>
-                            <div class="flex flex-wrap gap-4 text-[7px] uppercase tracking-widest font-black">
-                                <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_5px_red]"></span><span class="text-red-400">Waypoint</span></div>
-                                <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_5px_cyan]"></span><span class="text-blue-400">Shared Gap</span></div>
-                                <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_5px_purple]"></span><span class="text-purple-400">Selected</span></div>
-                                <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span><span class="text-pink-400">Other Side</span></div>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                             <!-- Left Data -->
-                             <div class="space-y-4">
-                                <div class="p-2 bg-black/20 rounded-lg border border-white/5">
-                                    <p class="text-[9px] text-purple-300 font-bold mb-2 flex items-center gap-2">
-                                        <span class="w-2 h-2 rounded-full bg-purple-500"></span> LEFT NODE CONTEXT
-                                    </p>
-                                    <div class="grid grid-cols-2 gap-2 text-[8px]">
-                                        <div class="text-gray-500">Main Chain Pos: <span class="text-white font-mono">${rd.node_0.pos_in_chain}/${rd.node_0.chain_len}</span></div>
-                                        <div class="text-gray-500">Gap Pos: <span class="text-white font-mono">${rd.node_0.pos_in_sub_chain}/${rd.node_0.sub_chain_len}</span></div>
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-1 gap-4">
-                                    <div>
-                                        <p class="text-[7px] text-gray-500 uppercase mb-1.5 font-black tracking-tighter">Subchain List (${rd.node_0.sub_chain_len})</p>
-                                        <div class="max-h-32 overflow-y-auto bg-black/60 p-2 rounded-xl border border-white/5 custom-scrollbar">
-                                            <ul class="list-none font-mono">
-                                                ${renderNodeList(rd.node_0.sub_chain_nodes, rd.node_0.filename, rd.node_1.filename)}
-                                            </ul>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p class="text-[7px] text-gray-500 uppercase mb-1.5 font-black tracking-tighter">Full Chain List (${rd.node_0.chain_len})</p>
-                                        <div class="max-h-32 overflow-y-auto bg-black/60 p-2 rounded-xl border border-white/5 custom-scrollbar">
-                                            <ul class="list-none font-mono">
-                                                ${renderNodeList(rd.node_0.full_chain_nodes, rd.node_0.filename, rd.node_1.filename)}
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                             </div>
-                             <!-- Right Data -->
-                             <div class="space-y-4">
-                                <div class="p-2 bg-black/20 rounded-lg border border-white/5">
-                                    <p class="text-[9px] text-pink-300 font-bold mb-2 flex items-center gap-2">
-                                        <span class="w-2 h-2 rounded-full bg-pink-500"></span> RIGHT NODE CONTEXT
-                                    </p>
-                                    <div class="grid grid-cols-2 gap-2 text-[8px]">
-                                        <div class="text-gray-500">Main Chain Pos: <span class="text-white font-mono">${rd.node_1.pos_in_chain}/${rd.node_1.chain_len}</span></div>
-                                        <div class="text-gray-500">Gap Pos: <span class="text-white font-mono">${rd.node_1.pos_in_sub_chain}/${rd.node_1.sub_chain_len}</span></div>
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-1 gap-4">
-                                    <div>
-                                        <p class="text-[7px] text-gray-500 uppercase mb-1.5 font-black tracking-tighter">Subchain List (${rd.node_1.sub_chain_len})</p>
-                                        <div class="max-h-32 overflow-y-auto bg-black/60 p-2 rounded-xl border border-white/5 custom-scrollbar">
-                                            <ul class="list-none font-mono">
-                                                ${renderNodeList(rd.node_1.sub_chain_nodes, rd.node_1.filename, rd.node_0.filename)}
-                                            </ul>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p class="text-[7px] text-gray-500 uppercase mb-1.5 font-black tracking-tighter">Full Chain List (${rd.node_1.chain_len})</p>
-                                        <div class="max-h-32 overflow-y-auto bg-black/60 p-2 rounded-xl border border-white/5 custom-scrollbar">
-                                            <ul class="list-none font-mono">
-                                                ${renderNodeList(rd.node_1.full_chain_nodes, rd.node_1.filename, rd.node_0.filename)}
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                             </div>
-                        </div>
-                        <div class="mt-4 pt-3 border-t border-purple-500/20 flex justify-between items-center text-[9px] text-gray-400 font-black tracking-widest uppercase">
-                            <span>Gap Index: ${rd.sub_chain_idx + 1} / ${rd.total_sub_chains}</span>
-                            <span class="text-purple-400/80">Δ Score: ${rd.score_diff}</span>
-                        </div>
-                    </div>
-                `;
-            }
-        }
+        // Delegate all phase-driven detail, footer, phase cards, and debug to CompareView.
+        CompareView.render(pair, left, right, els);
 
         els.leftImg.src = `/images/${encodeURIComponent(left.filename)}`;
         els.rightImg.src = `/images/${encodeURIComponent(right.filename)}`;
@@ -806,10 +560,15 @@ class CompareMode {
     // ── Reset / Stats ────────────────────────────────────────────────
 
     async resetCache() {
-        await CompareApi.resetCache();
-        this._prefetch.reset();
-        this._queue.reset();
-        Utils.showToast("Cache cleared!", "success");
+        this.showLoading(true, "Resetting cache...");
+        try {
+            await CompareApi.resetCache();
+            this._prefetch.reset();
+            this._queue.reset();
+            Utils.showToast("Cache cleared!", "success");
+        } finally {
+            this.showLoading(false);
+        }
     }
 
     async updateStats() {

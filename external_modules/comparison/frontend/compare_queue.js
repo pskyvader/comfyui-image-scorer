@@ -35,6 +35,9 @@ const CompareApi = {
     async getRankingConfig() {
         return api._get("/ranking/config");
     },
+    async getPhases() {
+        return api._get("/ranking/phases");
+    },
     async getStatus() {
         return api._get("/ranking/status");
     },
@@ -73,6 +76,21 @@ const CompareApi = {
     },
     async resetCache() {
         return api._post("/ranking/reset");
+    },
+    async skipImage(filename, timeoutMs = DEFAULT_TIMEOUT_MS) {
+        try {
+            await fetchWithTimeout(
+                `${api.apiBase}/ranking/skip`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename }),
+                },
+                timeoutMs
+            );
+        } catch (e) {
+            compareQueueLogger.warn("Skip cache update failed:", null, e.message || String(e));
+        }
     },
     async getImage(filename) {
         const resp = await fetchWithTimeout(

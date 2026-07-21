@@ -60,7 +60,7 @@ from ..comparison.algorithm.trueskill_rating import (
     replay_ratings,
 )
 
-from ..comparison.algorithm.pair_active import reset_skip
+from ..comparison.algorithm.phase_order import reset_skip
 
 from ...shared.graph.crystal_graph import crystal_graph
 from ...shared.logger import get_logger, ModuleLogger

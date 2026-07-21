@@ -4,9 +4,6 @@ import sys
 import threading
 import time
 import os
-
-os.environ["GLOG_minloglevel"] = "3"
-
 from pathlib import Path
 from flask import Flask, send_from_directory, request, send_file, Response
 from urllib.parse import unquote
@@ -67,8 +64,6 @@ app.extensions["image_processor"] = image_processor
 setattr(
     app, "image_processor", image_processor
 )  # Also set as attribute for easy access
-
-
 
 
 # Set up Flask configuration
@@ -155,13 +150,11 @@ def startup_worker(img_root: str, sync_existing: bool) -> None:
     """Background worker for initialization tasks."""
     _start = time.perf_counter()
     if not ensure_tier_structure():
-
         return
 
     if sync_existing:
         image_processor.rebuild_database_from_ranked()
-
-    if img_root:
+    elif img_root:
         scanner_task(img_root)
 
 

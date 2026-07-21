@@ -54,22 +54,3 @@ def invalidate_images_cache() -> None:
     _start = time.perf_counter()
     global _images_cache
     _images_cache = {"data": None, "timestamp": 0.0}
-
-
-# ---------------------------------------------------------------------------
-# Last pair metadata
-# ---------------------------------------------------------------------------
-_last_pair_metadata: dict[str, Any] = {}
-
-
-def get_last_pair_metadata() -> dict[str, Any]:
-    """Return metadata from the most recent pair selection."""
-    global _last_pair_metadata
-    result: dict[str, Any] = _last_pair_metadata.copy()
-    return result
-
-
-def set_last_pair_metadata(meta: dict[str, Any]) -> None:
-    """Replace the stored pair metadata."""
-    global _last_pair_metadata
-    _last_pair_metadata = meta

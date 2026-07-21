@@ -269,6 +269,8 @@ class ChainManager:
         comparisons: list[dict[str, Any]],
         all_filenames: set[str] | None = None,
     ) -> None:
+        _start: float = time.perf_counter()
+
         self._reset_adjacency()
         graph_filenames: set[str] = self._build_from_comparisons(comparisons)
         self._all_filenames = (
@@ -277,6 +279,7 @@ class ChainManager:
         self._identify_top_bottom()
         self._build_components()
         self._build_chains()
+        logger.info("build complete", start_timer=_start)
 
     def _reset_adjacency(self) -> None:
         self._better_than.clear()
@@ -520,21 +523,22 @@ class ChainManager:
                 fwd[n] = [n]
                 pbar.update(1)
         changed: bool = True
-        pass_num: int = 0
-        while changed:
-            pass_num += 1
-            changed = False
-            with tqdm(
-                total=len(order),
-                desc=f"Forward DP pass {pass_num}",
-                unit="node",
-                leave=False,
-            ) as pbar:
+        # pass_num: int = 0
+
+        with tqdm(
+            # total=len(order),
+            desc=f"Forward DP pass",
+            unit="node",
+            # leave=False,
+        ) as pbar:
+            while changed:
+                pbar.update(1)
+                # pass_num += 1
+                changed = False
                 for n in reversed(order):
                     losers: list[str] = self._worse_than.get(n, [])
                     if not losers:
                         fwd[n] = [n]
-                        pbar.update(1)
                         continue
                     best: list[str] = []
                     best_to_bottom: list[str] = []
@@ -557,7 +561,7 @@ class ChainManager:
                     if len(new) > len(fwd[n]):
                         fwd[n] = new
                         changed = True
-                    pbar.update(1)
+                    # pbar.update(1)
 
         # Backward DP (longest path from a top, prefer top reachable)
         bwd: dict[str, list[str]] = {}
@@ -568,21 +572,24 @@ class ChainManager:
                 bwd[n] = [n]
                 pbar.update(1)
         changed = True
-        pass_num = 0
-        while changed:
-            pass_num += 1
-            changed = False
-            with tqdm(
-                total=len(order),
-                desc=f"Backward DP pass {pass_num}",
-                unit="node",
-                leave=False,
-            ) as pbar:
+        # pass_num = 0
+        with tqdm(
+            # total=len(order),
+            desc=f"Backward DP pass",
+            unit="node",
+            # leave=False,
+        ) as pbar:
+            while changed:
+                pbar.update(1)
+
+                # pass_num += 1
+                changed = False
+
                 for n in order:
                     beaters: list[str] = self._better_than.get(n, [])
                     if not beaters:
                         bwd[n] = [n]
-                        pbar.update(1)
+                        # pbar.update(1)
                         continue
                     best: list[str] = []
                     best_to_top: list[str] = []
@@ -605,7 +612,7 @@ class ChainManager:
                     if len(new) > len(bwd[n]):
                         bwd[n] = new
                         changed = True
-                    pbar.update(1)
+                    # pbar.update(1)
 
         # Build unique chains and assign main chains
         seen: dict[tuple[str, ...], int] = {}
@@ -710,7 +717,7 @@ class ChainManager:
         start: str,
         end: str,
         skip_edges: set[tuple[str, str]] | None = None,
-        max_depth: int = 10,
+        max_depth: int = 3,
     ) -> bool:
         _start = time.perf_counter()
         reject: str | None = self._quick_reject(start, end)

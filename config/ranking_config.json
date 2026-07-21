@@ -10,6 +10,6 @@
     "timeout_ms": 30000,
     "seed_percentage": 5,
     "seed_target_comparisons": 10,
-    "insertion_target_comparisons": 3,
+    "insertion_target_comparisons": 2,
     "score_steepness": 1.5
 }

@@ -16,10 +16,14 @@ from flask import Blueprint, current_app, jsonify, request
 from ..comparison.algorithm import (
     merge_sort_ranker,
     state,
-    graph_helpers,
     comparison_recorder,
 )
+from ..comparison.algorithm.view import (
+    describe_image,
+    describe_pair,
+)
 from ..comparison.algorithm.pair_active import _stable_seed_pool
+from ..comparison.algorithm.phase_order import get_phases
 from ..database_structure.comparisons_table import (
     get_all_comparisons,
     get_skipped_comparison_count,
@@ -65,36 +69,6 @@ def _get_level_progress_stats(
     return result
 
 
-def _node_payload(filename: str, img_data: dict[str, Any]) -> dict[str, Any]:
-    node = crystal_graph.get_node(filename)
-    comp = crystal_graph.get_component(node_id=filename)
-    chain_length = crystal_graph.get_node_chain_length(filename)
-
-    left_extremes = {"top": 0, "bottom": 0}
-    if comp:
-        left_extremes = {
-            "top": sum(1 for member in comp.nodes if member.is_top()),
-            "bottom": sum(1 for member in comp.nodes if member.is_bottom()),
-        }
-
-    result = {
-        "filename": img_data["filename"],
-        "score": round(float(img_data["score"]), 4),
-        "comparison_count": int(img_data["comparison_count"]),
-        "chain_length": chain_length,
-        "component_size": comp.size if comp else 0,
-        "component_id": comp.id if comp else None,
-        "is_top": node.is_top() if node else False,
-        "is_bottom": node.is_bottom() if node else False,
-        "_extremes": left_extremes,
-    }
-    if int(result["comparison_count"]) > 0 and result["chain_length"] == 0:
-        raise RuntimeError(
-            "a node can't have chain length 0 and comparison count > 0 at the same time"
-        )
-    return result
-
-
 @ranking_bp.route("/config", methods=["GET"])
 def get_ranking_config():
     _start = time.perf_counter()
@@ -116,6 +90,11 @@ def get_ranking_config():
     )
 
     return result
+
+
+@ranking_bp.route("/phases", methods=["GET"])
+def get_ranking_phases():
+    return jsonify(get_phases())
 
 
 @ranking_bp.route("/status", methods=["GET"])
@@ -190,7 +169,7 @@ def get_next_pair():
         return result
 
     full_exclude = set(recent_files_ordered)
-    pair = merge_sort_ranker.select_pair_for_comparison(
+    pair, phase_index = merge_sort_ranker.select_pair_for_comparison(
         exclude_set=full_exclude,
     )
     if not pair:
@@ -199,9 +178,9 @@ def get_next_pair():
         return result
 
     filename_a, filename_b = pair
-    data_a = state.get_cached_image(filename_a)
-    data_b = state.get_cached_image(filename_b)
-    if not data_a or not data_b or data_a["filename"] == data_b["filename"]:
+    node_a = crystal_graph.get_node(filename_a)
+    node_b = crystal_graph.get_node(filename_b)
+    if node_a is None or node_b is None:
         result = "", 204
 
         return result
@@ -211,84 +190,14 @@ def get_next_pair():
             processor.recent_images.append(filename_a)
             processor.recent_images.append(filename_b)
 
-    all_images = get_all_images()
-    seed_set = set(_stable_seed_pool(all_images))
-    pair_meta = state.get_last_pair_metadata()
-    level_stats = _get_level_progress_stats(all_images)
-    level_count = sum(
-        1
-        for img in all_images
-        if int(img["comparison_count"]) > level_stats["base_level"]
-    )
-
-    left = _node_payload(filename_a, data_a)
-    right = _node_payload(filename_b, data_b)
-
-    left_data = {
-        "filename": left["filename"],
-        "score": left["score"],
-        "comparison_count": left["comparison_count"],
-        "chain_length": left["chain_length"],
-        "component_size": left["component_size"],
-        "component_id": left["component_id"],
-        "is_top": left["is_top"],
-        "is_bottom": left["is_bottom"],
-        "is_seed": filename_a in seed_set,
-    }
-    right_data = {
-        "filename": right["filename"],
-        "score": right["score"],
-        "comparison_count": right["comparison_count"],
-        "chain_length": right["chain_length"],
-        "component_size": right["component_size"],
-        "component_id": right["component_id"],
-        "is_top": right["is_top"],
-        "is_bottom": right["is_bottom"],
-        "is_seed": filename_b in seed_set,
-    }
-    component_data = {"id": None, "size": None}
-    if left["component_id"] == right["component_id"]:
-        component_data["id"] = left["component_id"]
-        component_data["size"] = left["component_size"]
-
-    pair_data = {
-        "pair_type": pair_meta.get("pair_type", "unknown"),
-        "left_component_size": left["component_size"],
-        "right_component_size": right["component_size"],
-        "left_comp_count": pair_meta.get("left_comp_count", 0),
-        "right_comp_count": pair_meta.get("right_comp_count", 0),
-        "refinement_details": pair_meta.get("refinement_details", {}),
-    }
-
-    debug_data = {
-        "score_diff": round(abs(left["score"] - right["score"]), 4),
-        "left_extremes": left["_extremes"],
-        "right_extremes": right["_extremes"],
-        "max_graph_height": crystal_graph.get_graph_stats()["longest_chain_depth"],
-        "total_components": level_stats["total_components"],
-    }
-
-    stats_data = {
-        "total_images": len(all_images),
-        "total_comparisons": get_total_comparisons(),
-        "skipped_comparisons": get_skipped_comparison_count(),
-        "level_count": level_count,
-        "total_components": level_stats["total_components"],
-        "total_chains": level_stats["total_chains"],
-        "active_nodes": level_stats["active_nodes"],
-        "next_level_count": level_stats["next_level_count"],
-        "target_level": level_stats["current_target"],
-        "base_level": level_stats["base_level"],
-    }
+    left = describe_image(node_a)
+    right = describe_image(node_b)
+    pair_payload = describe_pair(node_a, node_b, phase_index)
 
     response_data = {
-        "left": left_data,
-        "right": right_data,
-        "collapsable": graph_helpers.is_collapsable_pair(filename_a, filename_b),
-        "same_component": component_data,
-        "pair_meta": pair_data,
-        "debug": debug_data,
-        "global_stats": stats_data,
+        "left": left,
+        "right": right,
+        "pair": pair_payload,
     }
 
     result = jsonify(response_data)
@@ -303,6 +212,21 @@ def reset_ranking_queue():
         with processor.recent_lock:
             processor.clear_old_cache(force=True)
     result = jsonify({"status": "success", "message": "Ranking queue reset."})
+    return result
+
+
+@ranking_bp.route("/skip", methods=["POST"])
+def skip_image():
+    _start = time.perf_counter()
+    payload = request.get_json(silent=True) or {}
+    filename = payload.get("filename")
+    processor = _get_processor()
+    if processor and filename:
+        with processor.recent_lock:
+            # Re-touch the LRU so this image stays excluded from pair
+            # formation longer; excluding one image breaks the skipped pair.
+            processor.recent_images.append(filename)
+    result = jsonify({"status": "ok"})
     return result
 
 

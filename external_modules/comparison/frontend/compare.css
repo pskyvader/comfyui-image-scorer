@@ -287,6 +287,12 @@
     #compare-container .debug-grid {
         grid-template-columns: 1fr;
     }
+
+    /* Shrink/hide the VS badge so it doesn't overlap on small screens. */
+    .vs-badge {
+        transform: scale(0.6);
+        opacity: 0.6;
+    }
 }
 
 /* Graph Indicator Styles */
@@ -345,39 +351,46 @@
     margin: 0;
 }
 
-/* Card Borders based on comparison type */
+/* Card Borders based on comparison type (solid phase tint + subtle border) */
 .card-bootstrap {
-    border-color: rgba(139, 92, 246, 0.4) !important;
+    border-color: rgba(139, 92, 246, 0.5) !important;
+    background-color: rgba(139, 92, 246, 0.14) !important;
     box-shadow: 0 0 20px rgba(139, 92, 246, 0.1) !important;
 }
 
 .collapsible-card {
-    border-color: rgba(234, 179, 8, 0.6) !important;
+    border-color: rgba(234, 179, 8, 0.7) !important;
+    background-color: rgba(234, 179, 8, 0.14) !important;
     box-shadow: 0 0 25px rgba(234, 179, 8, 0.2) !important;
 }
 
 .card-anchor {
-    border-color: rgba(96, 165, 250, 0.5) !important;
+    border-color: rgba(96, 165, 250, 0.6) !important;
+    background-color: rgba(96, 165, 250, 0.14) !important;
     box-shadow: 0 0 20px rgba(96, 165, 250, 0.15) !important;
 }
 
 .card-refine {
-    border-color: rgba(251, 191, 36, 0.4) !important;
+    border-color: rgba(251, 191, 36, 0.5) !important;
+    background-color: rgba(251, 191, 36, 0.14) !important;
     box-shadow: 0 0 20px rgba(251, 191, 36, 0.1) !important;
 }
 
 .card-fallback {
-    border-color: rgba(168, 85, 247, 0.2) !important;
+    border-color: rgba(168, 85, 247, 0.3) !important;
+    background-color: rgba(168, 85, 247, 0.1) !important;
     box-shadow: 0 0 20px rgba(168, 85, 247, 0.05) !important;
 }
 
 .card-collapsible {
-    border-color: rgba(52, 211, 153, 0.5) !important;
+    border-color: rgba(52, 211, 153, 0.6) !important;
+    background-color: rgba(52, 211, 153, 0.14) !important;
     box-shadow: 0 0 20px rgba(52, 211, 153, 0.15) !important;
 }
 
 .card-chain-merge {
-    border-color: rgba(248, 113, 113, 0.5) !important;
+    border-color: rgba(248, 113, 113, 0.6) !important;
+    background-color: rgba(248, 113, 113, 0.14) !important;
     box-shadow: 0 0 20px rgba(248, 113, 113, 0.15) !important;
 }
 
