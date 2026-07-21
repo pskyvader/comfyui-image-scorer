@@ -40,7 +40,7 @@ def build_pairwise_dataset(
     groups: list[int] = []
     valid_pairs = 0
     with tqdm(
-        total=len(comparisons), desc="Building pairwise dataset", unit=" pairs"
+        total=len(comparisons), desc="Building pairwise dataset", unit=" pairs", delay=3.0
     ) as pbar:
         for comp in comparisons:
             pbar.update(1)

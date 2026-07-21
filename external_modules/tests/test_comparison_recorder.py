@@ -63,14 +63,14 @@ def test_update_scores_after_comparison(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         comparison_recorder,
         "rating_from_row",
-        lambda row: SimpleNamespace(mu=float(row["rating_mu"]), sigma=float(row["rating_sigma"])),
+        lambda row: SimpleNamespace(mu_skill=float(row["rating_mu"]), sigma_uncertainty=float(row["rating_sigma"])),
     )
     monkeypatch.setattr(
         comparison_recorder,
         "update_ratings",
-        lambda winner, loser: (SimpleNamespace(mu=30.0, sigma=4.0), SimpleNamespace(mu=20.0, sigma=6.0)),
+        lambda winner, loser: (SimpleNamespace(mu_skill=30.0, sigma_uncertainty=4.0), SimpleNamespace(mu_skill=20.0, sigma_uncertainty=6.0)),
     )
-    monkeypatch.setattr(comparison_recorder, "public_score_from_rating", lambda rating: rating.mu / 100.0)
+    monkeypatch.setattr(comparison_recorder, "public_score_from_rating", lambda rating: rating.mu_skill / 100.0)
 
     winner, loser = comparison_recorder.update_scores_after_comparison(
         "a",

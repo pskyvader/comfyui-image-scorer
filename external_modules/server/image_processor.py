@@ -20,6 +20,7 @@ from tqdm import tqdm
 #     sys.path.insert(0, str(_root))
 
 
+from ...shared.logger import get_logger, ModuleLogger
 from ...shared.config import config
 from ...shared.io import collect_valid_files, discover_files, parallel_for
 from ...shared.paths import image_root_processed, output_dir
@@ -63,7 +64,6 @@ from ..comparison.algorithm.trueskill_rating import (
 from ..comparison.algorithm.phase_order import reset_skip
 
 from ...shared.graph.crystal_graph import crystal_graph
-from ...shared.logger import get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -337,6 +337,7 @@ class ImageProcessor:
             desc="[SCANNER] Initializing...",
             unit="img",
             leave=False,
+            delay=3.0,
         ) as pbar:
 
             def update_desc() -> None:
@@ -425,7 +426,7 @@ class ImageProcessor:
         valid_filenames = {img["filename"] for img in get_all_images()}
 
         with tqdm(
-            total=len(all_entries), desc="Adding histories from image", unit="img"
+            total=len(all_entries), desc="Adding histories from image", unit="img", delay=3.0
         ) as pbar:
             for img_path, entry, _timestamp, file_id in all_entries:
                 filename = Path(img_path).name
@@ -535,13 +536,14 @@ class ImageProcessor:
             desc="Updating scores",
             unit="img",
             leave=False,
+            delay=3.0,
         ) as pbar:
             for filename, (rating, count) in replayed.items():
                 if update_image_rating_state(
                     filename=filename,
                     score=public_score_from_rating(rating),
-                    rating_mu=rating.mu,
-                    rating_sigma=rating.sigma,
+                    rating_mu=rating.mu_skill,
+                    rating_sigma=rating.sigma_uncertainty,
                     comparison_count=count,
                     touch_timestamp=False,
                 ):
@@ -594,6 +596,7 @@ class ImageProcessor:
             desc="[SCANNER] Reorganizing files",
             unit="file",
             leave=False,
+            delay=3.0,
         ) as pbar:
             for loose_file, target_path in moves:
                 json_path = loose_file.with_suffix(".json")

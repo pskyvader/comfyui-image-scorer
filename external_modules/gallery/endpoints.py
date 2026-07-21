@@ -12,12 +12,12 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, jsonify, request
 
+from ...shared.logger import get_logger, ModuleLogger
 from ..database_structure.comparisons_table import get_all_comparisons
 from ..database_structure.images_table import get_all_images, get_image
 import time
 
 gallery_bp = Blueprint("gallery_v2", __name__, url_prefix="/api/v2/gallery")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

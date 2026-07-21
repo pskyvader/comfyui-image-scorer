@@ -7,6 +7,7 @@ import time
 
 # print(f"package:{__package__}, name: {__name__}, file: {__file__}", flush=True)
 
+from ...shared.logger import get_logger, ModuleLogger
 from ..config import config
 from .image_vector import ImageVector
 from .map_vector import MapVector
@@ -25,7 +26,6 @@ from ...external_modules.comparison.algorithm.trueskill_rating import (
 )
 from ...external_modules.database_structure.comparisons_table import get_all_comparisons
 from ...external_modules.database_structure.images_table import get_image
-from ...shared.logger import get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -96,9 +96,9 @@ class VectorList:
             self.entries[file_id] = entry
             if not self.read_only:
 
-                mu = float(entry["rating_mu"])
-                sigma = float(entry["rating_sigma"])
-                score: float = public_score_from_rating(Rating(mu=mu, sigma=sigma))
+                mu_skill = float(entry["rating_mu"])
+                sigma_uncertainty = float(entry["rating_sigma"])
+                score: float = public_score_from_rating(Rating(mu_skill=mu_skill, sigma_uncertainty=sigma_uncertainty))
                 self.scores[file_id] = score
                 self.image_paths[file_id] = image_path
         if len(duplicated) > 0:
@@ -305,6 +305,7 @@ class VectorList:
             desc="joining vectors",
             unit="vectors",
             position=1,
+            delay=3.0,
         ) as pbar:
             for v in self.sorted_vectors:
                 c = self.sorted_vectors[v]
@@ -356,6 +357,7 @@ class VectorList:
             desc="joining text data",
             unit=" texts",
             position=1,
+            delay=3.0,
         ) as pbar:
             for v in self.sorted_vectors:
                 c = self.sorted_vectors[v]
@@ -496,6 +498,7 @@ class VectorList:
             desc="loading split files",
             unit="vectors",
             position=1,
+            delay=3.0,
         ) as pbar:
             for v in self.sorted_vectors:
                 c = self.sorted_vectors[v]
@@ -589,8 +592,8 @@ class VectorList:
                     if row is not None:
                         self.scores[fid] = public_score_from_rating(
                             Rating(
-                                mu=float(row["rating_mu"]),
-                                sigma=float(row["rating_sigma"]),
+                                mu_skill=float(row["rating_mu"]),
+                                sigma_uncertainty=float(row["rating_sigma"]),
                             )
                         )
                     else:
@@ -615,9 +618,9 @@ class VectorList:
             if not ids in self.scores:
                 row = get_image(ids)
                 if row is not None:
-                    mu = float(row["rating_mu"])
-                    sigma = float(row["rating_sigma"])
-                    score = public_score_from_rating(Rating(mu=mu, sigma=sigma))
+                    mu_skill = float(row["rating_mu"])
+                    sigma_uncertainty = float(row["rating_sigma"])
+                    score = public_score_from_rating(Rating(mu_skill=mu_skill, sigma_uncertainty=sigma_uncertainty))
                     self.scores[ids] = score
                 else:
                     logger.warning(f"No DB record for ID: {ids}")
@@ -630,6 +633,7 @@ class VectorList:
             desc="exporting splits",
             unit="vectors",
             position=1,
+            delay=3.0,
         ) as pbar:
             for v in self.sorted_vectors:
                 c = self.sorted_vectors[v]

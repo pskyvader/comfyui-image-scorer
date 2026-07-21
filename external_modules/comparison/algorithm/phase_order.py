@@ -12,8 +12,8 @@ import random
 import time
 from typing import Any
 
-from ....shared.config import config
 from ....shared.logger import SharedLogger
+from ....shared.config import config
 from ...database_structure.comparisons_table import get_total_comparisons
 
 from .constants import MIN_CHAIN_THRESHOLD

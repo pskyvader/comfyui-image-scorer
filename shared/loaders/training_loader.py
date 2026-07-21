@@ -7,6 +7,7 @@ import pickle
 import base64
 
 
+from ..logger import get_logger, ModuleLogger
 from ..io import load_single_jsonl
 from ..paths import (
     vectors_file,
@@ -23,7 +24,6 @@ from ..paths import (
     comparisons_file,
 )
 from ..helpers import remove_directory
-from ..logger import get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -250,13 +250,13 @@ class TrainingLoader:
                 if all(k in data for k in ("ids", "winners", "a", "b")):
                     ids = data["ids"]
                     winners = data["winners"]
-                    a = data["a"]
-                    b = data["b"]
+                    filename_a = data["a"]
+                    filename_b = data["b"]
                     return [
                         {
                             "id": int(ids[i]),
-                            "filename_a": str(a[i]),
-                            "filename_b": str(b[i]),
+                            "filename_a": str(filename_a[i]),
+                            "filename_b": str(filename_b[i]),
                             "winner": str(winners[i]),
                         }
                         for i in range(len(ids))
@@ -270,9 +270,9 @@ class TrainingLoader:
         os.makedirs(models_dir, exist_ok=True)
         ids = np.array([r["id"] for r in rows], dtype=np.int64)
         winners = np.array([r["winner"] for r in rows], dtype=object)
-        a = np.array([r["filename_a"] for r in rows], dtype=object)
-        b = np.array([r["filename_b"] for r in rows], dtype=object)
-        np.savez_compressed(comparisons_data, ids=ids, winners=winners, a=a, b=b)
+        filename_a = np.array([r["filename_a"] for r in rows], dtype=object)
+        filename_b = np.array([r["filename_b"] for r in rows], dtype=object)
+        np.savez_compressed(comparisons_data, ids=ids, winners=winners, a=filename_a, b=filename_b)
 
     def load_feature_rule(self) -> npt.NDArray[np.intp] | None:
         if self.use_cache and self.feature_rule is not None:

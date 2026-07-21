@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from numpy import typing as npt
 
+from ...shared.logger import get_logger
 from ...shared.paths import models_dir
 from ...shared.training.model_trainer import grid_base, around, model_trainer
 from ...shared.training.data_transformer import data_transformer
@@ -20,8 +21,6 @@ from .config_utils import (
 from .run import evaluate_hyperparameter_combo
 
 import time
-
-from ...shared.logger import get_logger
 
 logger = get_logger(__name__)
 

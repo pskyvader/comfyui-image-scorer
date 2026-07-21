@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from math import erf, exp, pi, sqrt
 import time
 
-from ....shared.config import config
 from ....shared.logger import get_logger, ModuleLogger
+from ....shared.config import config
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -57,12 +57,12 @@ class Rating:
     """A player's skill estimate expressed as a Gaussian (mu, sigma).
 
     Attributes:
-        mu:    The inferred mean skill.
-        sigma: The standard deviation (uncertainty) around that mean.
+        mu_skill:    The inferred mean skill.
+        sigma_uncertainty: The standard deviation (uncertainty) around that mean.
     """
 
-    mu: float = INITIAL_MEAN
-    sigma: float = INITIAL_UNCERTAINTY
+    mu_skill: float = INITIAL_MEAN
+    sigma_uncertainty: float = INITIAL_UNCERTAINTY
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +126,8 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
         A tuple (new_winner_rating, new_loser_rating).
     """
 
-    winner_uncertainty = _add_dynamics_noise(winner.sigma)
-    loser_uncertainty = _add_dynamics_noise(loser.sigma)
+    winner_uncertainty = _add_dynamics_noise(winner.sigma_uncertainty)
+    loser_uncertainty = _add_dynamics_noise(loser.sigma_uncertainty)
 
     combined_variance = (
         (2.0 * (PERFORMANCE_VARIATION**2))
@@ -136,7 +136,7 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
     )
     combined_deviation = sqrt(max(combined_variance, EPSILON))
 
-    mean_difference = winner.mu - loser.mu
+    mean_difference = winner.mu_skill - loser.mu_skill
     normalised_difference = mean_difference / combined_deviation
 
     cumulative_probability = normal_cumulative_distribution(normalised_difference)
@@ -151,10 +151,10 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
     loser_variance = loser_uncertainty**2
 
     winner_new_mean = (
-        winner.mu + (winner_variance / combined_deviation) * skill_adjustment_weight
+        winner.mu_skill + (winner_variance / combined_deviation) * skill_adjustment_weight
     )
     loser_new_mean = (
-        loser.mu - (loser_variance / combined_deviation) * skill_adjustment_weight
+        loser.mu_skill - (loser_variance / combined_deviation) * skill_adjustment_weight
     )
 
     winner_new_variance = winner_variance * max(
@@ -167,8 +167,8 @@ def update_ratings(winner: Rating, loser: Rating) -> tuple[Rating, Rating]:
     )
 
     result = (
-        Rating(mu=winner_new_mean, sigma=sqrt(winner_new_variance)),
-        Rating(mu=loser_new_mean, sigma=sqrt(loser_new_variance)),
+        Rating(mu_skill=winner_new_mean, sigma_uncertainty=sqrt(winner_new_variance)),
+        Rating(mu_skill=loser_new_mean, sigma_uncertainty=sqrt(loser_new_variance)),
     )
 
     return result
@@ -190,11 +190,11 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
 
     denominator = sqrt(
         (2.0 * (PERFORMANCE_VARIATION**2))
-        + (_clamp_uncertainty(first_rating.sigma) ** 2)
-        + (_clamp_uncertainty(second_rating.sigma) ** 2)
+        + (_clamp_uncertainty(first_rating.sigma_uncertainty) ** 2)
+        + (_clamp_uncertainty(second_rating.sigma_uncertainty) ** 2)
     )
     result = normal_cumulative_distribution(
-        SCORE_STEEPNESS * (first_rating.mu - second_rating.mu)
+        SCORE_STEEPNESS * (first_rating.mu_skill - second_rating.mu_skill)
         / max(denominator, EPSILON)
     )
 
@@ -202,7 +202,7 @@ def expected_win_probability(first_rating: Rating, second_rating: Rating) -> flo
 
 
 def public_score_from_rating(rating: Rating) -> float:
-    """Convert a (mu, sigma) rating into a [0, 1] score.
+    """Convert a (mu_skill, sigma_uncertainty) rating into a [0, 1] score.
 
     Delegates to expected_win_probability against the initial rating so
     that both functions share the exact same formula.  A new rating scores
@@ -215,7 +215,7 @@ def public_score_from_rating(rating: Rating) -> float:
         A float in [0, 1].
     """
 
-    return expected_win_probability(rating, Rating(mu=INITIAL_MEAN, sigma=INITIAL_UNCERTAINTY))
+    return expected_win_probability(rating, Rating(mu_skill=INITIAL_MEAN, sigma_uncertainty=INITIAL_UNCERTAINTY))
 
 
 def replay_ratings(rows: list[dict]) -> dict[str, tuple[Rating, int]]:
@@ -264,8 +264,8 @@ def rating_from_row(row: dict) -> Rating:
     """
 
     result = Rating(
-        mu=float(row["rating_mu"]),
-        sigma=float(row["rating_sigma"]),
+        mu_skill=float(row["rating_mu"]),
+        sigma_uncertainty=float(row["rating_sigma"]),
     )
 
     return result

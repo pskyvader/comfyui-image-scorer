@@ -21,6 +21,11 @@ from tqdm import tqdm
 
 # sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+from ...shared.logger import (
+    get_logger,
+    ModuleLogger,
+    configure_package_logging,
+)
 from ...shared.io import (
     atomic_write_json,
     discover_files,
@@ -28,11 +33,6 @@ from ...shared.io import (
     parallel_for,
 )  # noqa: E402
 import time
-from ...shared.logger import (
-    get_logger,
-    ModuleLogger,
-    configure_package_logging,
-)
 from ...shared.config import config
 
 logger: ModuleLogger = get_logger(__name__)
@@ -135,7 +135,7 @@ def deduplicate_scored(
         items_iter = (
             sorted(duplicates.items())[:limit] if limit else sorted(duplicates.items())
         )
-        for basename, items in tqdm(items_iter, desc="Resolving duplicates", unit="group"):
+        for basename, items in tqdm(items_iter, desc="Resolving duplicates", unit="group", delay=3.0):
             md5_groups: dict[str, list[EntryTriple]] = defaultdict(list)
             for img, jf, data in items:
                 key = _md5(img)
@@ -207,7 +207,7 @@ def deduplicate_scored(
     logger.debug("Building global MD5 index for cross-stem dedup...")
     survivors_by_md5: dict[str, list[EntryTriple]] = defaultdict(list)
     for items in tqdm(
-        groups.values(), desc="Building MD5 index", unit="group", leave=False
+        groups.values(), desc="Building MD5 index", unit="group", leave=False, delay=3.0
     ):
         for img, jf, data in items:
             if img.exists():
@@ -232,7 +232,7 @@ def deduplicate_scored(
         logger.debug("No cross-stem MD5 duplicates found")
 
     for same_images in tqdm(
-        cross_stem_groups, desc="Resolving cross-stem", unit="group", leave=False
+        cross_stem_groups, desc="Resolving cross-stem", unit="group", leave=False, delay=3.0
     ):
         logger.debug(
             "Cross-stem match: %s",

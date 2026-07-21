@@ -6,9 +6,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from ..loaders.model_loader import model_loader
-
 from ..logger import get_logger, ModuleLogger
+from ..loaders.model_loader import model_loader
 logger: ModuleLogger = get_logger(__name__)
 
 # Category order MUST match maps_loader.AGE/GENDER/RACE_CATEGORIES (model output index order).

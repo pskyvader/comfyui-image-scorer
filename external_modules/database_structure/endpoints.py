@@ -2,6 +2,7 @@
 
 from flask import Blueprint, Flask, jsonify, request, current_app
 
+from ...shared.logger import get_logger, ModuleLogger
 from .images_table import get_all_images, get_image_count
 from .comparisons_table import (
     get_all_comparisons,
@@ -19,8 +20,6 @@ from shared.paths import image_root_processed
 
 from ...shared.graph.crystal_graph import crystal_graph
 from ...shared.tasks import start_task, get_task_status, set_task_output
-
-from ...shared.logger import get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
 database_bp = Blueprint("database", __name__, url_prefix="/api/v2/database")

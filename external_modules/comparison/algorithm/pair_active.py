@@ -7,12 +7,12 @@ import time
 from typing import Any, Iterator
 import random
 
+from ....shared.logger import SharedLogger
 from ....shared.graph.chain_proxy import ChainProxy
 
 from ....shared.graph.crystal_graph import NodeProxy, crystal_graph, NodeTuple
 
 from ....shared.config import config
-from ....shared.logger import SharedLogger
 from ...database_structure.comparisons_table import (
     get_all_comparisons,
     get_images_with_only_wins,
@@ -38,9 +38,13 @@ def _stable_seed_pool(
     return result
 
 
-def _pair_key(a: str, b: str) -> tuple[str, str]:
+def _pair_key(filename_a: str, filename_b: str) -> tuple[str, str]:
     _start = time.perf_counter()
-    result: tuple[str, str] = (a, b) if a <= b else (b, a)
+    result: tuple[str, str] = (
+        (filename_a, filename_b)
+        if filename_a <= filename_b
+        else (filename_b, filename_a)
+    )
     return result
 
 
@@ -60,16 +64,18 @@ def _component_id(filename: str) -> int | None:
     return result
 
 
-def _score_gap(a: dict[str, Any], b: dict[str, Any]) -> float:
+def _score_gap(image_a: dict[str, Any], image_b: dict[str, Any]) -> float:
     _start = time.perf_counter()
-    result = abs(float(a["score"]) - float(b["score"]))
+    result = abs(float(image_a["score"]) - float(image_b["score"]))
 
     return result
 
 
-def _pair_probability(a: dict[str, Any], b: dict[str, Any]) -> float:
+def _pair_probability(image_a: dict[str, Any], image_b: dict[str, Any]) -> float:
     _start = time.perf_counter()
-    result = expected_win_probability(rating_from_row(a), rating_from_row(b))
+    result = expected_win_probability(
+        rating_from_row(image_a), rating_from_row(image_b)
+    )
 
     return result
 
@@ -105,9 +111,9 @@ def _find_unseen_candidates(
     # return result
 
 
-def _are_in_different_paths(a: str, b: str) -> bool:
+def _are_in_different_paths(filename_a: str, filename_b: str) -> bool:
     _start = time.perf_counter()
-    result = not crystal_graph.are_in_same_path(a, b)
+    result = not crystal_graph.are_in_same_path(filename_a, filename_b)
     return result
 
 
@@ -213,10 +219,10 @@ def _phase2_anchor_insert(
     pool.sort(key=lambda img: (int(img["comparison_count"]), float(img["score"])))
     source = pool[0]
     source_name = source["filename"]
-    source_mu = float(source["rating_mu"])
+    source_mu_skill = float(source["rating_mu"])
 
     remaining = [img for img in pool if img["filename"] != source_name]
-    remaining.sort(key=lambda opp: (abs(float(opp["rating_mu"]) - source_mu),))
+    remaining.sort(key=lambda opp: (abs(float(opp["rating_mu"]) - source_mu_skill),))
     opponents = _find_unseen_candidates(source, remaining, existing_pair_set)
     seen_opponents = 0
     for opponent in opponents:
@@ -275,15 +281,17 @@ def _phase3_collapsible_pairs(
         sorted_bottom_dict.sort(key=lambda bottom: bottom[1], reverse=False)
         sorted_bottoms: list[str] = [bottom[0] for bottom in sorted_bottom_dict]
 
-        for i, a in enumerate(sorted_bottoms):
-            if a not in only_loses:
-                raise RuntimeError(f"bottom node {a} not present in only loses.")
+        for i, bottom_a in enumerate(sorted_bottoms):
+            if bottom_a not in only_loses:
+                raise RuntimeError(f"bottom node {bottom_a} not present in only loses.")
 
-            for b in sorted_bottoms[i + 1 :]:
-                if b not in only_loses:
-                    raise RuntimeError(f"bottom node {b} not present in only loses.")
+            for bottom_b in sorted_bottoms[i + 1 :]:
+                if bottom_b not in only_loses:
+                    raise RuntimeError(
+                        f"bottom node {bottom_b} not present in only loses."
+                    )
 
-                result = (a, b)
+                result = (bottom_a, bottom_b)
 
                 return result
 
@@ -296,14 +304,14 @@ def _phase3_collapsible_pairs(
         sorted_top_dict.sort(key=lambda top: top[1], reverse=False)
         sorted_tops: list[str] = [top[0] for top in sorted_top_dict]
 
-        for i, a in enumerate(sorted_tops):
-            if a not in only_wins:
-                raise RuntimeError(f"top node {a} not present in only wins.")
-            for b in sorted_tops[i + 1 :]:
-                if b not in only_wins:
-                    raise RuntimeError(f"top node {b} not present in only wins.")
+        for i, top_a in enumerate(sorted_tops):
+            if top_a not in only_wins:
+                raise RuntimeError(f"top node {top_a} not present in only wins.")
+            for top_b in sorted_tops[i + 1 :]:
+                if top_b not in only_wins:
+                    raise RuntimeError(f"top node {top_b} not present in only wins.")
 
-                result = (a, b)
+                result = (top_a, top_b)
 
                 return result
 
@@ -374,12 +382,17 @@ def _phase4_chain_merge(
             pair_list.insert(0, (a_mid, b_mid))
             pair_list.extend(list(zip(a_nodes, b_nodes)))
             pair_list.extend(
-                [(a, b) for a in a_nodes for b in b_nodes if a.filename != b.filename]
+                [
+                    (node_a, node_b)
+                    for node_a in a_nodes
+                    for node_b in b_nodes
+                    if node_a.filename != node_b.filename
+                ]
             )
-            for a, b in set(pair_list):
-                a_name = a.filename
-                b_name = b.filename
-                if abs(a.score - b.score) > score_threshold:
+            for node_a, node_b in set(pair_list):
+                a_name = node_a.filename
+                b_name = node_b.filename
+                if abs(node_a.score - node_b.score) > score_threshold:
                     continue
 
                 if crystal_graph.are_in_same_path(a_name, b_name):
@@ -413,34 +426,45 @@ def _phase5_uncertainty_refine(
         candidate_images,
         key=lambda img: (-float(img["rating_sigma"]), int(img["comparison_count"])),
     )
+    logger.debug(f"uncertainty pool length:{len(uncertainty_pool)}", start_timer=_start)
 
     # Build seed pool for similar-mu matching
     seed_filenames = set(_stable_seed_pool(candidate_images))
     seed_pool = [img for img in candidate_images if img["filename"] in seed_filenames]
     if not seed_pool:
         return None
+    logger.debug(f"seed pool length:{len(seed_pool)}", start_timer=_start)
 
+    steps = 0
     for source in uncertainty_pool:
-        source_mu = float(source["rating_mu"])
+        steps += 1
+        source_mu_skill = float(source["rating_mu"])
         source_name = source["filename"]
 
         # Find seed images with similar mu, unseen with source
         candidates = [
-            s for s in seed_pool
+            s
+            for s in seed_pool
             if s["filename"] != source_name
             and _pair_key(source_name, s["filename"]) not in pair_set
             and not crystal_graph.are_in_same_path(source_name, s["filename"])
         ]
+        logger.debug(f"candidates length:{len(candidates)}", start_timer=_start)
 
         if not candidates:
             continue
 
         chosen = min(
             candidates,
-            key=lambda s: abs(float(s["rating_mu"]) - source_mu),
+            key=lambda s: abs(float(s["rating_mu"]) - source_mu_skill),
         )
 
         result = (source_name, chosen["filename"])
+        logger.debug(
+            f"Uncertainty refine selected pair ({steps} steps): {result}",
+            start_timer=_start,
+        )
+
         return result
 
     return None
@@ -464,6 +488,3 @@ def _phase_fallback(
 
             return result
     return None
-
-
-

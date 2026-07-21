@@ -7,6 +7,8 @@ import time
 import sys
 
 
+from ..logger import get_logger, ModuleLogger
+
 from ...external_modules.database_structure.images_table import (
     get_all_images,
 )
@@ -14,8 +16,6 @@ from ...external_modules.database_structure.comparisons_table import (
     get_all_comparisons,
     get_total_comparisons,
 )
-
-from ..logger import get_logger, ModuleLogger
 from .chain_manager import ChainManager
 from .node_proxy import NodeProxy
 from .chain_proxy import ChainProxy
@@ -183,10 +183,10 @@ class CrystalGraph:
                 "Exactly one of node_id, component_id, or chain_id is required"
             )
         if node_id is not None:
-            cid: int | None = self._chain.get_component_id(node_id)
-            if cid is None:
+            component_id: int | None = self._chain.get_component_id(node_id)
+            if component_id is None:
                 return None
-            return ComponentProxy(self._chain, cid)
+            return ComponentProxy(self._chain, component_id)
         if component_id is not None:
             if component_id not in self._chain._component_members:
                 return None
@@ -195,15 +195,15 @@ class CrystalGraph:
             chain: ChainProxy | None = self.get_chain(chain_id=chain_id)
             if chain is None or not chain._nodes:
                 return None
-            cid = self._chain.get_component_id(chain._nodes[0])
-            if cid is None:
+            component_id = self._chain.get_component_id(chain._nodes[0])
+            if component_id is None:
                 return None
-            return ComponentProxy(self._chain, cid)
+            return ComponentProxy(self._chain, component_id)
         return None
 
     def get_all_components(self) -> list[ComponentProxy]:
         return [
-            ComponentProxy(self._chain, cid) for cid in self._chain._component_members
+            ComponentProxy(self._chain, component_id) for component_id in self._chain._component_members
         ]
 
     # -- Links ----------------------------------------------------------
@@ -215,7 +215,7 @@ class CrystalGraph:
         loser: str
         key: tuple[str, str]
         with tqdm(
-            self._chain.get_all_filenames(), desc="Collecting links", unit="node"
+            self._chain.get_all_filenames(), desc="Collecting links", unit="node", delay=3.0
         ) as pbar:
             for node_id in pbar:
                 for loser in self._chain.get_worse_than(node_id):
@@ -306,6 +306,7 @@ class CrystalGraph:
             desc="Building final chain map",
             total=len(chain_map),
             unit="chain lengths",
+            delay=3.0,
         ) as pbar:
             for length, chain_list in pbar:
                 final_map[length] = {}

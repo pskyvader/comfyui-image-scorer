@@ -8,21 +8,12 @@ import torch
 from torchvision import transforms
 import numpy as np
 
+from ..logger import get_logger
 from ..loaders.model_loader import model_loader
 from .helpers import l2_normalize_batch
 from ..io import load_json
 from ..paths import vectors_size_file
 from .batch_sizer import BatchSizer
-
-# import logging
-
-
-from ..logger import (
-    # SSELogBroadcaster,
-    # SharedLogger,
-    get_logger,
-    # set_log_filter_hook,
-)
 
 logger = get_logger(__name__)
 
@@ -289,12 +280,14 @@ class ImageVector:
             unit="bucket",
             position=0,
             leave=True,
+            delay=3.0,
         ) as bucket_pbar:
             with tqdm(
                 total=total,
                 desc="Encoded",
                 unit=self.name,
                 position=1,
+                delay=3.0,
             ) as pbar:
                 max_batch_size = 0
                 for bucket_idx, (size, items) in enumerate(bucket_list, start=1):

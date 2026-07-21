@@ -30,6 +30,7 @@ from ...shared.tasks import (
 )
 from ...shared.io import load_single_jsonl
 from ...shared.paths import vectors_file, text_data_file, scores_file
+from ...shared.logger import get_logger, ModuleLogger
 from ...shared.training.matrix_analysis import MatrixAnalyzer
 from ...shared.training.parameter_analysis import ParameterAnalyzer
 
@@ -37,7 +38,6 @@ from ...shared.training.parameter_analysis import ParameterAnalyzer
 import time
 
 analysis_bp = Blueprint("analysis_v2", __name__, url_prefix="/api/v2/analysis")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

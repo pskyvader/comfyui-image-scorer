@@ -6,6 +6,7 @@ from collections import deque
 from typing import Any
 import time
 
+from ....shared.logger import get_logger, ModuleLogger
 from ....shared.graph.crystal_graph import crystal_graph
 
 from .state import (
@@ -16,7 +17,6 @@ from .graph_helpers import (
 )
 from .phase_order import select_pair
 
-from ....shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 
@@ -30,7 +30,6 @@ def select_pair_for_comparison(
     1=anchor, 2=collapsible, 3=chain_merge, 4=refine, 5=fallback) or ``None``.
     """
     _start = time.perf_counter()
-    started = time.perf_counter()
     all_images: list[dict[str, Any]] = get_cached_all_images()
     if len(all_images) < 2:
         logger.warning(
@@ -54,10 +53,13 @@ def select_pair_for_comparison(
         return None, None
 
     pair, phase_index = select_pair(all_images, candidate_images)
+
     if not pair:
-        logger.warning(
-            f"select_pair_for_comparison: no pair ({time.perf_counter() - _start:.4f}s)"
-        )
+        logger.warning(f"select_pair_for_comparison: no pair", start_timer=_start)
         return None, None
 
+    # logger.debug(
+    #     f"select_pair_for_comparison: selected pair {pair} in phase {phase_index}",
+    #     start_timer=_start,
+    # )
     return pair, phase_index

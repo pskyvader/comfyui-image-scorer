@@ -67,7 +67,7 @@ class EmbeddingVector:
             return result
 
         with tqdm(
-            total=total, desc="Encoded", unit=" " + self.name + " vectors"
+            total=total, desc="Encoded", unit=" " + self.name + " vectors", delay=3.0
         ) as pbar:
             for index in range(0, total, batch_size):
                 current_batch: Iterable[tuple[str, str]] = list(
@@ -95,7 +95,7 @@ class EmbeddingVector:
             result: dict[str, str] = {}
             return result
 
-        with tqdm(total=total, desc="Encoded", unit=" " + self.name + " texts") as pbar:
+        with tqdm(total=total, desc="Encoded", unit=" " + self.name + " texts", delay=3.0) as pbar:
             for index in range(0, total, batch_size):
                 current_batch: Iterable[tuple[str, str]] = list(
                     self.value_list.items()

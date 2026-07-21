@@ -34,11 +34,11 @@ from ..database_structure.images_table import (
     get_image_count,
 )
 from ..database_structure.path_handler import sync_image_metadata_to_json
+from ...shared.logger import get_logger, ModuleLogger
 from ...shared.config import config
 from ...shared.graph.crystal_graph import crystal_graph
 
 ranking_bp = Blueprint("ranking_v2", __name__, url_prefix="/api/v2/ranking")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

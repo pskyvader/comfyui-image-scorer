@@ -407,15 +407,15 @@ def clean_comparisons() -> dict[str, int]:
 
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        a = str(row.get("filename_a", ""))
-        b = str(row.get("filename_b", ""))
-        if a not in valid_filenames or b not in valid_filenames:
+        filename_a = str(row.get("filename_a", ""))
+        filename_b = str(row.get("filename_b", ""))
+        if filename_a not in valid_filenames or filename_b not in valid_filenames:
             missing_nodes_removed += 1
             continue
-        if a == b:
+        if filename_a == filename_b:
             self_links_removed += 1
             continue
-        canon_a, canon_b = _canonicalize_pair(a, b)
+        canon_a, canon_b = _canonicalize_pair(filename_a, filename_b)
         row["filename_a"] = canon_a
         row["filename_b"] = canon_b
         grouped[(canon_a, canon_b)].append(row)

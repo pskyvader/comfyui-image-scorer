@@ -617,7 +617,7 @@ def extract_all_data(
 
     from tqdm import tqdm
 
-    for i in tqdm(range(len(text_data)), desc="Processing", unit="line"):
+    for i in tqdm(range(len(text_data)), desc="Processing", unit="line", delay=3.0):
         outer = text_data[i]
         current_score = float(scores[i])
         current_line = dict(outer[next(iter(outer))])

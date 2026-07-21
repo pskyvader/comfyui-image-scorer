@@ -27,6 +27,14 @@ if __name__ == "__main__":
         __package__ = "comfyui_image_scorer.external_modules.server"
 
 
+from ...shared.logger import (
+    SSELogBroadcaster,
+    SharedLogger,
+    configure_package_logging,
+    get_logger,
+    set_log_filter_hook,
+)
+
 # Now import Flask and API modules
 from ..data_transform.endpoints import register_data_transform_routes
 from ..comparison.endpoints import register_ranking_routes
@@ -46,13 +54,6 @@ from .image_processor import ImageProcessor
 
 from ...shared.config import config
 from ...shared.paths import image_root
-from ...shared.logger import (
-    SSELogBroadcaster,
-    SharedLogger,
-    configure_package_logging,
-    get_logger,
-    set_log_filter_hook,
-)
 
 logger = get_logger(__name__)
 

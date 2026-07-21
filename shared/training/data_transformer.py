@@ -8,6 +8,7 @@ import gc
 from typing import Any
 from sklearn.preprocessing import PolynomialFeatures
 
+from ..logger import get_logger
 from ..config import config
 from ..loaders.training_loader import training_loader
 from .model_trainer import model_trainer
@@ -15,8 +16,6 @@ from ...external_modules.comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     replay_ratings,
 )
-
-from ..logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -160,7 +159,7 @@ class DataTransformer:
         pbar = None
         if user_verbosity >= 0:
             # Use tqdm progress bar
-            pbar = tqdm(total=steps, desc="Training LightGBM")
+            pbar = tqdm(total=steps, desc="Training LightGBM", delay=3.0)
 
             def pbar_callback(_):
                 pbar.update(1)
@@ -333,7 +332,7 @@ class DataTransformer:
 
         # Pass 1: Stats
         with tqdm(
-            total=n_samples, desc="Computing Correlations", unit="samples"
+            total=n_samples, desc="Computing Correlations", unit="samples", delay=3.0
         ) as pbar:
             for i in range(0, n_samples, batch_size):
                 end_idx = min(i + batch_size, n_samples)
@@ -352,7 +351,7 @@ class DataTransformer:
         )
 
         with tqdm(
-            total=n_samples, desc="Building Interaction Matrix", unit="samples"
+            total=n_samples, desc="Building Interaction Matrix", unit="samples", delay=3.0
         ) as pbar:
             for i in range(0, n_samples, batch_size):
                 end_idx = min(i + batch_size, n_samples)

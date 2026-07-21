@@ -32,11 +32,11 @@ class NodeProxy:
         return self._image_data.get("score", 0.5)
 
     @property
-    def mu(self) -> float:
+    def mu_skill(self) -> float:
         return self._image_data.get("rating_mu", 25.0)
 
     @property
-    def sigma(self) -> float:
+    def sigma_uncertainty(self) -> float:
         return self._image_data.get("rating_sigma", 25.0 / 3.0)
 
     @property

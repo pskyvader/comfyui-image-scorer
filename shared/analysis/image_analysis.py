@@ -13,9 +13,9 @@ from .mediapipe_analysis import MediaPipeAnalyzer, POSE_LANDMARK_NAMES
 from .attribute_analysis import FaceAttributeAnalyzer, NSFWAnalyzer
 from ..config import config
 from ..io import atomic_write_json
+from ..logger import get_logger, ModuleLogger
 from ..vectors.image_vector import ImageVector
 
-from ..logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 # Type Alias for the shared data structure
@@ -403,7 +403,7 @@ class ImageAnalysis(ImageVector):
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [executor.submit(process_single_batch, *b) for b in batches]
-                with tqdm(total=total, desc="Analyzing", unit="img") as pbar:
+                with tqdm(total=total, desc="Analyzing", unit="img", delay=3.0) as pbar:
                     for f in as_completed(futures):
                         res: list[ImageEntry] = f.result()
                         result.extend(res)
@@ -413,7 +413,7 @@ class ImageAnalysis(ImageVector):
 
             logger.info("Running face attribute analysis...")
             _face_start = time.perf_counter()
-            with tqdm(total=total, desc="Face", unit="img") as pbar:
+            with tqdm(total=total, desc="Face", unit="img", delay=3.0) as pbar:
                 for idx in range(0, len(result), attr_batch_size):
                     batch = result[idx : idx + attr_batch_size]
                     batch = self._run_face_pass(batch)
@@ -424,7 +424,7 @@ class ImageAnalysis(ImageVector):
 
             logger.info("Running NSFW analysis...")
             _nsfw_start = time.perf_counter()
-            with tqdm(total=total, desc="NSFW", unit="img") as pbar:
+            with tqdm(total=total, desc="NSFW", unit="img", delay=3.0) as pbar:
                 for idx in range(0, len(result), attr_batch_size):
                     batch = result[idx : idx + attr_batch_size]
                     batch = self._run_nsfw_pass(batch)

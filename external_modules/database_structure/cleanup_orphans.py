@@ -22,14 +22,13 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from shared.paths import image_root_processed  # noqa: E402
-import time
-
 from ...shared.logger import (
     get_logger,
     ModuleLogger,
     configure_package_logging,
 )
+from shared.paths import image_root_processed  # noqa: E402
+import time
 logger: ModuleLogger = get_logger(__name__)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -102,6 +101,7 @@ def cleanup_orphans(
         desc="[CLEANUP] Moving orphans to root",
         unit="file",
         leave=False,
+        delay=3.0,
     ) as pbar:
         for f in orphans:
             if f.parent == root:
@@ -132,6 +132,7 @@ def cleanup_orphans(
         desc="[CLEANUP] Resolving root orphans",
         unit="stem",
         leave=False,
+        delay=3.0,
     ):
         images = [f for f in files if f.suffix.lower() in IMAGE_EXTENSIONS]
         jsons = [f for f in files if f.suffix.lower() == ".json"]
@@ -144,6 +145,7 @@ def cleanup_orphans(
                 desc=f"  Moving {stem} to {score_05.name}",
                 unit="file",
                 leave=False,
+                delay=3.0,
             ) as inner:
                 for f in images + jsons:
                     dest = score_05 / f.name

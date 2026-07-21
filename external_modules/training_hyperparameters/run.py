@@ -4,13 +4,13 @@ import random
 from itertools import product, islice
 import numpy as np
 
+from ...shared.logger import get_logger, ModuleLogger
 from shared.paths import models_dir, hyperparameters_statistics
 from shared.training.model_trainer import model_trainer, grid_base, around
 from shared.config import config
 from shared.io import load_json, atomic_write_json
 import time
 
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 _last_used_keys: dict[str, list[str]] = {}

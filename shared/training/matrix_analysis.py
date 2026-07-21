@@ -201,7 +201,7 @@ class MatrixAnalyzer:
         # First pass: collect all unique parameters (with progress)
         all_params_set: set[str] = set()
         with tqdm(
-            total=len(self.text_data), desc="Extracting parameters", unit=" records"
+            total=len(self.text_data), desc="Extracting parameters", unit=" records", delay=3.0
         ) as pbar:
             for i, record in enumerate(self.text_data):
                 # if (i + 1) % 1000 == 0:
@@ -235,7 +235,7 @@ class MatrixAnalyzer:
         # Second pass: build matrix
         print("Building parameter co-occurrence matrix...")
         with tqdm(
-            total=len(self.text_data), desc="Building matrix", unit=" records"
+            total=len(self.text_data), desc="Building matrix", unit=" records", delay=3.0
         ) as pbar:
             for i, record in enumerate(self.text_data):
                 # if (i + 1) % 1000 == 0:
@@ -301,7 +301,7 @@ class MatrixAnalyzer:
 
         # 1. Flattening Phase with Progress Bar
         with tqdm(
-            total=total_possible_cells, desc="Flattening Matrix", unit="cells"
+            total=total_possible_cells, desc="Flattening Matrix", unit="cells", delay=3.0
         ) as pbar:
             for p1_id in range(size):
                 for p2_id in range(p1_id, size):
@@ -364,6 +364,7 @@ class MatrixAnalyzer:
             stats_df.iter_rows(named=True),
             total=len(stats_df),
             desc="Building Final Dict",
+            delay=3.0,
         ):
             p1, p2 = row["p1"], row["p2"]
 
@@ -414,7 +415,7 @@ class MatrixAnalyzer:
         export_data_list: list[dict[str, Any]] = []
 
         with tqdm(
-            total=len(self.cell_stats), desc="Exporting to JSON", unit=" cells"
+            total=len(self.cell_stats), desc="Exporting to JSON", unit=" cells", delay=3.0
         ) as pbar:
             for (p1_id, p2_id), stats in self.cell_stats.items():
                 # Skip duplicates (due to symmetry) - only export upper triangle

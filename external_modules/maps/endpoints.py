@@ -2,12 +2,12 @@
 
 from flask import Blueprint, jsonify, request
 
+from ...shared.logger import get_logger, ModuleLogger
 from ..database_structure.images_table import get_all_images
 from ...shared.graph.crystal_graph import crystal_graph
 import time
 
 maps_bp = Blueprint("maps_v2", __name__, url_prefix="/api/v2/maps")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

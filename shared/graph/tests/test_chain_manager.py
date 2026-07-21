@@ -75,7 +75,7 @@ def test_performance_on_large_chains() -> None:
     logger.debug(f"Selected {len(selected_images)} unique images for the subset.")
 
     comparisons = []
-    with tqdm(all_real_comparisons, desc="TEST: Filtering comparisons") as pbar:
+    with tqdm(all_real_comparisons, desc="TEST: Filtering comparisons", delay=3.0) as pbar:
         for c in pbar:
             if c["filename_a"] in selected_images or c["filename_b"] in selected_images:
                 comparisons.append(c)
@@ -115,7 +115,7 @@ def test_cycles_do_not_prevent_bottom_reachability() -> None:
     cm.build(comparisons)
 
     chains = cm.get_chains()
-    for cid, chain in chains.items():
+    for chain_id, chain in chains.items():
         # Every chain built MUST end at 'd', because 'd' is the only absolute bottom!
         assert (
             chain[-1] == "d"
@@ -198,3 +198,34 @@ def test_top_bottom_match_database_exactly() -> None:
         f"DB: {len(db_bottoms)} bottoms, CM: {len(cm_bottoms)} bottoms. "
         f"Missing from CM: {db_bottoms - cm_bottoms}, Extra in CM: {cm_bottoms - db_bottoms}"
     )
+
+
+def test_chain_snapshot_matches_known_optimal() -> None:
+    """Design a DAG with unambiguous optimal chains and assert exact output."""
+    comparisons = [
+        # Independent chain of 4: a1 > a2 > a3 > a4
+        {"filename_a": "a1", "filename_b": "a2", "winner": "a1"},
+        {"filename_a": "a2", "filename_b": "a3", "winner": "a2"},
+        {"filename_a": "a3", "filename_b": "a4", "winner": "a3"},
+        # Independent chain of 3: b1 > b2 > b3
+        {"filename_a": "b1", "filename_b": "b2", "winner": "b1"},
+        {"filename_a": "b2", "filename_b": "b3", "winner": "b2"},
+    ]
+
+    cm = ChainManager()
+    cm.build(comparisons)
+
+    # The current algorithm merges upward and downward chains, so every
+    # node on a chain gets the full path from top to bottom.
+    assert cm.get_node_main_chain("a1")[1] == ["a1", "a2", "a3", "a4"]
+    assert cm.get_node_main_chain("a2")[1] == ["a1", "a2", "a3", "a4"]
+    assert cm.get_node_main_chain("a3")[1] == ["a1", "a2", "a3", "a4"]
+    assert cm.get_node_main_chain("a4")[1] == ["a1", "a2", "a3", "a4"]
+
+    assert cm.get_node_main_chain("b1")[1] == ["b1", "b2", "b3"]
+    assert cm.get_node_main_chain("b2")[1] == ["b1", "b2", "b3"]
+    assert cm.get_node_main_chain("b3")[1] == ["b1", "b2", "b3"]
+
+    # Exactly 2 unique chains
+    chain_tuples = {tuple(c) for c in cm.get_chains().values()}
+    assert chain_tuples == {("a1", "a2", "a3", "a4"), ("b1", "b2", "b3")}

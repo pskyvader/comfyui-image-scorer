@@ -11,10 +11,9 @@ import math
 import random
 import time
 
+from ....shared.logger import get_logger, ModuleLogger
 from ....shared.graph.crystal_graph import crystal_graph
 from .constants import MAX_PAIR_CANDIDATES
-
-from ....shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 
@@ -156,8 +155,8 @@ def find_lowest_confidence_images(
 
         return []
 
-    sigma = max(float(img["rating_sigma"]) for img in images)
-    images = [img for img in images if float(img["rating_sigma"]) >= sigma - 0.05]
+    sigma_uncertainty = max(float(img["rating_sigma"]) for img in images)
+    images = [img for img in images if float(img["rating_sigma"]) >= sigma_uncertainty - 0.05]
     random_tiebreakers = {img["filename"]: random.random() for img in images}
     sorted_by_score = sorted(
         images,

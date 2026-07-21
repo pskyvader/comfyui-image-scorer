@@ -42,7 +42,7 @@ def write_single_jsonl(filename: str, data: list[Any], mode: str) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not mode.startswith("r"):
-        with tqdm(total=len(data)) as pbar:
+        with tqdm(total=len(data), delay=3.0) as pbar:
             with jsonlines.open(file_path, mode="w") as writer:
                 for item in data:
                     writer.write(item)
@@ -84,7 +84,7 @@ def parallel_for(
     results: list[R] = []
     n: int = len(items)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        with tqdm(total=n, desc=desc, unit=unit, leave=False, position=0) as pbar:
+        with tqdm(total=n, desc=desc, unit=unit, leave=False, position=0, delay=3.0) as pbar:
             try:
                 if batch_size > 0:
                     batches = [
@@ -196,7 +196,7 @@ def collect_valid_files(
                 for file in files
             ]
             # total=len(files)
-            with tqdm(desc="Collecting", unit=" files") as pbar:
+            with tqdm(desc="Collecting", unit=" files", delay=3.0) as pbar:
                 for future in as_completed(futures):
                     result = future.result()
 

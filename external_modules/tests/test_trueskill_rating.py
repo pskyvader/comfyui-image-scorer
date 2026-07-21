@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from ..shared.logger import get_logger
 from .comparison.algorithm.trueskill_rating import (
     INITIAL_MEAN,
     EPSILON,
@@ -18,7 +19,6 @@ from .comparison.algorithm.trueskill_rating import (
     public_score_from_rating,
     update_ratings,
 )
-from ..shared.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -38,10 +38,10 @@ def test_winner_rating_moves_up_and_loser_moves_down() -> None:
     loser = Rating()
     new_winner, new_loser = update_ratings(winner, loser)
 
-    assert new_winner.mu > INITIAL_MEAN
-    assert new_loser.mu < INITIAL_MEAN
-    assert new_winner.sigma < winner.sigma
-    assert new_loser.sigma < loser.sigma
+    assert new_winner.mu_skill > INITIAL_MEAN
+    assert new_loser.mu_skill < INITIAL_MEAN
+    assert new_winner.sigma_uncertainty < winner.sigma_uncertainty
+    assert new_loser.sigma_uncertainty < loser.sigma_uncertainty
     assert public_score_from_rating(new_winner) > public_score_from_rating(new_loser)
     assert public_score_from_rating(new_winner) > 0.0
 
@@ -55,4 +55,4 @@ def test_math_helpers_and_row_conversion() -> None:
     assert _add_dynamics_noise(0.0) > EPSILON
 
     rating = rating_from_row({"rating_mu": "26.5", "rating_sigma": "8.2"})
-    assert rating == Rating(mu=26.5, sigma=8.2)
+    assert rating == Rating(mu_skill=26.5, sigma_uncertainty=8.2)

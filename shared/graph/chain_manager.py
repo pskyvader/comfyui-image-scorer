@@ -6,9 +6,9 @@ from typing import Any
 import time
 from tqdm import tqdm
 
-from ..logger import get_logger
+from ..logger import get_logger, ModuleLogger
 
-logger = get_logger(__name__)
+logger: ModuleLogger = get_logger(__name__)
 
 
 # ======================================================================
@@ -19,11 +19,11 @@ logger = get_logger(__name__)
 def parse_comparison(
     comp: dict[str, Any],
 ) -> tuple[str, str, str, str]:
-    a: str = comp["filename_a"]
-    b: str = comp["filename_b"]
+    filename_a: str = comp["filename_a"]
+    filename_b: str = comp["filename_b"]
     winner: str = comp["winner"]
-    loser: str = b if winner == a else a
-    return a, b, winner, loser
+    loser: str = filename_b if winner == filename_a else filename_a
+    return filename_a, filename_b, winner, loser
 
 
 def add_directed_edge(
@@ -39,13 +39,13 @@ def add_directed_edge(
 def add_undirected_edge(
     adjacency: defaultdict[str, set[str]],
     filenames: set[str],
-    a: str,
-    b: str,
+    filename_a: str,
+    filename_b: str,
 ) -> None:
-    adjacency[a].add(b)
-    adjacency[b].add(a)
-    filenames.add(a)
-    filenames.add(b)
+    adjacency[filename_a].add(filename_b)
+    adjacency[filename_b].add(filename_a)
+    filenames.add(filename_a)
+    filenames.add(filename_b)
 
 
 def process_one_comparison(
@@ -55,9 +55,9 @@ def process_one_comparison(
     adjacency: defaultdict[str, set[str]],
     filenames: set[str],
 ) -> None:
-    a, b, winner, loser = parse_comparison(comp)
+    filename_a, filename_b, winner, loser = parse_comparison(comp)
     add_directed_edge(better_than, worse_than, winner, loser)
-    add_undirected_edge(adjacency, filenames, a, b)
+    add_undirected_edge(adjacency, filenames, filename_a, filename_b)
 
 
 # ------------------------------------------------------------------
@@ -127,7 +127,11 @@ def index_component(
 ) -> None:
     component_members[comp_id] = members
     with tqdm(
-        total=len(members), desc="Indexing component", unit="node", leave=False
+        total=len(members),
+        desc="Indexing component",
+        unit="node",
+        leave=False,
+        delay=3.0,
     ) as pbar:
         for member in members:
             node_component[member] = comp_id
@@ -163,23 +167,27 @@ def same_component(
     v: str,
     node_component: dict[str, int],
 ) -> bool | None:
-    cu = node_component.get(u)
-    cv = node_component.get(v)
-    if cu is not None and cv is not None:
-        return cu == cv
+    comp_u = node_component.get(u)
+    comp_v = node_component.get(v)
+    if comp_u is not None and comp_v is not None:
+        return comp_u == comp_v
     return None
 
 
 def find_common_chain_id(
-    chains_u: dict[int, bool],
-    chains_v: dict[int, bool],
+    node_chains: dict[int, bool],
+    other_chains: dict[int, bool],
 ) -> int | None:
     with tqdm(
-        total=len(chains_u), desc="Finding common chain", unit="cid", leave=False
+        total=len(node_chains),
+        desc="Finding common chain",
+        unit="chain",
+        leave=False,
+        delay=3.0,
     ) as pbar:
-        for cid in chains_u:
-            if cid in chains_v:
-                return cid
+        for chain_id in node_chains:
+            if chain_id in other_chains:
+                return chain_id
             pbar.update(1)
     return None
 
@@ -289,7 +297,10 @@ class ChainManager:
     def _build_from_comparisons(self, comparisons: list[dict[str, Any]]) -> set[str]:
         graph_filenames: set[str] = set()
         with tqdm(
-            total=len(comparisons), desc="Building graph from comparisons", unit="comp"
+            total=len(comparisons),
+            desc="Building graph from comparisons",
+            unit="comp",
+            delay=3.0,
         ) as pbar:
             for comp in comparisons:
                 process_one_comparison(
@@ -403,6 +414,7 @@ class ChainManager:
             desc="Reassigning nodes",
             unit="node",
             leave=False,
+            delay=3.0,
         ) as pbar:
             for node in self._component_members.get(remove_id, []):
                 self._node_component[node] = keep_id
@@ -419,6 +431,7 @@ class ChainManager:
             self._component_members.get(remove_id, []),
             desc="Merging components",
             unit="node",
+            delay=3.0,
         ) as pbar:
             for node in pbar:
                 self._node_component[node] = keep_id
@@ -466,7 +479,10 @@ class ChainManager:
         # Topological order for DP
         in_degree: dict[str, int] = {}
         with tqdm(
-            total=len(self._all_filenames), desc="Initializing in-degrees", unit="node"
+            total=len(self._all_filenames),
+            desc="Initializing in-degrees",
+            unit="node",
+            delay=3.0,
         ) as pbar:
             for n in self._all_filenames:
                 in_degree[n] = 0
@@ -475,6 +491,7 @@ class ChainManager:
             total=sum(len(v) for v in self._worse_than.values()),
             desc="Building in-degrees",
             unit="edges",
+            delay=3.0,
         ) as pbar:
             for children in self._worse_than.values():
                 for child in children:
@@ -487,7 +504,10 @@ class ChainManager:
         )
         remaining: set[str] = set(self._all_filenames)
         with tqdm(
-            total=len(self._all_filenames), desc="Topological sort", unit="node"
+            total=len(self._all_filenames),
+            desc="Topological sort",
+            unit="node",
+            delay=3.0,
         ) as pbar:
             while remaining:
                 while queue:
@@ -515,21 +535,25 @@ class ChainManager:
                 queue.append(pick)
 
         # Forward DP (longest path to a bottom, prefer bottom reachable)
-        fwd: dict[str, list[str]] = {}
+        downward_chains: dict[str, list[str]] = {}
         with tqdm(
-            total=len(self._all_filenames), desc="Initializing forward DP", unit="node"
+            total=len(self._all_filenames),
+            desc="Initializing forward DP",
+            unit="node",
+            delay=3.0,
         ) as pbar:
             for n in self._all_filenames:
-                fwd[n] = [n]
+                downward_chains[n] = [n]
                 pbar.update(1)
         changed: bool = True
         # pass_num: int = 0
 
         with tqdm(
             # total=len(order),
-            desc=f"Forward DP pass",
-            unit="node",
+            desc=f"Forward DP",
+            unit="pass",
             # leave=False,
+            delay=3.0,
         ) as pbar:
             while changed:
                 pbar.update(1)
@@ -538,7 +562,7 @@ class ChainManager:
                 for n in reversed(order):
                     losers: list[str] = self._worse_than.get(n, [])
                     if not losers:
-                        fwd[n] = [n]
+                        downward_chains[n] = [n]
                         continue
                     best: list[str] = []
                     best_to_bottom: list[str] = []
@@ -548,36 +572,40 @@ class ChainManager:
                     #     unit="loser",
                     #     leave=False,
                     # ) as pbar2:
-                    for l in losers:
-                        p = fwd.get(l, [l])
-                        if n in p:
-                            p = [l]
-                        if len(p) > len(best):
-                            best = p
-                        if self.is_bottom(p[-1]) and len(p) > len(best_to_bottom):
-                            best_to_bottom = p
+                    for loser in losers:
+                        path = downward_chains.get(loser, [loser])
+                        if n in path:
+                            path = [loser]
+                        if len(path) > len(best):
+                            best = path
+                        if self.is_bottom(path[-1]) and len(path) > len(best_to_bottom):
+                            best_to_bottom = path
                             # pbar2.update(1)
                     new: list[str] = [n] + (best_to_bottom if best_to_bottom else best)
-                    if len(new) > len(fwd[n]):
-                        fwd[n] = new
+                    if len(new) > len(downward_chains[n]):
+                        downward_chains[n] = new
                         changed = True
                     # pbar.update(1)
 
         # Backward DP (longest path from a top, prefer top reachable)
-        bwd: dict[str, list[str]] = {}
+        upward_chains: dict[str, list[str]] = {}
         with tqdm(
-            total=len(self._all_filenames), desc="Initializing backward DP", unit="node"
+            total=len(self._all_filenames),
+            desc="Initializing backward DP",
+            unit="node",
+            delay=3.0,
         ) as pbar:
             for n in self._all_filenames:
-                bwd[n] = [n]
+                upward_chains[n] = [n]
                 pbar.update(1)
         changed = True
         # pass_num = 0
         with tqdm(
             # total=len(order),
-            desc=f"Backward DP pass",
-            unit="node",
+            desc=f"Backward DP",
+            unit="pass",
             # leave=False,
+            delay=3.0,
         ) as pbar:
             while changed:
                 pbar.update(1)
@@ -588,7 +616,7 @@ class ChainManager:
                 for n in order:
                     beaters: list[str] = self._better_than.get(n, [])
                     if not beaters:
-                        bwd[n] = [n]
+                        upward_chains[n] = [n]
                         # pbar.update(1)
                         continue
                     best: list[str] = []
@@ -599,18 +627,18 @@ class ChainManager:
                     #     unit="beater",
                     #     leave=False,
                     # ) as pbar2:
-                    for b in beaters:
-                        p = bwd.get(b, [b])
-                        if n in p:
-                            p = [b]
-                        if len(p) > len(best):
-                            best = p
-                        if self.is_top(p[0]) and len(p) > len(best_to_top):
-                            best_to_top = p
+                    for beater in beaters:
+                        path = upward_chains.get(beater, [beater])
+                        if n in path:
+                            path = [beater]
+                        if len(path) > len(best):
+                            best = path
+                        if self.is_top(path[0]) and len(path) > len(best_to_top):
+                            best_to_top = path
                             # pbar2.update(1)
                     new = (best_to_top if best_to_top else best) + [n]
-                    if len(new) > len(bwd[n]):
-                        bwd[n] = new
+                    if len(new) > len(upward_chains[n]):
+                        upward_chains[n] = new
                         changed = True
                     # pbar.update(1)
 
@@ -618,32 +646,40 @@ class ChainManager:
         seen: dict[tuple[str, ...], int] = {}
         next_id: int = 0
         with tqdm(
-            total=len(self._all_filenames), desc="Building main chains", unit="node"
+            total=len(self._all_filenames),
+            desc="Building main chains",
+            unit="node",
+            delay=3.0,
         ) as pbar:
             for n in self._all_filenames:
-                fp: list[str] = self._dedup_path(fwd[n])
-                bp: list[str] = self._dedup_path(bwd[n])
-                if len(bp) > 1:
-                    prefix: set[str] = set(bp[:-1])
-                    full: list[str] = bp[:-1] + [x for x in fp if x not in prefix]
+                down_chain: list[str] = self._dedup_path(downward_chains[n])
+                up_chain: list[str] = self._dedup_path(upward_chains[n])
+                if len(up_chain) > 1:
+                    prefix: set[str] = set(up_chain[:-1])
+                    full: list[str] = up_chain[:-1] + [
+                        x for x in down_chain if x not in prefix
+                    ]
                 else:
-                    full = fp
-                key: tuple[str, ...] = tuple(full)
-                if key not in seen:
-                    seen[key] = next_id
+                    full = down_chain
+                chain_key: tuple[str, ...] = tuple(full)
+                if chain_key not in seen:
+                    seen[chain_key] = next_id
                     self._chains[next_id] = full
                     next_id += 1
-                cid: int = seen[key]
-                self._node_main_chain[n] = (cid, full)
-                self._node_chains[n] = {cid: True}
-                self._node_to_chains.setdefault(n, []).append((cid, full))
+                chain_id: int = seen[chain_key]
+                self._node_main_chain[n] = (chain_id, full)
+                self._node_chains[n] = {chain_id: True}
+                self._node_to_chains.setdefault(n, []).append((chain_id, full))
                 pbar.update(1)
 
         with tqdm(
-            total=len(self._chains), desc="Setting common chains", unit="chain"
+            total=len(self._chains),
+            desc="Setting common chains",
+            unit="chain",
+            delay=3.0,
         ) as pbar:
-            for cid, chain in self._chains.items():
-                self._common_chains[cid] = (chain, True)
+            for chain_id, chain in self._chains.items():
+                self._common_chains[chain_id] = (chain, True)
                 pbar.update(1)
 
         logger.info(
@@ -698,7 +734,11 @@ class ChainManager:
                 continue
             children = self._worse_than.get(current, [])
             with tqdm(
-                total=len(children), desc="BFS search", unit="edge", leave=False
+                total=len(children),
+                desc="BFS search",
+                unit="edge",
+                leave=False,
+                delay=3.0,
             ) as pbar:
                 for w in children:
                     if skip_edges and (current, w) in skip_edges:
@@ -717,7 +757,7 @@ class ChainManager:
         start: str,
         end: str,
         skip_edges: set[tuple[str, str]] | None = None,
-        max_depth: int = 3,
+        max_depth: int = 10,
     ) -> bool:
         _start = time.perf_counter()
         reject: str | None = self._quick_reject(start, end)
@@ -731,18 +771,18 @@ class ChainManager:
                 logger.debug(f"can reach (same chain)", start_timer=_start)
                 return True
         found: bool = self._bfs_search(start, end, skip_edges, max_depth)
-        if found:
-            logger.debug(f"can reach", start_timer=_start)
-        else:
-            logger.debug(f"cannot reach", start_timer=_start)
+        # if found:
+        #     logger.debug(f"can reach", start_timer=_start)
+        # else:
+        #     logger.debug(f"cannot reach", start_timer=_start)
         return found
 
     def _check_same_chain(self, u: str, v: str) -> tuple[bool, bool]:
-        chains_u = self._node_chains.get(u)
-        chains_v = self._node_chains.get(v)
-        if not chains_u or not chains_v:
+        node_chains = self._node_chains.get(u)
+        other_chains = self._node_chains.get(v)
+        if not node_chains or not other_chains:
             return (False, False)
-        common_id: int | None = find_common_chain_id(chains_u, chains_v)
+        common_id: int | None = find_common_chain_id(node_chains, other_chains)
         if common_id is None:
             return (False, False)
         common_chain: list[str] = self._common_chains[common_id][0]

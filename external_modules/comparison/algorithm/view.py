@@ -44,8 +44,8 @@ def _describe_one(node: NodeProxy) -> dict[str, Any]:
     return {
         "filename": node.filename,
         "score": round(float(node.score), 4),
-        "rating_mu": round(float(node.mu), 4),
-        "rating_sigma": round(float(node.sigma), 4),
+        "rating_mu": round(float(node.mu_skill), 4),
+        "rating_sigma": round(float(node.sigma_uncertainty), 4),
         "comparison_count": int(node.comparison_count),
         "chain_length": chain_length,
         "chain_id": chain_id,
@@ -90,8 +90,8 @@ def describe_pair(
         c = int(n.comparison_count)
         level_counts[c] = level_counts.get(c, 0) + 1
 
-    rating_a = Rating(mu=node_a.mu, sigma=node_a.sigma)
-    rating_b = Rating(mu=node_b.mu, sigma=node_b.sigma)
+    rating_a = Rating(mu_skill=node_a.mu_skill, sigma_uncertainty=node_a.sigma_uncertainty)
+    rating_b = Rating(mu_skill=node_b.mu_skill, sigma_uncertainty=node_b.sigma_uncertainty)
     probability_a_beats_b = expected_win_probability(rating_a, rating_b)
 
     component_a = node_a.get_component()

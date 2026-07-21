@@ -12,6 +12,7 @@ if str(_root) not in sys.path:
 
 from flask import Blueprint, jsonify, request
 
+from ...shared.logger import get_logger, ModuleLogger
 from .hyperparameter_optimizer import (
     reset_hyperparameters,
     run_hpo_cycles,
@@ -21,7 +22,6 @@ from ...shared.helpers import remove_models
 from ...shared.tasks import get_task_status, set_task_output, start_task
 
 training_bp = Blueprint("training_v2", __name__, url_prefix="/api/v2/training")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

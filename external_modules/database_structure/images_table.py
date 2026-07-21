@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...shared.logger import get_logger, ModuleLogger
 from .schema import get_db_connection
 import time
 
 MU0 = 25.0
 SIGMA0 = MU0 / 3.0
 
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 

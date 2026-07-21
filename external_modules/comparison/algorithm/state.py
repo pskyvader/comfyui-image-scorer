@@ -8,12 +8,11 @@ from typing import Any
 from collections import deque
 import time
 
+from ....shared.logger import get_logger, ModuleLogger
 from ...database_structure.images_table import get_all_images
 from .constants import IMAGES_CACHE_TTL
 from ....shared.config import config
 from ....shared.graph.crystal_graph import crystal_graph
-
-from ....shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------

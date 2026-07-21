@@ -773,3 +773,6 @@ def log_message(
         start_timer=start_timer,
         task_id=task_id,
     )
+
+
+configure_package_logging()

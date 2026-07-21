@@ -21,6 +21,7 @@ if __name__ == "__main__":
     if __package__ is None:
         __package__ = "comfyui_image_scorer.external_modules.data_transform"
 
+from ...shared.logger import configure_package_logging, get_logger, ModuleLogger
 from ...shared.vectors.vectors import VectorList
 
 from ...shared.io import (
@@ -107,8 +108,6 @@ from ..comparison.algorithm.trueskill_rating import (
 from ..comparison.algorithm.comparison_recorder import get_all_comparisons
 from ..database_structure.images_table import get_image
 
-
-from ...shared.logger import configure_package_logging, get_logger, ModuleLogger
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -302,9 +301,9 @@ def run_rebuild_scores_only() -> dict[str, int]:
             new_scores_list.append({index_entry: 0.5})
             missing_count += 1
         else:
-            mu = float(row["rating_mu"])
-            sigma = float(row["rating_sigma"])
-            score = public_score_from_rating(Rating(mu=mu, sigma=sigma))
+            mu_skill = float(row["rating_mu"])
+            sigma_uncertainty = float(row["rating_sigma"])
+            score = public_score_from_rating(Rating(mu_skill=mu_skill, sigma_uncertainty=sigma_uncertainty))
             new_scores_list.append({index_entry: score})
             updated_count += 1
 

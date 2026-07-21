@@ -20,14 +20,13 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
+from ..logger import get_logger
 from ..config import config
 from ..io import load_single_jsonl
 from ..loaders.training_loader import training_loader
 from ..paths import index_file
 from .calibration import build_score_calibration
 from .pair_data import build_pairwise_dataset, load_comparison_records
-
-from ..logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -588,9 +587,9 @@ class ModelTrainer:
             )
 
         progress_bar = tqdm(
-            total=self.n_estimators, desc="Training LightGBM", position=0
+            total=self.n_estimators, desc="Training LightGBM", position=0, delay=3.0
         )
-        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}")
+        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}", delay=3.0)
         logger.debug("creating callbacks...")
 
         self.create_callbacks(
@@ -695,9 +694,9 @@ class ModelTrainer:
         x_train, x_test, y_train, y_test = split_res
 
         progress_bar = tqdm(
-            total=self.n_estimators, desc="Training LightGBM", position=0
+            total=self.n_estimators, desc="Training LightGBM", position=0, delay=3.0
         )
-        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}")
+        status_bar = tqdm(total=0, desc="Status", position=1, bar_format="{desc}", delay=3.0)
         self.create_callbacks(
             progress_bar, enable_plotting=enable_plotting, status_bar=status_bar
         )
@@ -705,6 +704,7 @@ class ModelTrainer:
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
+
                 category=UserWarning,
                 message=".*X does not have valid feature names.*",
             )

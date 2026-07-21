@@ -23,10 +23,10 @@ from shared.config import config
 from shared.paths import image_root
 from shared.tasks import start_task, get_task_status, set_task_output
 from shared.paths import vectors_file, scores_file, index_file, text_data_file
+from ...shared.logger import get_logger, ModuleLogger
 from shared.helpers import remove_vectors
 
 data_bp = Blueprint("data_v2", __name__, url_prefix="/api/v2/data")
-from ...shared.logger import get_logger, ModuleLogger
 logger: ModuleLogger = get_logger(__name__)
 
 
