@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 import time
-from typing import Any, Iterator
-import random
+from typing import Any
+from collections.abc import Iterator
 
-from ....shared.logger import SharedLogger
+# import random
+
+from ....shared.logger import get_logger, ModuleLogger
 from ....shared.graph.chain_proxy import ChainProxy
 
 from ....shared.graph.crystal_graph import NodeProxy, crystal_graph, NodeTuple
@@ -20,12 +22,11 @@ from ...database_structure.comparisons_table import (
 )
 
 from .constants import MIN_CHAIN_THRESHOLD
-from .trueskill_rating import expected_win_probability, rating_from_row
 
-logger = SharedLogger.get_logger(__name__)
+logger: ModuleLogger = get_logger(__name__)
 
 
-def _stable_seed_pool(
+def stable_seed_pool(
     images: list[dict[str, Any]],
 ) -> list[str]:
     seed_percentage = int(config["ranking"]["seed_percentage"])
@@ -48,7 +49,7 @@ def _pair_key(filename_a: str, filename_b: str) -> tuple[str, str]:
     return result
 
 
-def _existing_pairs() -> set[tuple[str, str]]:
+def existing_pairs() -> set[tuple[str, str]]:
     result = {
         _pair_key(comp["filename_a"], comp["filename_b"])
         for comp in get_all_comparisons(weight=1.0)
@@ -67,15 +68,6 @@ def _component_id(filename: str) -> int | None:
 def _score_gap(image_a: dict[str, Any], image_b: dict[str, Any]) -> float:
     _start = time.perf_counter()
     result = abs(float(image_a["score"]) - float(image_b["score"]))
-
-    return result
-
-
-def _pair_probability(image_a: dict[str, Any], image_b: dict[str, Any]) -> float:
-    _start = time.perf_counter()
-    result = expected_win_probability(
-        rating_from_row(image_a), rating_from_row(image_b)
-    )
 
     return result
 
@@ -138,7 +130,7 @@ def _build_low_count_pool(
     return result
 
 
-def _phase1_seed_coverage(
+def phase1_seed_coverage(
     seed_candidates: list[dict[str, Any]],
     existing_pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
@@ -199,7 +191,7 @@ def _phase1_seed_coverage(
     return None
 
 
-def _phase2_anchor_insert(
+def phase2_anchor_insert(
     candidate_images: list[dict[str, Any]],
     seed_pool: set[str],
     existing_pair_set: set[tuple[str, str]],
@@ -237,7 +229,7 @@ def _phase2_anchor_insert(
     return None
 
 
-def _phase3_collapsible_pairs(
+def phase3_collapsible_pairs(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
@@ -321,7 +313,7 @@ def _phase3_collapsible_pairs(
 _last_chains_index: list[int] = []
 
 
-def _phase4_chain_merge(
+def phase4_chain_merge(
     candidate_images: list[dict[str, Any]],
 ) -> tuple[str, str] | None:
     global _last_chains_index
@@ -416,61 +408,90 @@ def _phase4_chain_merge(
     return None
 
 
-def _phase5_uncertainty_refine(
+def phase5_uncertainty_refine(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
     _start = time.perf_counter()
-    # Sort by highest sigma (uncertainty) first
-    uncertainty_pool = sorted(
-        candidate_images,
-        key=lambda img: (-float(img["rating_sigma"]), int(img["comparison_count"])),
-    )
-    logger.debug(f"uncertainty pool length:{len(uncertainty_pool)}", start_timer=_start)
 
-    # Build seed pool for similar-mu matching
-    seed_filenames = set(_stable_seed_pool(candidate_images))
-    seed_pool = [img for img in candidate_images if img["filename"] in seed_filenames]
-    if not seed_pool:
-        return None
-    logger.debug(f"seed pool length:{len(seed_pool)}", start_timer=_start)
+    min_sigma_threshold = 3.0
 
-    steps = 0
-    for source in uncertainty_pool:
-        steps += 1
-        source_mu_skill = float(source["rating_mu"])
-        source_name = source["filename"]
+    seed_filenames: set[str] = set(stable_seed_pool(candidate_images))
+    seed_pool: list[NodeProxy] = []
+    candidate_nodes: list[NodeProxy] = []
+    ready_nodes: list[NodeProxy] = []
+    node_a: NodeProxy | None = None
 
-        # Find seed images with similar mu, unseen with source
-        candidates = [
-            s
-            for s in seed_pool
-            if s["filename"] != source_name
-            and _pair_key(source_name, s["filename"]) not in pair_set
-            and not crystal_graph.are_in_same_path(source_name, s["filename"])
-        ]
-        logger.debug(f"candidates length:{len(candidates)}", start_timer=_start)
-
-        if not candidates:
+    for img in candidate_images:
+        node: NodeProxy | None = crystal_graph.get_node(img["filename"])
+        if not node:
             continue
 
-        chosen = min(
-            candidates,
-            key=lambda s: abs(float(s["rating_mu"]) - source_mu_skill),
-        )
+        candidate_nodes.append(node)
 
-        result = (source_name, chosen["filename"])
+    candidate_nodes = sorted(
+        candidate_nodes,
+        key=lambda node: (-float(node.sigma_uncertainty)),
+    )
+    for node in candidate_nodes:
+        if node.filename in seed_filenames:
+            seed_pool.append(node)
+        elif float(node.sigma_uncertainty) >= min_sigma_threshold:
+            if not node_a:
+                node_a = node
+        else:
+            ready_nodes.append(node)
+
+    logger.debug(
+        f"seed pool: {len(seed_pool)}/{len(candidate_images)}",
+        start_timer=_start,
+    )
+
+    if not node_a or not seed_pool:
+        return None
+
+    best_pair: tuple[NodeProxy, NodeProxy] | None = None
+    closest_ranking_mu: float = 100  # max reasonable difference =50
+
+    # create a list of tuples sorted by the smallest mu difference to the highest
+
+    pair_list: list[tuple[NodeProxy, NodeProxy]] = [
+        (node_a, node_b) for node_b in seed_pool
+    ]
+    pair_list = sorted(
+        pair_list,
+        key=lambda pair: abs(pair[0].mu_skill - pair[1].mu_skill),
+    )
+
+    for node_a, node_b in pair_list:
+        if _pair_key(node_a.filename, node_b.filename) in pair_set:
+            continue
+        if crystal_graph.are_in_same_path(node_a.filename, node_b.filename):
+            continue
+        closest_ranking_mu = abs(node_a.mu_skill - node_b.mu_skill)
+        best_pair = (node_a, node_b)
+        break
+
+    if best_pair:
+        result: tuple[str, str] = (
+            best_pair[0].filename,
+            best_pair[1].filename,
+        )
         logger.debug(
-            f"Uncertainty refine selected pair ({steps} steps): {result}",
+            f"Uncertainty refine selected pair: {result} (mu difference:{closest_ranking_mu})",
             start_timer=_start,
         )
 
         return result
 
+    logger.debug(
+        f"Uncertainty refine no pair found",
+        start_timer=_start,
+    )
     return None
 
 
-def _phase_fallback(
+def phase_fallback(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:

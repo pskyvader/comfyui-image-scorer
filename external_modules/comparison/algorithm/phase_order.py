@@ -15,17 +15,16 @@ from typing import Any
 from ....shared.logger import SharedLogger
 from ....shared.config import config
 from ...database_structure.comparisons_table import get_total_comparisons
-
 from .constants import MIN_CHAIN_THRESHOLD
 from .pair_active import (
-    _phase1_seed_coverage,
-    _phase2_anchor_insert,
-    _phase3_collapsible_pairs,
-    _phase4_chain_merge,
-    _phase5_uncertainty_refine,
-    _phase_fallback,
-    _existing_pairs,
-    _stable_seed_pool,
+    phase1_seed_coverage,
+    phase2_anchor_insert,
+    phase3_collapsible_pairs,
+    phase4_chain_merge,
+    phase5_uncertainty_refine,
+    phase_fallback,
+    existing_pairs,
+    stable_seed_pool,
 )
 
 logger = SharedLogger.get_logger(__name__)
@@ -35,7 +34,7 @@ logger = SharedLogger.get_logger(__name__)
 # function).  Remaining keys are metadata consumed by the frontend.
 PHASES: list[dict[str, Any]] = [
     {
-        "seed": _phase1_seed_coverage,
+        "seed": phase1_seed_coverage,
         "phase_label": "Phase 1 / Bootstrap Seed",
         "card_class": "card-bootstrap",
         "description_class": "text-purple-400",
@@ -44,7 +43,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "anchor": _phase2_anchor_insert,
+        "anchor": phase2_anchor_insert,
         "phase_label": "Phase 2 / Anchor Insert",
         "card_class": "card-anchor",
         "description_class": "text-blue-400",
@@ -53,7 +52,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "collapsible": _phase3_collapsible_pairs,
+        "collapsible": phase3_collapsible_pairs,
         "phase_label": "Phase 3 / Collapsible",
         "card_class": "card-collapsible",
         "description_class": "text-emerald-400",
@@ -62,7 +61,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "refine": _phase5_uncertainty_refine,
+        "refine": phase5_uncertainty_refine,
         "phase_label": "Phase 4 / Uncertainty Refine",
         "card_class": "card-refine",
         "description_class": "text-amber-400",
@@ -71,7 +70,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "chain_merge": _phase4_chain_merge,
+        "chain_merge": phase4_chain_merge,
         "phase_label": "Phase 5 / Chain Merge",
         "card_class": "card-chain-merge",
         "description_class": "text-red-400",
@@ -80,7 +79,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": True,
     },
     {
-        "fallback": _phase_fallback,
+        "fallback": phase_fallback,
         "phase_label": "Fallback",
         "card_class": "card-fallback",
         "description_class": "text-purple-300/60",
@@ -89,6 +88,14 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
 ]
+
+
+_skip_before: int = 0
+
+
+def reset_skip() -> None:
+    global _skip_before
+    _skip_before = 0
 
 
 def get_phases() -> list[dict[str, Any]]:
@@ -111,14 +118,6 @@ def get_phases() -> list[dict[str, Any]]:
     return result
 
 
-_skip_before: int = 0
-
-
-def reset_skip() -> None:
-    global _skip_before
-    _skip_before = 0
-
-
 def select_pair(
     all_images: list[dict[str, Any]],
     candidate_images: list[dict[str, Any]],
@@ -131,9 +130,9 @@ def select_pair(
         )
         return None, None
 
-    existing_pairs_set = _existing_pairs()
+    existing_pairs_set = existing_pairs()
 
-    seed_pool = set(_stable_seed_pool(all_images))
+    seed_pool = set(stable_seed_pool(all_images))
 
     random.shuffle(candidate_images)
 

@@ -505,10 +505,6 @@ class CompareMode {
         // Delegate all phase-driven detail, footer, phase cards, and debug to CompareView.
         CompareView.render(pair, left, right, els);
 
-        els.leftImg.src = `/images/${encodeURIComponent(left.filename)}`;
-        els.rightImg.src = `/images/${encodeURIComponent(right.filename)}`;
-
-        // Use preloaded images if available (instant, no await needed)
         if (this.currentPair._preloadedLeft) {
             els.leftImg.src = this.currentPair._preloadedLeft.src;
             els.leftImg.classList.remove("opacity-0");

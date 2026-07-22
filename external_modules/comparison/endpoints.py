@@ -22,7 +22,6 @@ from ..comparison.algorithm.view import (
     describe_image,
     describe_pair,
 )
-from ..comparison.algorithm.pair_active import _stable_seed_pool
 from ..comparison.algorithm.phase_order import get_phases
 from ..database_structure.comparisons_table import (
     get_all_comparisons,

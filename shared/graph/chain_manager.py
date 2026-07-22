@@ -7,6 +7,7 @@ import time
 from tqdm import tqdm
 
 from ..logger import get_logger, ModuleLogger
+from ..config import config
 
 logger: ModuleLogger = get_logger(__name__)
 
@@ -190,6 +191,58 @@ def find_common_chain_id(
                 return chain_id
             pbar.update(1)
     return None
+
+
+# ------------------------------------------------------------------
+# Tarjan SCC (cycle condensation)
+# ------------------------------------------------------------------
+
+
+def tarjan_scc(
+    nodes: set[str],
+    successors: defaultdict[str, list[str]],
+) -> tuple[dict[str, int], dict[int, list[str]]]:
+    index_counter: int = 0
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    indices: dict[str, int] = {}
+    lowlinks: dict[str, int] = {}
+    scc_id_of: dict[str, int] = {}
+    scc_members: dict[int, list[str]] = {}
+    scc_count: int = 0
+
+    def strongconnect(v: str) -> None:
+        nonlocal index_counter, scc_count
+        indices[v] = index_counter
+        lowlinks[v] = index_counter
+        index_counter += 1
+        stack.append(v)
+        on_stack.add(v)
+
+        for w in successors.get(v, []):
+            if w not in indices:
+                strongconnect(w)
+                lowlinks[v] = min(lowlinks[v], lowlinks[w])
+            elif w in on_stack:
+                lowlinks[v] = min(lowlinks[v], indices[w])
+
+        if lowlinks[v] == indices[v]:
+            component: list[str] = []
+            while True:
+                w: str = stack.pop()
+                on_stack.discard(w)
+                component.append(w)
+                scc_id_of[w] = scc_count
+                if w == v:
+                    break
+            scc_members[scc_count] = component
+            scc_count += 1
+
+    for v in sorted(nodes):
+        if v not in indices:
+            strongconnect(v)
+
+    return scc_id_of, scc_members
 
 
 # ======================================================================
@@ -476,171 +529,153 @@ class ChainManager:
         self._chains = {}
         self._node_chains = {}
 
-        # Topological order for DP
-        in_degree: dict[str, int] = {}
-        with tqdm(
-            total=len(self._all_filenames),
-            desc="Initializing in-degrees",
-            unit="node",
-            delay=3.0,
-        ) as pbar:
-            for n in self._all_filenames:
-                in_degree[n] = 0
-                pbar.update(1)
-        with tqdm(
-            total=sum(len(v) for v in self._worse_than.values()),
-            desc="Building in-degrees",
-            unit="edges",
-            delay=3.0,
-        ) as pbar:
-            for children in self._worse_than.values():
-                for child in children:
-                    in_degree[child] = in_degree.get(child, 0) + 1
-                    pbar.update(1)
-
-        order: list[str] = []
-        queue: deque[str] = deque(
-            n for n in self._all_filenames if in_degree.get(n, 0) == 0
+        # 1. Find SCCs (condense cycles into single nodes)
+        scc_id_of, scc_members = tarjan_scc(
+            self._all_filenames,
+            self._worse_than,
         )
-        remaining: set[str] = set(self._all_filenames)
-        with tqdm(
-            total=len(self._all_filenames),
-            desc="Topological sort",
-            unit="node",
-            delay=3.0,
-        ) as pbar:
-            while remaining:
-                while queue:
-                    node: str = queue.popleft()
-                    if node not in remaining:
-                        continue
-                    remaining.discard(node)
-                    order.append(node)
-                    pbar.update(1)
-                    children = self._worse_than.get(node, [])
-                    # with tqdm(
-                    #     total=len(children),
-                    #     desc="Processing children",
-                    #     unit="edge",
-                    #     leave=False,
-                    # ) as cbar:
-                    for child in children:
-                        in_degree[child] -= 1
-                        if in_degree[child] == 0:
-                            queue.append(child)
-                            # cbar.update(1)
-                if not remaining:
-                    break
-                pick: str = sorted(remaining)[0]
-                queue.append(pick)
 
-        # Forward DP (longest path to a bottom, prefer bottom reachable)
+        # 2. Build condensed DAG (edges between different SCCs)
+        scc_successors: dict[int, set[int]] = {}
+        for scc_id in scc_members:
+            scc_successors[scc_id] = set()
+        for n in self._all_filenames:
+            n_scc = scc_id_of[n]
+            for v in self._worse_than.get(n, []):
+                v_scc = scc_id_of[v]
+                if n_scc != v_scc:
+                    scc_successors[n_scc].add(v_scc)
+
+        scc_predecessors: dict[int, set[int]] = {}
+        for scc_id in scc_members:
+            scc_predecessors[scc_id] = set()
+        for n in self._all_filenames:
+            n_scc = scc_id_of[n]
+            for parent in self._better_than.get(n, []):
+                p_scc = scc_id_of[parent]
+                if n_scc != p_scc:
+                    scc_predecessors[n_scc].add(p_scc)
+
+        # 3. Topological sort of SCC DAG
+        scc_in_degree: dict[int, int] = {
+            scc: len(scc_predecessors.get(scc, [])) for scc in scc_members
+        }
+        scc_order: list[int] = []
+        queue: deque[int] = deque(s for s, deg in scc_in_degree.items() if deg == 0)
+        remaining_sccs: set[int] = set(scc_members.keys())
+        while remaining_sccs:
+            while queue:
+                scc = queue.popleft()
+                if scc not in remaining_sccs:
+                    continue
+                remaining_sccs.discard(scc)
+                scc_order.append(scc)
+                for succ in scc_successors.get(scc, []):
+                    scc_in_degree[succ] -= 1
+                    if scc_in_degree[succ] == 0:
+                        queue.append(succ)
+            if not remaining_sccs:
+                break
+            pick = min(remaining_sccs)
+            queue.append(pick)
+
+        # 4. Forward DP (single pass on SCC DAG, reverse topo order)
         downward_chains: dict[str, list[str]] = {}
-        with tqdm(
-            total=len(self._all_filenames),
-            desc="Initializing forward DP",
-            unit="node",
-            delay=3.0,
-        ) as pbar:
-            for n in self._all_filenames:
-                downward_chains[n] = [n]
-                pbar.update(1)
-        changed: bool = True
-        # pass_num: int = 0
+        for n in self._all_filenames:
+            downward_chains[n] = [n]
 
-        with tqdm(
-            # total=len(order),
-            desc=f"Forward DP",
-            unit="pass",
-            # leave=False,
-            delay=3.0,
-        ) as pbar:
-            while changed:
-                pbar.update(1)
-                # pass_num += 1
-                changed = False
-                for n in reversed(order):
-                    losers: list[str] = self._worse_than.get(n, [])
-                    if not losers:
-                        downward_chains[n] = [n]
+        for scc_id in reversed(scc_order):
+            members: list[str] = scc_members[scc_id]
+
+            # Phase A: incorporate edges to successor SCCs (already processed)
+            for n in members:
+                best: list[str] = [n]
+                best_to_bottom: list[str] = []
+                for loser in self._worse_than.get(n, []):
+                    if scc_id_of[loser] == scc_id:
                         continue
-                    best: list[str] = []
-                    best_to_bottom: list[str] = []
-                    # with tqdm(
-                    #     total=len(losers),
-                    #     desc="Processing losers",
-                    #     unit="loser",
-                    #     leave=False,
-                    # ) as pbar2:
-                    for loser in losers:
-                        path = downward_chains.get(loser, [loser])
-                        if n in path:
-                            path = [loser]
-                        if len(path) > len(best):
-                            best = path
-                        if self.is_bottom(path[-1]) and len(path) > len(best_to_bottom):
-                            best_to_bottom = path
-                            # pbar2.update(1)
-                    new: list[str] = [n] + (best_to_bottom if best_to_bottom else best)
-                    if len(new) > len(downward_chains[n]):
-                        downward_chains[n] = new
-                        changed = True
-                    # pbar.update(1)
+                    path = downward_chains[loser]
+                    candidate = [n] + path
+                    if len(candidate) > len(best):
+                        best = candidate
+                    if self.is_bottom(candidate[-1]) and len(candidate) > len(
+                        best_to_bottom
+                    ):
+                        best_to_bottom = candidate
+                downward_chains[n] = best_to_bottom if best_to_bottom else best
 
-        # Backward DP (longest path from a top, prefer top reachable)
+            # Phase B: propagate external suffixes backwards through SCC
+            internal_pred: dict[str, list[str]] = {}
+            for n in members:
+                for loser in self._worse_than.get(n, []):
+                    if scc_id_of[loser] == scc_id:
+                        internal_pred.setdefault(loser, []).append(n)
+            q: deque[str] = deque(n for n in members if len(downward_chains[n]) > 1)
+            while q:
+                src = q.popleft()
+                src_path = downward_chains[src]
+                for pred in internal_pred.get(src, []):
+                    if pred in src_path:
+                        cand = [pred, src]
+                    else:
+                        cand = [pred] + src_path
+                    cur = downward_chains[pred]
+                    new_bttm = self.is_bottom(cand[-1])
+                    old_bttm = self.is_bottom(cur[-1])
+                    if new_bttm and not old_bttm:
+                        downward_chains[pred] = cand
+                        q.append(pred)
+                    elif new_bttm == old_bttm and len(cand) > len(cur):
+                        downward_chains[pred] = cand
+                        q.append(pred)
+
+        # 5. Backward DP (single pass on SCC DAG, forward topo order)
         upward_chains: dict[str, list[str]] = {}
-        with tqdm(
-            total=len(self._all_filenames),
-            desc="Initializing backward DP",
-            unit="node",
-            delay=3.0,
-        ) as pbar:
-            for n in self._all_filenames:
-                upward_chains[n] = [n]
-                pbar.update(1)
-        changed = True
-        # pass_num = 0
-        with tqdm(
-            # total=len(order),
-            desc=f"Backward DP",
-            unit="pass",
-            # leave=False,
-            delay=3.0,
-        ) as pbar:
-            while changed:
-                pbar.update(1)
+        for n in self._all_filenames:
+            upward_chains[n] = [n]
 
-                # pass_num += 1
-                changed = False
+        for scc_id in scc_order:
+            members = scc_members[scc_id]
 
-                for n in order:
-                    beaters: list[str] = self._better_than.get(n, [])
-                    if not beaters:
-                        upward_chains[n] = [n]
-                        # pbar.update(1)
+            # Phase A: incorporate edges from predecessor SCCs (already processed)
+            for n in members:
+                best = [n]
+                best_to_top: list[str] = []
+                for beater in self._better_than.get(n, []):
+                    if scc_id_of[beater] == scc_id:
                         continue
-                    best: list[str] = []
-                    best_to_top: list[str] = []
-                    # with tqdm(
-                    #     total=len(beaters),
-                    #     desc="Processing beaters",
-                    #     unit="beater",
-                    #     leave=False,
-                    # ) as pbar2:
-                    for beater in beaters:
-                        path = upward_chains.get(beater, [beater])
-                        if n in path:
-                            path = [beater]
-                        if len(path) > len(best):
-                            best = path
-                        if self.is_top(path[0]) and len(path) > len(best_to_top):
-                            best_to_top = path
-                            # pbar2.update(1)
-                    new = (best_to_top if best_to_top else best) + [n]
-                    if len(new) > len(upward_chains[n]):
-                        upward_chains[n] = new
-                        changed = True
-                    # pbar.update(1)
+                    path = upward_chains[beater]
+                    candidate = path + [n]
+                    if len(candidate) > len(best):
+                        best = candidate
+                    if self.is_top(candidate[0]) and len(candidate) > len(best_to_top):
+                        best_to_top = candidate
+                upward_chains[n] = best_to_top if best_to_top else best
+
+            # Phase B: propagate external prefixes forward through SCC
+            internal_succ: dict[str, list[str]] = {}
+            for n in members:
+                for beater in self._better_than.get(n, []):
+                    if scc_id_of[beater] == scc_id:
+                        internal_succ.setdefault(beater, []).append(n)
+            q = deque(n for n in members if len(upward_chains[n]) > 1)
+            while q:
+                src = q.popleft()
+                src_path = upward_chains[src]
+                for succ in internal_succ.get(src, []):
+                    if succ in src_path:
+                        cand = [src, succ]
+                    else:
+                        cand = src_path + [succ]
+                    cur = upward_chains[succ]
+                    new_tp = self.is_top(cand[0])
+                    old_tp = self.is_top(cur[0])
+                    if new_tp and not old_tp:
+                        upward_chains[succ] = cand
+                        q.append(succ)
+                    elif new_tp == old_tp and len(cand) > len(cur):
+                        upward_chains[succ] = cand
+                        q.append(succ)
 
         # Build unique chains and assign main chains
         seen: dict[tuple[str, ...], int] = {}
@@ -723,7 +758,7 @@ class ChainManager:
         self,
         start: str,
         end: str,
-        skip_edges: set[tuple[str, str]] | None,
+        # skip_edges: set[tuple[str, str]] | None,
         max_depth: int,
     ) -> bool:
         visited: set[str] = set()
@@ -741,9 +776,9 @@ class ChainManager:
                 delay=3.0,
             ) as pbar:
                 for w in children:
-                    if skip_edges and (current, w) in skip_edges:
-                        pbar.update(1)
-                        continue
+                    # if skip_edges and (current, w) in skip_edges:
+                    #     pbar.update(1)
+                    #     continue
                     if w == end:
                         return True
                     if w not in visited:
@@ -756,21 +791,22 @@ class ChainManager:
         self,
         start: str,
         end: str,
-        skip_edges: set[tuple[str, str]] | None = None,
-        max_depth: int = 10,
+        # skip_edges: set[tuple[str, str]] | None = None,
+        # max_depth: int = 10,
     ) -> bool:
         _start = time.perf_counter()
+        max_depth = config["ranking"]["transitive_depth"]
         reject: str | None = self._quick_reject(start, end)
         if reject is not None:
             return False
         if start == end:
             return True
-        if not skip_edges:
-            same_chain, _ = self._check_same_chain(start, end)
-            if same_chain:
-                logger.debug(f"can reach (same chain)", start_timer=_start)
-                return True
-        found: bool = self._bfs_search(start, end, skip_edges, max_depth)
+        # if not skip_edges:
+        same_chain, _ = self._check_same_chain(start, end)
+        if same_chain:
+            logger.debug(f"can reach (same chain)", start_timer=_start)
+            return True
+        found: bool = self._bfs_search(start, end, max_depth)
         # if found:
         #     logger.debug(f"can reach", start_timer=_start)
         # else:
