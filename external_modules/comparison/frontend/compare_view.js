@@ -159,7 +159,7 @@ const CompareView = (() => {
                 line = `Chain merge - component ${left.component_id} (${left.component_size.toLocaleString()} images) - ${pair.total_chains.toLocaleString()} chains (target ${pair.target_chains}) - reserve ${pair.reserve_count} - ${pair.total_images.toLocaleString()} images - ${pair.total_comparisons.toLocaleString()} comparisons`;
                 break;
             case "refine":
-                line = `Uncertainty refine - ${pair.total_images.toLocaleString()} images - ${pair.total_comparisons.toLocaleString()} comparisons`;
+                line = `Uncertainty refine - ${pair.sigma_above_threshold.toLocaleString()} above \u03c3 threshold (\u2265${pair.sigma_threshold}) / ${pair.sigma_below_threshold.toLocaleString()} ready (\u03c3 < ${pair.sigma_threshold}) - ${pair.total_images.toLocaleString()} images - ${pair.total_comparisons.toLocaleString()} comparisons`;
                 break;
             default:
                 line = `Fallback - ${pair.total_images.toLocaleString()} images - ${pair.total_comparisons.toLocaleString()} comparisons`;
@@ -299,6 +299,7 @@ const CompareView = (() => {
         const seedSize = fmt(labels?.seed_size);
         const seedTarget = fmt(labels?.seed_target);
         const insertionTarget = fmt(labels?.insertion_target);
+        const sigmaThreshold = fmt(labels?.sigma_threshold);
         const header = '<div class="text-[9px] uppercase tracking-widest font-bold mb-2 opacity-40">Pair Selection Strategy</div>';
         const items = _phases.map((p) => {
             const cls = p.description_class || "text-gray-400";
@@ -306,7 +307,8 @@ const CompareView = (() => {
             const desc = (p.description || "")
                 .replace(/\{seed_size\}/g, seedSize)
                 .replace(/\{seed_target\}/g, seedTarget)
-                .replace(/\{insertion_target\}/g, insertionTarget);
+                .replace(/\{insertion_target\}/g, insertionTarget)
+                .replace(/\{sigma_threshold\}/g, sigmaThreshold);
             return `<div><span class="${cls} font-bold">${label}</span> — ${desc}</div>`;
         }).join("\n");
         container.innerHTML = header + items;

@@ -85,6 +85,7 @@ def get_ranking_config():
             "insertion_target_comparisons": int(
                 ranking_conf["insertion_target_comparisons"]
             ),
+            "sigma_threshold": float(ranking_conf["sigma_threshold"]),
         }
     )
 

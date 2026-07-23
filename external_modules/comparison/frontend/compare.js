@@ -235,8 +235,12 @@ class CompareMode {
     }
 
     _undoLast() {
+        const last = this._queue.peekLast();
         if (this._queue.undoLast()) {
-            Utils.showToast("Vote undone", "info");
+            if (last) {
+                CompareApi.skipImage(last.filenameA);
+            }
+            Utils.showToast("Vote undone and skipped", "info");
         }
     }
 
@@ -349,6 +353,7 @@ class CompareMode {
         this._config.seed_size = serverConfig.seed_size;
         this._config.seed_target_comparisons = serverConfig.seed_target_comparisons;
         this._config.insertion_target_comparisons = serverConfig.insertion_target_comparisons;
+        this._config.sigma_threshold = serverConfig.sigma_threshold;
         compareLogger.info("Ranking config loaded:", null, this._config);
 
         // Push phase metadata into CompareView with config values for descriptions
@@ -358,6 +363,7 @@ class CompareMode {
                 seed_size: serverConfig.seed_size,
                 seed_target: serverConfig.seed_target_comparisons,
                 insertion_target: serverConfig.insertion_target_comparisons,
+                sigma_threshold: serverConfig.sigma_threshold,
             });
         }
 

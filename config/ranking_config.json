@@ -11,5 +11,6 @@
     "seed_percentage": 5,
     "seed_target_comparisons": 10,
     "insertion_target_comparisons": 2,
-    "score_steepness": 1.5
+    "score_steepness": 1.5,
+    "sigma_threshold": 3.0
 }

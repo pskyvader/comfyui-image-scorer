@@ -84,11 +84,18 @@ def describe_pair(
 
     base_level = min(left["comparison_count"], right["comparison_count"])
 
+    sigma_threshold = float(ranking_conf["sigma_threshold"])
     level_counts: dict[int, int] = {}
     all_nodes = crystal_graph.get_all_nodes()
+    sigma_above = 0
+    sigma_below = 0
     for n in all_nodes:
         c = int(n.comparison_count)
         level_counts[c] = level_counts.get(c, 0) + 1
+        if float(n.sigma_uncertainty) >= sigma_threshold:
+            sigma_above += 1
+        else:
+            sigma_below += 1
 
     rating_a = Rating(mu_skill=node_a.mu_skill, sigma_uncertainty=node_a.sigma_uncertainty)
     rating_b = Rating(mu_skill=node_b.mu_skill, sigma_uncertainty=node_b.sigma_uncertainty)
@@ -122,5 +129,8 @@ def describe_pair(
             ranking_conf["insertion_target_comparisons"]
         ),
         "reserve_count": int(ranking_conf["reserve_count"]),
+        "sigma_threshold": sigma_threshold,
+        "sigma_above_threshold": sigma_above,
+        "sigma_below_threshold": sigma_below,
         "probability_a_beats_b": round(probability_a_beats_b, 4),
     }

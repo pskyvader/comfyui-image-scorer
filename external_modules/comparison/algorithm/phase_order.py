@@ -17,11 +17,11 @@ from ....shared.config import config
 from ...database_structure.comparisons_table import get_total_comparisons
 from .constants import MIN_CHAIN_THRESHOLD
 from .pair_active import (
-    phase1_seed_coverage,
-    phase2_anchor_insert,
-    phase3_collapsible_pairs,
-    phase4_chain_merge,
-    phase5_uncertainty_refine,
+    phase_seed_coverage,
+    phase_anchor_insert,
+    phase_collapsible_pairs,
+    phase_chain_merge,
+    phase_uncertainty_refine,
     phase_fallback,
     existing_pairs,
     stable_seed_pool,
@@ -34,7 +34,7 @@ logger = SharedLogger.get_logger(__name__)
 # function).  Remaining keys are metadata consumed by the frontend.
 PHASES: list[dict[str, Any]] = [
     {
-        "seed": phase1_seed_coverage,
+        "seed": phase_seed_coverage,
         "phase_label": "Phase 1 / Bootstrap Seed",
         "card_class": "card-bootstrap",
         "description_class": "text-purple-400",
@@ -43,7 +43,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "anchor": phase2_anchor_insert,
+        "anchor": phase_anchor_insert,
         "phase_label": "Phase 2 / Anchor Insert",
         "card_class": "card-anchor",
         "description_class": "text-blue-400",
@@ -52,7 +52,7 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "collapsible": phase3_collapsible_pairs,
+        "collapsible": phase_collapsible_pairs,
         "phase_label": "Phase 3 / Collapsible",
         "card_class": "card-collapsible",
         "description_class": "text-emerald-400",
@@ -61,16 +61,16 @@ PHASES: list[dict[str, Any]] = [
         "show_mu_sigma": False,
     },
     {
-        "refine": phase5_uncertainty_refine,
+        "refine": phase_uncertainty_refine,
         "phase_label": "Phase 4 / Uncertainty Refine",
         "card_class": "card-refine",
         "description_class": "text-amber-400",
-        "description": "reduces uncertainty by comparing highest-sigma images against the closest-mu seed images",
+        "description": "reduces uncertainty by comparing images above \u03c3 \u2265 {sigma_threshold} against the closest-mu seed images",
         "show_chain_info": False,
-        "show_mu_sigma": False,
+        "show_mu_sigma": True,
     },
     {
-        "chain_merge": phase4_chain_merge,
+        "chain_merge": phase_chain_merge,
         "phase_label": "Phase 5 / Chain Merge",
         "card_class": "card-chain-merge",
         "description_class": "text-red-400",

@@ -130,7 +130,7 @@ def _build_low_count_pool(
     return result
 
 
-def phase1_seed_coverage(
+def phase_seed_coverage(
     seed_candidates: list[dict[str, Any]],
     existing_pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
@@ -191,7 +191,7 @@ def phase1_seed_coverage(
     return None
 
 
-def phase2_anchor_insert(
+def phase_anchor_insert(
     candidate_images: list[dict[str, Any]],
     seed_pool: set[str],
     existing_pair_set: set[tuple[str, str]],
@@ -203,7 +203,7 @@ def phase2_anchor_insert(
     reserve_count = config["ranking"]["reserve_count"]
     if len(pool) < reserve_count:
         logger.warning(
-            f"_phase2_anchor_insert: pool too small ({len(pool)} < {reserve_count})",
+            f"phase_anchor_insert: pool too small ({len(pool)} < {reserve_count})",
             start_timer=_start,
         )
         return None
@@ -229,7 +229,7 @@ def phase2_anchor_insert(
     return None
 
 
-def phase3_collapsible_pairs(
+def phase_collapsible_pairs(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
@@ -313,7 +313,7 @@ def phase3_collapsible_pairs(
 _last_chains_index: list[int] = []
 
 
-def phase4_chain_merge(
+def phase_chain_merge(
     candidate_images: list[dict[str, Any]],
 ) -> tuple[str, str] | None:
     global _last_chains_index
@@ -408,13 +408,13 @@ def phase4_chain_merge(
     return None
 
 
-def phase5_uncertainty_refine(
+def phase_uncertainty_refine(
     candidate_images: list[dict[str, Any]],
     pair_set: set[tuple[str, str]],
 ) -> tuple[str, str] | None:
     _start = time.perf_counter()
 
-    min_sigma_threshold = 3.0
+    min_sigma_threshold = float(config["ranking"]["sigma_threshold"])
 
     seed_filenames: set[str] = set(stable_seed_pool(candidate_images))
     seed_pool: list[NodeProxy] = []
